@@ -1,0 +1,10 @@
+{
+  "input_file": "rl_training_log.csv",
+  "training_samples": 378,
+  "state_count": 125,
+  "action_count": 3,
+  "average_reward": 65.3431,
+  "max_reward": 102.67,
+  "policy_file": "rl_policy_table.csv",
+  "q_table_file": "rl_q_table.csv"
+}
