@@ -1,7 +1,23 @@
 
+import warnings
 import html as html_lib
 from datetime import time
 from numbers import Number
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*use_container_width.*"
+)
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*extension is not supported and will be removed.*"
+)
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*Conditional Formatting extension is not supported.*"
+)
 
 import pandas as pd
 import streamlit as st
@@ -16,6 +32,7 @@ from transfer_path_analyzer import analyze_direct_vs_dc_transfer
 from promotion_analyzer import analyze_promotion_vs_transfer
 from network_path_analyzer import analyze_multi_store_network_paths
 from final_summary import build_final_recommendations
+from dashboard_pages import show_dashboard_router
 
 from kakao_map_viewer import show_kakao_map, show_kakao_map_with_highlights
 
@@ -687,7 +704,7 @@ def show_mode_selector():
             unsafe_allow_html=True,
         )
 
-        if st.button("🧮 개별 입력 계산 시작", use_container_width=True, type="primary"):
+        if st.button("🧮 개별 입력 계산 시작", width="stretch", type="primary"):
             st.session_state.selected_mode = "single"
             st.rerun()
 
@@ -697,24 +714,28 @@ def show_mode_selector():
             <div class="mode-card mode-card-blue">
                 <h3>📊 엑셀 기반 최적 경로 추천</h3>
                 <p>
-                여러 점포, 상품, 재고, 경로 데이터를 엑셀로 업로드하여
-                휴리스틱 점수, Greedy 알고리즘, 강화학습 정책 비교를 수행합니다.
+                여러 점포, 상품, 재고, 경로 데이터를 기반으로
+                <b>휴리스틱 점수, Greedy 알고리즘, 강화학습 정책 비교</b>를 적용합니다.
                 </p>
+                <div style="margin-top:14px; margin-bottom:12px;">
+                    <span class="badge blue-badge">엑셀 업로드</span>
+                    <span class="badge">휴리스틱 점수</span>
+                    <span class="badge">Greedy 알고리즘</span>
+                    <span class="badge green-badge">강화학습 정책</span>
+                    <span class="badge pink-badge">Multi-Truck</span>
+                </div>
                 <p><b>추천 상황</b></p>
                 <ul>
                     <li>여러 점포를 동시에 분석할 때</li>
                     <li>최적 이동 경로를 추천받고 싶을 때</li>
-                    <li>지도와 Truck 이동을 시각화할 때</li>
+                    <li>지도에서 경로를 클릭해 Truck 이동과 Inventory 변화를 확인할 때</li>
                 </ul>
-                <div class="mode-mini">
-                    지도에서 경로를 클릭해 Truck 이동과 Inventory 변화를 확인할 수 있습니다.
-                </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        if st.button("📊 엑셀 기반 분석 시작", use_container_width=True, type="primary"):
+        if st.button("📊 엑셀 기반 분석 시작", width="stretch", type="primary"):
             st.session_state.selected_mode = "excel"
             st.rerun()
 
@@ -773,7 +794,7 @@ def show_single_calculator():
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    if st.button("계산 시작", type="primary", use_container_width=True):
+    if st.button("계산 시작", type="primary", width="stretch"):
         result = calculate_inventory_analysis(
             stock_qty=stock_qty,
             sales_30d=sales_30d,
@@ -846,7 +867,7 @@ def show_single_calculator():
                 }
             )
 
-        st.dataframe(cost_df, use_container_width=True)
+        st.dataframe(cost_df, width="stretch")
         st.bar_chart(cost_df, x="전략", y="비용")
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -888,13 +909,13 @@ def show_single_calculator():
 def show_excel_optimizer():
     show_back_button()
 
-    show_mode_header(
-        "📊 엑셀 기반 최적 경로 추천",
-        "여러 점포, 상품, 재고, 경로 데이터를 기반으로 휴리스틱 점수, Greedy 알고리즘, 강화학습 정책 비교를 적용합니다.",
-        ["엑셀 업로드", "휴리스틱 점수", "Greedy 알고리즘", "강화학습 정책", "Multi-Truck"],
-    )
-
-    show_excel_feature_cards()
+    # 엑셀 분석 화면에서는 메인에 대시보드만 보이도록 상단 설명 헤더와 기능 카드는 숨김 처리
+    # show_mode_header(
+    #     "📊 엑셀 기반 최적 경로 추천",
+    #     "여러 점포, 상품, 재고, 경로 데이터를 기반으로 휴리스틱 점수, Greedy 알고리즘, 강화학습 정책 비교를 적용합니다.",
+    #     ["엑셀 업로드", "휴리스틱 점수", "Greedy 알고리즘", "강화학습 정책", "Multi-Truck"],
+    # )
+    # show_excel_feature_cards()
 
     if add_heuristic_scores is None or select_greedy_best_candidate is None:
         st.warning(
@@ -902,7 +923,7 @@ def show_excel_optimizer():
             "앱은 실행되지만 휴리스틱 점수 기능은 제한됩니다."
         )
 
-    st.sidebar.header("지도 설정")
+    st.sidebar.header("입력 및 설정")
 
     kakao_js_key = st.sidebar.text_input(
         "카카오맵 JavaScript 키 입력",
@@ -910,18 +931,26 @@ def show_excel_optimizer():
         help="카카오 개발자 사이트에서 복사한 JavaScript 키를 입력하세요.",
     )
 
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("엑셀 파일 입력")
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("엑셀 데이터 입력")
 
-    uploaded_file = st.file_uploader(
-        "편의점 재고 데이터 엑셀 파일을 업로드하세요",
+    uploaded_file = st.sidebar.file_uploader(
+        "편의점 재고 데이터 엑셀 파일 업로드",
         type=["xlsx"],
     )
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
     if uploaded_file is None:
-        st.info("엑셀 파일을 업로드하면 분석이 시작됩니다.")
+        st.markdown(
+            """
+            <div class="section-card">
+                <h2>📊 최적 경로 추천 대시보드</h2>
+                <p>
+                    왼쪽 사이드바에서 엑셀 파일을 업로드하면 최적 의사결정 결과가 이 화면에 표시됩니다.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         return
 
     excel_data, missing_sheets = load_excel_file(uploaded_file)
@@ -930,7 +959,7 @@ def show_excel_optimizer():
         st.error(f"엑셀 파일에 필요한 시트가 없습니다: {missing_sheets}")
         return
 
-    st.success("엑셀 파일을 성공적으로 불러왔습니다.")
+    st.sidebar.success("엑셀 파일 불러옴")
 
     stores = excel_data["stores"]
     products = excel_data["products"]
@@ -938,30 +967,27 @@ def show_excel_optimizer():
     routes = excel_data["routes"]
 
     # =========================
-    # 데이터 요약
+    # 사이드바 데이터 요약
     # =========================
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("데이터 요약")
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("데이터 요약")
+    st.sidebar.write(f"점포/DC 수: **{len(stores)}개**")
+    st.sidebar.write(f"상품 수: **{len(products)}개**")
+    st.sidebar.write(f"재고 데이터: **{len(inventory)}건**")
+    st.sidebar.write(f"경로 데이터: **{len(routes)}건**")
 
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric("점포/DC 수", f"{len(stores)}개")
-    col2.metric("상품 수", f"{len(products)}개")
-    col3.metric("재고 데이터", f"{len(inventory)}건")
-    col4.metric("경로 데이터", f"{len(routes)}건")
-
-    with st.expander("원본 엑셀 데이터 보기"):
+    with st.sidebar.expander("원본 엑셀 데이터 보기"):
         st.write("stores 시트")
-        st.dataframe(stores, use_container_width=True)
+        st.dataframe(stores, width="stretch")
 
         st.write("products 시트")
-        st.dataframe(products, use_container_width=True)
+        st.dataframe(products, width="stretch")
 
         st.write("inventory 시트")
-        st.dataframe(inventory, use_container_width=True)
+        st.dataframe(inventory, width="stretch")
 
         st.write("routes 시트")
-        st.dataframe(routes, use_container_width=True)
+        st.dataframe(routes, width="stretch")
 
         extra_sheet_names = [
             name for name in excel_data.keys()
@@ -970,61 +996,48 @@ def show_excel_optimizer():
 
         for sheet_name in extra_sheet_names:
             st.write(f"{sheet_name} 시트")
-            st.dataframe(excel_data[sheet_name], use_container_width=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
+            st.dataframe(excel_data[sheet_name], width="stretch")
 
     # =========================
-    # 분석 조건
+    # 사이드바 분석 조건
     # =========================
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("분석 조건 설정")
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("분석 조건 설정")
 
-    setting_col1, setting_col2, setting_col3 = st.columns(3)
+    departure_time = st.sidebar.time_input(
+        "DC/점포 출발 예정 시간",
+        value=time(9, 0),
+        key="departure_time_excel",
+    )
 
-    with setting_col1:
-        departure_time = st.time_input(
-            "DC/점포 출발 예정 시간",
-            value=time(9, 0),
-            key="departure_time_excel",
-        )
+    promotion_type = st.sidebar.selectbox(
+        "프로모션 유형",
+        ["할인 프로모션", "1+1 프로모션"],
+        key="promotion_type_excel",
+    )
 
-    with setting_col2:
-        promotion_type = st.selectbox(
-            "프로모션 유형",
-            ["할인 프로모션", "1+1 프로모션"],
-            key="promotion_type_excel",
-        )
+    promotion_discount_rate = st.sidebar.number_input(
+        "프로모션 할인율(%)",
+        min_value=0.0,
+        max_value=100.0,
+        value=20.0,
+        key="promotion_discount_rate_excel",
+    )
 
-    with setting_col3:
-        promotion_discount_rate = st.number_input(
-            "프로모션 할인율(%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=20.0,
-            key="promotion_discount_rate_excel",
-        )
+    promotion_sales_increase_rate = st.sidebar.number_input(
+        "프로모션 예상 판매 증가율(%)",
+        min_value=0.0,
+        max_value=500.0,
+        value=80.0,
+        key="promotion_sales_increase_rate_excel",
+    )
 
-    setting_col4, setting_col5 = st.columns(2)
-
-    with setting_col4:
-        promotion_sales_increase_rate = st.number_input(
-            "프로모션 예상 판매 증가율(%)",
-            min_value=0.0,
-            max_value=500.0,
-            value=80.0,
-            key="promotion_sales_increase_rate_excel",
-        )
-
-    with setting_col5:
-        promotion_fixed_cost = st.number_input(
-            "프로모션 고정비(원)",
-            min_value=0,
-            value=0,
-            key="promotion_fixed_cost_excel",
-        )
-
-    st.markdown("</div>", unsafe_allow_html=True)
+    promotion_fixed_cost = st.sidebar.number_input(
+        "프로모션 고정비(원)",
+        min_value=0,
+        value=0,
+        key="promotion_fixed_cost_excel",
+    )
 
     # =========================
     # 분석 계산
@@ -1091,6 +1104,28 @@ def show_excel_optimizer():
     )
 
     # =========================
+    # 대시보드 라우터
+    # =========================
+    show_dashboard_router(
+        stores=stores,
+        products=products,
+        inventory=inventory,
+        routes=routes,
+        kakao_js_key=kakao_js_key,
+        final_recommendations=final_recommendations,
+        final_rec_summary=final_rec_summary,
+        promotion_result=promotion_result,
+        transfer_path_result=transfer_path_result,
+        network_path_result=network_path_result,
+        dc_routes=dc_routes,
+        cutline_result=cutline_result,
+        time_result=time_result,
+    )
+
+    # 대시보드 라우터가 화면을 관리하므로 아래 기존 상세 섹션은 실행하지 않음
+    return
+
+    # =========================
     # 최종 추천
     # =========================
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -1108,7 +1143,7 @@ def show_excel_optimizer():
         summary_col2.metric("추천 유형 수", f"{len(final_rec_summary)}개")
 
         st.write("추천 유형 요약")
-        st.dataframe(final_rec_summary, use_container_width=True)
+        st.dataframe(final_rec_summary, width="stretch")
 
         if not final_rec_summary.empty and "final_recommendation" in final_rec_summary.columns:
             st.bar_chart(final_rec_summary.set_index("final_recommendation")["count"])
@@ -1126,7 +1161,7 @@ def show_excel_optimizer():
 
         st.dataframe(
             final_recommendations[[c for c in display_cols if c in final_recommendations.columns]],
-            use_container_width=True,
+            width="stretch",
         )
 
         if "heuristic_score" in final_recommendations.columns:
@@ -1163,7 +1198,7 @@ def show_excel_optimizer():
                 }
             )
 
-            st.dataframe(heuristic_view, use_container_width=True)
+            st.dataframe(heuristic_view, width="stretch")
 
             # =========================
             # 강화학습 준비 데이터 생성 + RL 정책 비교
@@ -1199,7 +1234,7 @@ def show_excel_optimizer():
                     rl_col3.metric("최대 Reward", f"{rl_training_log['reward'].max():.2f}")
 
                     with st.expander("강화학습 학습 데이터 미리보기"):
-                        st.dataframe(rl_training_log, use_container_width=True)
+                        st.dataframe(rl_training_log, width="stretch")
 
                     csv_data = rl_training_log.to_csv(index=False).encode("utf-8-sig")
 
@@ -1273,7 +1308,7 @@ def show_excel_optimizer():
                                 }
                             )
 
-                            st.dataframe(rl_compare_view, use_container_width=True)
+                            st.dataframe(rl_compare_view, width="stretch")
 
                             with st.expander("강화학습 정책 근거 보기"):
                                 policy_reason_cols = [
@@ -1296,7 +1331,7 @@ def show_excel_optimizer():
                                     }
                                 )
 
-                                st.dataframe(policy_reason_view, use_container_width=True)
+                                st.dataframe(policy_reason_view, width="stretch")
 
                     except FileNotFoundError:
                         st.warning("rl_policy_table.csv 파일을 찾지 못했습니다. 먼저 py train_rl_agent.py를 실행해 주세요.")
@@ -1784,10 +1819,10 @@ def show_excel_optimizer():
             st.warning("DC와 점포를 연결하는 route 데이터가 없습니다.")
         else:
             st.write("DC-점포 전체 경로 계산 결과")
-            st.dataframe(dc_routes, use_container_width=True)
+            st.dataframe(dc_routes, width="stretch")
 
             st.write("점포별 최적 DC 추천")
-            st.dataframe(best_dc_by_retailer, use_container_width=True)
+            st.dataframe(best_dc_by_retailer, width="stretch")
 
             if not best_dc_by_retailer.empty and "retailer_name" in best_dc_by_retailer.columns:
                 st.write("점포별 최저 운송비 그래프")
@@ -1801,19 +1836,19 @@ def show_excel_optimizer():
             st.warning("제품별 거리 컷라인 분석 결과가 없습니다.")
         else:
             st.write("제품별 DC-점포 이동 가능 여부")
-            st.dataframe(cutline_result, use_container_width=True)
+            st.dataframe(cutline_result, width="stretch")
 
             st.write("제품별/점포별 컷라인 내 최적 DC")
             if best_valid_routes is None or best_valid_routes.empty:
                 st.warning("거리 컷라인을 만족하는 이동 가능 경로가 없습니다.")
             else:
-                st.dataframe(best_valid_routes, use_container_width=True)
+                st.dataframe(best_valid_routes, width="stretch")
 
             st.write("거리 컷라인 때문에 이동 불가능한 품목")
             if no_valid_items is None or no_valid_items.empty:
                 st.success("모든 품목이 최소 1개 이상의 이동 가능 경로를 가지고 있습니다.")
             else:
-                st.dataframe(no_valid_items, use_container_width=True)
+                st.dataframe(no_valid_items, width="stretch")
 
     with tab3:
         st.subheader("거래가능시간 판별")
@@ -1824,7 +1859,7 @@ def show_excel_optimizer():
             st.warning("거래가능시간 분석 결과가 없습니다.")
         else:
             st.write("거리 컷라인 + 거래가능시간 판별 결과")
-            st.dataframe(time_result, use_container_width=True)
+            st.dataframe(time_result, width="stretch")
 
             time_summary = (
                 time_result.groupby("final_status")
@@ -1833,7 +1868,7 @@ def show_excel_optimizer():
             )
 
             st.write("최종 이동 가능 여부 요약")
-            st.dataframe(time_summary, use_container_width=True)
+            st.dataframe(time_summary, width="stretch")
             st.bar_chart(time_summary.set_index("final_status")["count"])
 
     with tab4:
@@ -1842,7 +1877,7 @@ def show_excel_optimizer():
         if transfer_path_result.empty:
             st.warning("점포 간 이동 비교가 가능한 후보가 없습니다.")
         else:
-            st.dataframe(transfer_path_result, use_container_width=True)
+            st.dataframe(transfer_path_result, width="stretch")
 
             if "recommended_path" in transfer_path_result.columns:
                 path_summary = (
@@ -1852,7 +1887,7 @@ def show_excel_optimizer():
                 )
 
                 st.write("추천 경로 요약")
-                st.dataframe(path_summary, use_container_width=True)
+                st.dataframe(path_summary, width="stretch")
                 st.bar_chart(path_summary.set_index("recommended_path")["count"])
 
     with tab5:
@@ -1861,7 +1896,7 @@ def show_excel_optimizer():
         if promotion_result.empty:
             st.warning("프로모션과 비교할 수 있는 이동 후보가 없습니다.")
         else:
-            st.dataframe(promotion_result, use_container_width=True)
+            st.dataframe(promotion_result, width="stretch")
 
             if "final_decision" in promotion_result.columns:
                 promo_summary = (
@@ -1871,7 +1906,7 @@ def show_excel_optimizer():
                 )
 
                 st.write("최종 처리 방식 요약")
-                st.dataframe(promo_summary, use_container_width=True)
+                st.dataframe(promo_summary, width="stretch")
                 st.bar_chart(promo_summary.set_index("final_decision")["count"])
 
             if "promotion_formula" in promotion_result.columns:
@@ -1891,7 +1926,7 @@ def show_excel_optimizer():
         elif network_path_result.empty:
             st.warning("계산 가능한 다중 연결 경로가 없습니다.")
         else:
-            st.dataframe(network_path_result, use_container_width=True)
+            st.dataframe(network_path_result, width="stretch")
 
             if "network_recommendation" in network_path_result.columns:
                 network_summary = (
@@ -1901,7 +1936,7 @@ def show_excel_optimizer():
                 )
 
                 st.write("다중 경로 추천 요약")
-                st.dataframe(network_summary, use_container_width=True)
+                st.dataframe(network_summary, width="stretch")
                 st.bar_chart(network_summary.set_index("network_recommendation")["count"])
 
     st.markdown("</div>", unsafe_allow_html=True)

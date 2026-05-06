@@ -1,6 +1,6 @@
 
 import json
-import streamlit.components.v1 as components
+import streamlit as st
 
 
 def _records_json(df):
@@ -160,12 +160,12 @@ def create_kakao_map_html(stores, routes, kakao_js_key, highlight_paths=None):
 
 def show_kakao_map(stores, routes, kakao_js_key):
     html = create_kakao_map_html(stores, routes, kakao_js_key)
-    components.html(html, height=720, scrolling=False)
+    st.iframe(html, height=720, width="stretch")
 
 
 def show_kakao_map_with_highlights(stores, routes, kakao_js_key, highlight_paths):
     html = create_kakao_map_html(stores, routes, kakao_js_key, highlight_paths)
-    components.html(html, height=720, scrolling=False)
+    st.iframe(html, height=720, width="stretch")
 
 
 def show_kakao_map_with_multi_trucks(
@@ -180,7 +180,7 @@ def show_kakao_map_with_multi_trucks(
     routes_data = routes.copy()
 
     if stores_data.empty:
-        components.html("<p>지도에 표시할 위치 데이터가 없습니다.</p>", height=200)
+        st.iframe("<p>지도에 표시할 위치 데이터가 없습니다.</p>", height=200, width="stretch")
         return
 
     kakao_js_key = str(kakao_js_key).strip()
@@ -673,7 +673,6 @@ def show_kakao_map_with_multi_trucks(
             }
 
             function getTruckOffset(idx) {
-                // 같은 경로를 여러 Truck이 지나갈 때 완전히 겹쳐 보이지 않도록 아주 작은 시각적 오프셋 적용
                 var step = ((idx % 7) - 3) * 0.00008;
                 return { lat: step, lng: step };
             }
@@ -822,7 +821,6 @@ def show_kakao_map_with_multi_trucks(
 
                 html += '<div class="reason-box">';
                 html += '<b>추천 이유:</b> ' + (scenario.reason || '-') + '<br>';
-                html += '<b>선택 상태:</b> ' + (selectedIndexes[scenarios.indexOf(scenario)] ? '선택됨' : '선택 안 됨') + '<br>';
                 html += '<b>안내:</b> 지도 위 경로선을 클릭하면 선택/해제되고, 해당 경로의 결과가 이 패널에 표시됩니다.';
                 html += '</div>';
 
@@ -865,7 +863,7 @@ def show_kakao_map_with_multi_trucks(
     html = html.replace("__SPEED__", str(speed_multiplier))
     html = html.replace("__DEFAULT_SELECTED_COUNT__", str(default_selected_count))
 
-    components.html(html, height=1060, scrolling=True)
+    st.iframe(html, height=1060, width="stretch")
 
 
 def show_kakao_map_with_truck(
