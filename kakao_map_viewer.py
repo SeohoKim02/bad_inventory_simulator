@@ -389,22 +389,22 @@ def show_kakao_map_with_multi_trucks(
         <div id="map"></div>
 
         <div id="control-panel">
-            <b>🚚 지도 클릭 기반 Multi-Truck 이동 시뮬레이션</b><br>
+            <b>🚚 지도 클릭 기반 재고 이동 시뮬레이션</b><br>
             상태: <span id="truck-status">준비 중</span><br>
             현재 배속: <b><span id="speed-text">__SPEED__</span>x</b> /
             전체 후보 경로 수: <b><span id="route-count">0</span>개</b> /
             선택 경로 수: <b><span id="selected-count">0</span>개</b>
             <div style="margin-top:10px;">
-                <button onclick="restartTrucks()">선택 경로 Truck 재생</button>
+                <button onclick="restart이동수단s()">선택 경로 재고 이동 재생</button>
                 <button onclick="selectAllRoutes()">전체 경로 선택</button>
                 <button onclick="clearSelectedRoutes()">선택 해제</button>
-                <button onclick="pauseTrucks()">일시정지</button>
-                <button onclick="resumeTrucks()">다시 재생</button>
+                <button onclick="pause이동수단s()">일시정지</button>
+                <button onclick="resume이동수단s()">다시 재생</button>
             </div>
             <div class="click-guide">
                 ① 지도 위 색깔 경로선을 클릭하면 선택/해제됩니다.<br>
-                ② 클릭한 경로의 추천 결과와 Inventory 변화가 아래에 표시됩니다.<br>
-                ③ 여러 경로를 선택한 뒤 <b>선택 경로 Truck 재생</b>을 누르면 Truck 여러 대가 동시에 이동합니다.
+                ② 클릭한 경로의 추천 결과와 재고 변화가 아래에 표시됩니다.<br>
+                ③ 여러 경로를 선택한 뒤 <b>선택 경로 재고 이동 재생</b>을 누르면 이동수단 여러 대가 동시에 이동합니다.
             </div>
             <div id="selected-list" class="selected-list">선택된 경로가 없습니다.</div>
         </div>
@@ -471,10 +471,10 @@ def show_kakao_map_with_multi_trucks(
                     renderRoutePanel(scenarios[0], false);
                 } else {
                     document.getElementById('route-panel').innerHTML =
-                        '<div class="panel-title">선택 가능한 Truck 경로가 없습니다.</div>';
+                        '<div class="panel-title">선택 가능한 이동수단 경로가 없습니다.</div>';
                 }
 
-                restartTrucks();
+                restart이동수단s();
             }
 
             function drawStoreMarkers() {
@@ -572,9 +572,11 @@ def show_kakao_map_with_multi_trucks(
                         updateRouteStyles();
                     });
 
+                    var transportIcon = scenario.transport_icon || '🚚';
+
                     var truckOverlay = new kakao.maps.CustomOverlay({
                         position: linePath[0],
-                        content: '<div class="truck-marker">🚚 ' + (idx + 1) + '</div>',
+                        content: '<div class="truck-marker">' + transportIcon + ' ' + (idx + 1) + '</div>',
                         yAnchor: 0.5,
                         xAnchor: 0.5,
                         zIndex: 20 + idx
@@ -607,7 +609,7 @@ def show_kakao_map_with_multi_trucks(
 
                 updateRouteStyles();
                 updateSelectedList();
-                restartTrucks();
+                restart이동수단s();
             }
 
             function selectAllRoutes() {
@@ -618,7 +620,7 @@ def show_kakao_map_with_multi_trucks(
 
                 updateRouteStyles();
                 updateSelectedList();
-                restartTrucks();
+                restart이동수단s();
 
                 if (scenarios.length > 0) {
                     lastClickedIndex = 0;
@@ -628,7 +630,7 @@ def show_kakao_map_with_multi_trucks(
 
             function clearSelectedRoutes() {
                 selectedIndexes = {};
-                stopTrucks();
+                stop이동수단s();
 
                 routeStates.forEach(function(state) {
                     state.overlay.setMap(null);
@@ -672,13 +674,13 @@ def show_kakao_map_with_multi_trucks(
                 }
             }
 
-            function getTruckOffset(idx) {
+            function get이동수단Offset(idx) {
                 var step = ((idx % 7) - 3) * 0.00008;
                 return { lat: step, lng: step };
             }
 
             function offsetLatLng(position, idx) {
-                var offset = getTruckOffset(idx);
+                var offset = get이동수단Offset(idx);
                 return new kakao.maps.LatLng(position.getLat() + offset.lat, position.getLng() + offset.lng);
             }
 
@@ -688,8 +690,8 @@ def show_kakao_map_with_multi_trucks(
                 return new kakao.maps.LatLng(lat, lng);
             }
 
-            function restartTrucks() {
-                stopTrucks();
+            function restart이동수단s() {
+                stop이동수단s();
 
                 truckStates = [];
 
@@ -715,7 +717,7 @@ def show_kakao_map_with_multi_trucks(
                 }
 
                 isPaused = false;
-                document.getElementById('truck-status').innerHTML = '선택한 여러 경로에서 Truck 동시 이동 중';
+                document.getElementById('truck-status').innerHTML = '선택한 여러 경로에서 이동수단 동시 이동 중';
 
                 animationTimer = setInterval(function() {
                     if (isPaused) return;
@@ -733,7 +735,7 @@ def show_kakao_map_with_multi_trucks(
                             return;
                         }
 
-                        state.progress += 0.005 * speedMultiplier;
+                        state.progress += 0.005 * speedMultiplier * Number(state.scenario.transport_speed_factor || 1);
 
                         if (state.progress >= 1) {
                             state.progress = 0;
@@ -756,8 +758,8 @@ def show_kakao_map_with_multi_trucks(
                     });
 
                     if (allArrived) {
-                        stopTrucks();
-                        document.getElementById('truck-status').innerHTML = '선택한 모든 Truck 도착 완료';
+                        stop이동수단s();
+                        document.getElementById('truck-status').innerHTML = '선택한 모든 이동수단 도착 완료';
 
                         if (lastClickedIndex !== null && scenarios[lastClickedIndex]) {
                             renderRoutePanel(scenarios[lastClickedIndex], true);
@@ -766,21 +768,21 @@ def show_kakao_map_with_multi_trucks(
                 }, 20);
             }
 
-            function stopTrucks() {
+            function stop이동수단s() {
                 if (animationTimer !== null) {
                     clearInterval(animationTimer);
                     animationTimer = null;
                 }
             }
 
-            function pauseTrucks() {
+            function pause이동수단s() {
                 isPaused = true;
                 document.getElementById('truck-status').innerHTML = '일시정지';
             }
 
-            function resumeTrucks() {
+            function resume이동수단s() {
                 isPaused = false;
-                document.getElementById('truck-status').innerHTML = '선택한 여러 경로에서 Truck 동시 이동 중';
+                document.getElementById('truck-status').innerHTML = '선택한 여러 경로에서 이동수단 동시 이동 중';
             }
 
             function getMaxQty(items) {
@@ -814,17 +816,21 @@ def show_kakao_map_with_multi_trucks(
                 html += '<div class="route-mini"><div class="route-label">추천 수량</div><div class="route-value">' + (scenario.move_qty || 0) + '개</div></div>';
                 html += '<div class="route-mini"><div class="route-label">예상 비용</div><div class="route-value">' + (scenario.estimated_cost || '-') + '</div></div>';
                 html += '<div class="route-mini"><div class="route-label">추천 방식</div><div class="route-value">' + (scenario.recommended_path || '-') + '</div></div>';
+                html += '<div class="route-mini"><div class="route-label">이동수단</div><div class="route-value">' + (scenario.transport_icon || '🚚') + ' ' + (scenario.transport_type || '-') + '</div></div>';
+                html += '<div class="route-mini"><div class="route-label">이동수단 비용</div><div class="route-value">' + (scenario.transport_cost || '-') + '원</div></div>';
+                html += '<div class="route-mini"><div class="route-label">이동거리</div><div class="route-value">' + (scenario.distance_km || '-') + 'km</div></div>';
                 html += '<div class="route-mini"><div class="route-label">휴리스틱 점수</div><div class="route-value">' + (scenario.heuristic_score || '-') + '</div></div>';
-                html += '<div class="route-mini"><div class="route-label">Truck 상태</div><div class="route-value">' + (arrived ? '도착 완료' : '이동 전/이동 중') + '</div></div>';
+                html += '<div class="route-mini"><div class="route-label">이동 상태</div><div class="route-value">' + (arrived ? '도착 완료' : '이동 전/이동 중') + '</div></div>';
                 html += '<div class="route-mini"><div class="route-label">경로 노드</div><div class="route-value">' + (scenario.path_names || []).join(' → ') + '</div></div>';
                 html += '</div>';
 
                 html += '<div class="reason-box">';
                 html += '<b>추천 이유:</b> ' + (scenario.reason || '-') + '<br>';
+                html += '<b>이동수단 안내:</b> 현재 시뮬레이션은 ' + (scenario.transport_type || '-') + ' 기준이며, 이동수단별 비용은 앱의 표에서 비교할 수 있습니다.<br>';
                 html += '<b>안내:</b> 지도 위 경로선을 클릭하면 선택/해제되고, 해당 경로의 결과가 이 패널에 표시됩니다.';
                 html += '</div>';
 
-                html += '<div class="panel-title" style="font-size:18px;">📦 클릭 경로 Inventory 변화</div>';
+                html += '<div class="panel-title" style="font-size:18px;">📦 클릭 경로 재고 변화</div>';
                 html += '<div class="inventory-grid">';
 
                 Object.keys(inv).forEach(function(storeName) {
@@ -877,7 +883,7 @@ def show_kakao_map_with_truck(
     inventory_changes = inventory_changes or {}
 
     scenario = {
-        "label": inventory_changes.get("product_name", "Truck 이동 경로"),
+        "label": inventory_changes.get("product_name", "이동수단 이동 경로"),
         "product_name": inventory_changes.get("product_name", "-"),
         "source_store": inventory_changes.get("source_store", "-"),
         "target_store": inventory_changes.get("target_store", "-"),
