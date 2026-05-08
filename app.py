@@ -1,21 +1,24 @@
 
-import warnings
 import html as html_lib
+import io
+import warnings
 from datetime import time
 from numbers import Number
 
-warnings.filterwarnings(
-    "ignore",
-    message=".*extension is not supported and will be removed.*"
-)
-
-warnings.filterwarnings(
-    "ignore",
-    message=".*Conditional Formatting extension is not supported.*"
-)
-
 import pandas as pd
 import streamlit as st
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*extension is not supported and will be removed.*",
+)
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*Conditional Formatting extension is not supported.*",
+)
+
+
 
 from calculator import calculate_inventory_analysis
 from discount_analyzer import analyze_discount_options
@@ -901,6 +904,222 @@ def show_single_calculator():
 # =========================
 # 2. 엑셀 기반 최적 경로 추천 모드
 # =========================
+
+# =========================
+# 대형 엑셀 속도 최적화 유틸
+# =========================
+@st.cache_data(show_spinner=False)
+def cached_load_excel_file(file_bytes):
+    return load_excel_file(io.BytesIO(file_bytes))
+
+
+def build_fast_analysis_dataset(stores, products, inventory, routes, max_inventory_rows=1500, max_routes=1200):
+    """
+    대형 샘플을 빠르게 테스트하기 위해 분석에 필요한 후보만 우선 추린다.
+    원본 데이터는 그대로 두고, 분석 계산에만 축소본을 사용한다.
+    """
+    stores_fast = stores.copy()
+    products_fast = products.copy()
+    inventory_fast = inventory.copy()
+    routes_fast = routes.copy()
+
+    if inventory_fast.empty:
+        return stores_fast, products_fast, inventory_fast, routes_fast
+
+    score = pd.Series([0] * len(inventory_fast), index=inventory_fast.index, dtype="float64")
+
+    for col, weight in [
+        ("dead_stock_qty", 4.0),
+        ("current_stock", 1.5),
+        ("stock_qty", 1.5),
+        ("quantity", 1.0),
+        ("expiry_risk_score", 2.0),
+        ("days_to_expiry", -0.8),
+    ]:
+        if col in inventory_fast.columns:
+            values = pd.to_numeric(inventory_fast[col], errors="coerce").fillna(0)
+            if col == "days_to_expiry":
+                values = values.max() - values
+            score += values * weight
+
+    inventory_fast = inventory_fast.assign(_fast_score=score)
+    inventory_fast = inventory_fast.sort_values("_fast_score", ascending=False).head(int(max_inventory_rows))
+    inventory_fast = inventory_fast.drop(columns=["_fast_score"], errors="ignore")
+
+    if "product_id" in inventory_fast.columns and "product_id" in products_fast.columns:
+        selected_products = set(inventory_fast["product_id"].astype(str))
+        products_fast = products_fast[products_fast["product_id"].astype(str).isin(selected_products)].copy()
+
+    selected_store_ids = set()
+
+    if "store_id" in inventory_fast.columns:
+        selected_store_ids |= set(inventory_fast["store_id"].astype(str))
+
+    if "type" in stores_fast.columns and "store_id" in stores_fast.columns:
+        dc_ids = set(
+            stores_fast[
+                stores_fast["type"].astype(str).str.upper().str.contains("DC", na=False)
+            ]["store_id"].astype(str)
+        )
+        selected_store_ids |= dc_ids
+
+    if selected_store_ids and "store_id" in stores_fast.columns:
+        stores_fast = stores_fast[stores_fast["store_id"].astype(str).isin(selected_store_ids)].copy()
+
+    if selected_store_ids and not routes_fast.empty:
+        route_mask = pd.Series([True] * len(routes_fast), index=routes_fast.index)
+
+        if "from_id" in routes_fast.columns and "to_id" in routes_fast.columns:
+            route_mask = (
+                routes_fast["from_id"].astype(str).isin(selected_store_ids)
+                & routes_fast["to_id"].astype(str).isin(selected_store_ids)
+            )
+
+        routes_fast = routes_fast[route_mask].copy()
+
+        if len(routes_fast) > int(max_routes):
+            dc_route_mask = pd.Series([False] * len(routes_fast), index=routes_fast.index)
+
+            if "route_type" in routes_fast.columns:
+                dc_route_mask = routes_fast["route_type"].astype(str).str.contains("DC", case=False, na=False)
+
+            priority_routes = routes_fast[dc_route_mask].copy()
+            other_routes = routes_fast[~dc_route_mask].copy()
+
+            sort_col = None
+            for candidate in ["distance_km", "transport_cost", "travel_time_min"]:
+                if candidate in other_routes.columns:
+                    sort_col = candidate
+                    break
+
+            if sort_col:
+                other_routes = other_routes.sort_values(sort_col, ascending=True, na_position="last")
+
+            remain = max(int(max_routes) - len(priority_routes), 0)
+            routes_fast = pd.concat([priority_routes, other_routes.head(remain)], ignore_index=True)
+
+    return stores_fast, products_fast, inventory_fast, routes_fast
+
+
+@st.cache_data(show_spinner="분석 결과를 계산하는 중입니다. 대형 파일은 첫 계산에 시간이 걸릴 수 있습니다.")
+def cached_excel_analysis(
+    stores,
+    products,
+    inventory,
+    routes,
+    departure_time_text,
+    promotion_type,
+    promotion_discount_rate,
+    promotion_sales_increase_rate,
+    promotion_fixed_cost,
+    fast_mode,
+    max_inventory_rows,
+    max_routes,
+):
+    departure_time = time.fromisoformat(departure_time_text)
+
+    if fast_mode:
+        analysis_stores, analysis_products, analysis_inventory, analysis_routes = build_fast_analysis_dataset(
+            stores,
+            products,
+            inventory,
+            routes,
+            max_inventory_rows=max_inventory_rows,
+            max_routes=max_routes,
+        )
+    else:
+        analysis_stores, analysis_products, analysis_inventory, analysis_routes = (
+            stores,
+            products,
+            inventory,
+            routes,
+        )
+
+    dc_routes, best_dc_by_retailer = analyze_dc_retailer_routes(analysis_stores, analysis_routes)
+
+    if dc_routes.empty:
+        cutline_result = None
+        best_valid_routes = None
+        no_valid_items = None
+        time_result = None
+        time_error = "DC와 점포를 연결하는 route 데이터가 없어 컷라인/시간 분석을 할 수 없습니다."
+    else:
+        cutline_result, best_valid_routes, no_valid_items = analyze_product_distance_cutline(
+            analysis_products,
+            analysis_inventory,
+            dc_routes,
+        )
+
+        time_result, time_error = analyze_trade_time_windows(
+            cutline_result,
+            analysis_stores,
+            departure_time,
+        )
+
+    transfer_path_result = analyze_direct_vs_dc_transfer(
+        analysis_stores,
+        analysis_products,
+        analysis_inventory,
+        analysis_routes,
+        departure_time,
+    )
+
+    promotion_result = analyze_promotion_vs_transfer(
+        analysis_stores,
+        analysis_inventory,
+        transfer_path_result,
+        promotion_type,
+        promotion_discount_rate,
+        promotion_sales_increase_rate,
+        promotion_fixed_cost,
+    )
+
+    network_path_result, network_error = analyze_multi_store_network_paths(
+        analysis_stores,
+        analysis_products,
+        analysis_routes,
+        transfer_path_result,
+        departure_time,
+    )
+
+    final_recommendations, final_rec_summary = build_final_recommendations(
+        promotion_result,
+        network_path_result,
+    )
+
+    final_recommendations, greedy_best_candidate = apply_heuristic_and_greedy(
+        final_recommendations,
+    )
+
+    greedy_transfer_row = get_matching_transfer_row(
+        transfer_path_result,
+        greedy_best_candidate,
+    )
+
+    return {
+        "analysis_stores": analysis_stores,
+        "analysis_products": analysis_products,
+        "analysis_inventory": analysis_inventory,
+        "analysis_routes": analysis_routes,
+        "dc_routes": dc_routes,
+        "best_dc_by_retailer": best_dc_by_retailer,
+        "cutline_result": cutline_result,
+        "best_valid_routes": best_valid_routes,
+        "no_valid_items": no_valid_items,
+        "time_result": time_result,
+        "time_error": time_error,
+        "transfer_path_result": transfer_path_result,
+        "promotion_result": promotion_result,
+        "network_path_result": network_path_result,
+        "network_error": network_error,
+        "final_recommendations": final_recommendations,
+        "final_rec_summary": final_rec_summary,
+        "greedy_best_candidate": greedy_best_candidate,
+        "greedy_transfer_row": greedy_transfer_row,
+    }
+
+
+
 def show_excel_optimizer():
     show_back_button()
 
@@ -948,7 +1167,7 @@ def show_excel_optimizer():
         )
         return
 
-    excel_data, missing_sheets = load_excel_file(uploaded_file)
+    excel_data, missing_sheets = cached_load_excel_file(uploaded_file.getvalue())
 
     if missing_sheets:
         st.error(f"엑셀 파일에 필요한 시트가 없습니다: {missing_sheets}")
@@ -971,18 +1190,29 @@ def show_excel_optimizer():
     st.sidebar.write(f"재고 데이터: **{len(inventory)}건**")
     st.sidebar.write(f"경로 데이터: **{len(routes)}건**")
 
-    with st.sidebar.expander("원본 엑셀 데이터 보기"):
+    with st.sidebar.expander("원본 엑셀 데이터 미리보기"):
+        preview_rows = st.slider(
+            "미리보기 행 수",
+            min_value=20,
+            max_value=300,
+            value=80,
+            step=20,
+            key="excel_preview_rows",
+        )
+
+        st.caption("속도 보호를 위해 전체 데이터가 아니라 일부 행만 미리보기로 보여줍니다.")
+
         st.write("stores 시트")
-        st.dataframe(stores, width="stretch")
+        st.dataframe(stores.head(preview_rows), width="stretch")
 
         st.write("products 시트")
-        st.dataframe(products, width="stretch")
+        st.dataframe(products.head(preview_rows), width="stretch")
 
         st.write("inventory 시트")
-        st.dataframe(inventory, width="stretch")
+        st.dataframe(inventory.head(preview_rows), width="stretch")
 
         st.write("routes 시트")
-        st.dataframe(routes, width="stretch")
+        st.dataframe(routes.head(preview_rows), width="stretch")
 
         extra_sheet_names = [
             name for name in excel_data.keys()
@@ -991,7 +1221,7 @@ def show_excel_optimizer():
 
         for sheet_name in extra_sheet_names:
             st.write(f"{sheet_name} 시트")
-            st.dataframe(excel_data[sheet_name], width="stretch")
+            st.dataframe(excel_data[sheet_name].head(preview_rows), width="stretch")
 
     # =========================
     # 사이드바 분석 조건
@@ -1034,78 +1264,97 @@ def show_excel_optimizer():
         key="promotion_fixed_cost_excel",
     )
 
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("속도 최적화")
+
+    fast_mode_default = len(inventory) > 3000 or len(routes) > 1500
+
+    fast_mode = st.sidebar.checkbox(
+        "빠른 분석 모드",
+        value=fast_mode_default,
+        help="대형 파일에서는 악성재고 가능성이 높은 후보와 핵심 경로만 우선 분석해서 속도를 높입니다.",
+        key="fast_mode_excel",
+    )
+
+    max_inventory_rows = st.sidebar.slider(
+        "분석할 재고 후보 수",
+        min_value=300,
+        max_value=min(max(len(inventory), 300), 6000),
+        value=min(1500, max(len(inventory), 300)),
+        step=100,
+        key="fast_inventory_limit",
+        disabled=not fast_mode,
+    )
+
+    max_routes = st.sidebar.slider(
+        "분석할 경로 후보 수",
+        min_value=300,
+        max_value=min(max(len(routes), 300), 4000),
+        value=min(1200, max(len(routes), 300)),
+        step=100,
+        key="fast_route_limit",
+        disabled=not fast_mode,
+    )
+
+    if fast_mode:
+        st.sidebar.info(
+            f"빠른 분석 모드: 재고 {max_inventory_rows:,}건, 경로 {max_routes:,}건 이내로 우선 분석합니다."
+        )
+    else:
+        st.sidebar.warning("전체 분석 모드는 대형 파일에서 오래 걸릴 수 있습니다.")
+
+
     # =========================
     # 분석 계산
     # =========================
-    dc_routes, best_dc_by_retailer = analyze_dc_retailer_routes(stores, routes)
+    analysis_result = cached_excel_analysis(
+        stores=stores,
+        products=products,
+        inventory=inventory,
+        routes=routes,
+        departure_time_text=departure_time.isoformat(),
+        promotion_type=promotion_type,
+        promotion_discount_rate=promotion_discount_rate,
+        promotion_sales_increase_rate=promotion_sales_increase_rate,
+        promotion_fixed_cost=promotion_fixed_cost,
+        fast_mode=fast_mode,
+        max_inventory_rows=max_inventory_rows,
+        max_routes=max_routes,
+    )
 
-    if dc_routes.empty:
-        cutline_result = None
-        best_valid_routes = None
-        no_valid_items = None
-        time_result = None
-        time_error = "DC와 점포를 연결하는 route 데이터가 없어 컷라인/시간 분석을 할 수 없습니다."
-    else:
-        cutline_result, best_valid_routes, no_valid_items = analyze_product_distance_cutline(
-            products,
-            inventory,
-            dc_routes,
+    analysis_stores = analysis_result["analysis_stores"]
+    analysis_products = analysis_result["analysis_products"]
+    analysis_inventory = analysis_result["analysis_inventory"]
+    analysis_routes = analysis_result["analysis_routes"]
+    dc_routes = analysis_result["dc_routes"]
+    best_dc_by_retailer = analysis_result["best_dc_by_retailer"]
+    cutline_result = analysis_result["cutline_result"]
+    best_valid_routes = analysis_result["best_valid_routes"]
+    no_valid_items = analysis_result["no_valid_items"]
+    time_result = analysis_result["time_result"]
+    time_error = analysis_result["time_error"]
+    transfer_path_result = analysis_result["transfer_path_result"]
+    promotion_result = analysis_result["promotion_result"]
+    network_path_result = analysis_result["network_path_result"]
+    network_error = analysis_result["network_error"]
+    final_recommendations = analysis_result["final_recommendations"]
+    final_rec_summary = analysis_result["final_rec_summary"]
+    greedy_best_candidate = analysis_result["greedy_best_candidate"]
+    greedy_transfer_row = analysis_result["greedy_transfer_row"]
+
+    if fast_mode:
+        st.sidebar.success(
+            f"분석 축소 적용: 재고 {len(analysis_inventory):,}건 / 경로 {len(analysis_routes):,}건"
         )
-
-        time_result, time_error = analyze_trade_time_windows(
-            cutline_result,
-            stores,
-            departure_time,
-        )
-
-    transfer_path_result = analyze_direct_vs_dc_transfer(
-        stores,
-        products,
-        inventory,
-        routes,
-        departure_time,
-    )
-
-    promotion_result = analyze_promotion_vs_transfer(
-        stores,
-        inventory,
-        transfer_path_result,
-        promotion_type,
-        promotion_discount_rate,
-        promotion_sales_increase_rate,
-        promotion_fixed_cost,
-    )
-
-    network_path_result, network_error = analyze_multi_store_network_paths(
-        stores,
-        products,
-        routes,
-        transfer_path_result,
-        departure_time,
-    )
-
-    final_recommendations, final_rec_summary = build_final_recommendations(
-        promotion_result,
-        network_path_result,
-    )
-
-    final_recommendations, greedy_best_candidate = apply_heuristic_and_greedy(
-        final_recommendations,
-    )
-
-    greedy_transfer_row = get_matching_transfer_row(
-        transfer_path_result,
-        greedy_best_candidate,
-    )
 
     # =========================
     # 대시보드 라우터
     # =========================
     show_dashboard_router(
-        stores=stores,
-        products=products,
-        inventory=inventory,
-        routes=routes,
+        stores=analysis_stores,
+        products=analysis_products,
+        inventory=analysis_inventory,
+        routes=analysis_routes,
         kakao_js_key=kakao_js_key,
         final_recommendations=final_recommendations,
         final_rec_summary=final_rec_summary,
