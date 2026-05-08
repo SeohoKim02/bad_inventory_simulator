@@ -1826,25 +1826,63 @@ def _show_explain_page():
         이 앱은 처음 보는 사람도 쉽게 이해할 수 있도록 **대시보드 중심 구조**로 구성되어 있습니다.  
         첫 화면에서는 최적 추천 결과만 간단히 보여주고, 점수·그래프·지도·이동수단·강화학습·상세 데이터는 각각 별도 페이지로 분리했습니다.
 
+        ## 자동 분석 조건
+
+        이 버전에서는 사용자가 출발 시간, 할인율, 프로모션 유형을 직접 입력하지 않아도 됩니다.  
+        프로그램은 엑셀에 `config` 시트가 있으면 해당 값을 우선 사용하고, `config` 시트가 없으면 재고 데이터와 점포 데이터를 바탕으로 분석 조건을 자동 추정합니다.
+
+        자동 분석 조건은 다음 기준으로 결정됩니다.
+
+        - **출발 시간**: 점포의 거래 가능 시작 시간을 참고하여 가장 많이 가능한 시간대로 자동 설정합니다.
+        - **프로모션 유형**: 폐기 위험도, 유통기한 임박 비율, 악성재고 비중을 기준으로 할인 프로모션 또는 1+1 프로모션을 선택합니다.
+        - **할인율**: 폐기 위험도와 유통기한 임박 정도가 높을수록 높은 할인율을 적용합니다.
+        - **예상 판매 증가율**: 할인율과 유통기한 임박 비율을 바탕으로 자동 추정합니다.
+        - **프로모션 고정비**: config 시트 값이 있으면 사용하고, 없으면 기본값을 적용합니다.
+
+        따라서 사용자는 엑셀을 업로드하기만 하면 자동 분석이 수행되고, 대시보드에서 추천 결과를 바로 확인할 수 있습니다.
+
         ## 알고리즘 구조
 
         ### 1. 기존 악성재고 위험점수
         상품이 악성재고인지 판단하는 점수입니다.  
         재고량, 판매량, 입고 후 경과일 등을 기준으로 위험도를 계산합니다.
 
-        ### 2. 휴리스틱 점수
+        ### 2. 빠른 분석 모드: 휴리스틱 기반 Top-K 필터링
+        빠른 분석 모드는 대형 엑셀 데이터를 효율적으로 처리하기 위한 **후보 축소 알고리즘**입니다.  
+        전체 재고와 전체 경로를 모두 분석하면 시간이 오래 걸리기 때문에, 먼저 중요한 후보만 선별합니다.
+
+        후보 점수는 다음 기준을 바탕으로 계산합니다.
+
+        - **악성재고 수량**: 처리해야 할 재고가 많을수록 우선순위가 높습니다.
+        - **현재 재고량**: 점포에 재고가 많이 쌓여 있을수록 우선 분석합니다.
+        - **폐기 위험도**: 폐기 또는 만료 위험이 높을수록 우선순위가 높습니다.
+        - **유통기한 임박 정도**: 유통기한이 가까운 상품을 먼저 분석합니다.
+
+        즉, 빠른 분석 모드는 **악성재고 수량, 현재 재고량, 폐기 위험도, 유통기한 임박 정도를 기준으로 후보 점수를 계산하고, 점수가 높은 재고 후보와 관련 경로만 우선 분석**합니다.  
+        이를 통해 대형 데이터에서도 분석 속도를 높일 수 있습니다.
+
+        ### 3. 휴리스틱 총점
         추천 후보를 평가하는 점수입니다.  
         예상 비용, 추천 수량, 추천 전략, 추천 이유를 반영하여 후보별 우선순위를 계산합니다.
 
-        ### 3. Greedy 알고리즘
-        휴리스틱 점수가 가장 높은 후보를 현재 조건에서의 최적 추천으로 선택합니다.
+        ### 4. Greedy 알고리즘
+        휴리스틱 총점이 가장 높은 후보를 자동 분석 조건에서의 최적 추천으로 선택합니다.
 
-        ### 4. 강화학습 확장
+        ### 5. 강화학습 확장
         추천 후보를 State / Action / Reward 구조로 변환하여 학습 데이터로 만들고,  
         학습된 정책과 Greedy 추천을 비교할 수 있게 했습니다.
 
-        ### 5. 지도 기반 시뮬레이션
-        선택된 경로를 카카오맵 위에서 확인하고, 재고 이동 및 재고 변화를 시각화합니다.
+        ### 6. 실제 DQN 학습 추천
+        DQN은 후보의 상태(State)를 입력받아 `재고 이동`, `할인`, `폐기`, `보류` 행동별 Q값을 학습합니다.  
+        이후 각 후보에서 Q값이 가장 높은 행동을 강화학습 추천으로 제시하고, Greedy 추천과 비교합니다.  
+        현재 DQN은 실제 장기 판매 이력 대신 앱에서 계산된 비용, 수량, 거리, 휴리스틱 총점으로 만든 시뮬레이션 보상을 사용합니다.
+
+        ### 7. DQN 학습 결과 저장
+        DQN 학습이 끝나면 모델 가중치, 후보별 추천 결과, episode별 loss 로그, 요약 JSON을 저장합니다.  
+        저장된 파일은 `dqn_artifacts` 폴더에 보관되며, 이후 모델을 불러와 이어서 학습하는 구조로 확장할 수 있습니다.
+
+        ### 8. 지도 기반 재고 이동 시뮬레이션
+        선택된 경로를 카카오맵 위에서 확인하고, 이동수단별 재고 이동 및 재고 변화를 시각화합니다.
         """
     )
 
@@ -1927,6 +1965,16 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     st.header("🤖 강화학습 비교 페이지")
 
+    st.markdown(
+        """
+        이 페이지에서는 기존 **Greedy 추천**과 실제 **DQN 기반 추천**을 비교합니다.  
+        DQN은 후보 상태(State)를 입력받아 행동(Action)별 Q값을 학습하고, 가장 높은 Q값을 가진 행동을 추천합니다.
+        """
+    )
+
+    # =========================
+    # 1. 기존 RL 로그 생성
+    # =========================
     try:
         from rl_data_logger import build_rl_training_log
 
@@ -1941,33 +1989,276 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
 
         if rl_training_log.empty:
             st.warning("생성할 강화학습 학습 데이터가 없습니다.")
-            st.markdown("</div>", unsafe_allow_html=True)
-            return
+        else:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("RL 학습 샘플 수", f"{len(rl_training_log)}개")
+            c2.metric("평균 Reward", f"{rl_training_log['reward'].mean():.2f}")
+            c3.metric("최대 Reward", f"{rl_training_log['reward'].max():.2f}")
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("RL 학습 샘플 수", f"{len(rl_training_log)}개")
-        c2.metric("평균 Reward", f"{rl_training_log['reward'].mean():.2f}")
-        c3.metric("최대 Reward", f"{rl_training_log['reward'].max():.2f}")
+            with st.expander("RL 학습 데이터 미리보기"):
+                _safe_dataframe(rl_training_log, width="stretch")
 
-        with st.expander("RL 학습 데이터 미리보기"):
-            _safe_dataframe(rl_training_log, width="stretch")
+            csv_data = rl_training_log.to_csv(index=False).encode("utf-8-sig")
 
-        csv_data = rl_training_log.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                label="📥 RL 학습 데이터 CSV 다운로드",
+                data=csv_data,
+                file_name="rl_training_log.csv",
+                mime="text/csv",
+                key="download_rl_training_log_router",
+            )
 
-        st.download_button(
-            label="📥 RL 학습 데이터 CSV 다운로드",
-            data=csv_data,
-            file_name="rl_training_log.csv",
-            mime="text/csv",
-            key="download_rl_training_log_router",
+    except ImportError:
+        st.info("rl_data_logger.py 파일이 없어 기본 RL 로그 미리보기는 생략합니다.")
+    except Exception as e:
+        st.warning(f"강화학습 데이터 생성 중 오류가 발생했습니다: {e}")
+
+    # =========================
+    # 2. 실제 DQN 학습
+    # =========================
+    st.markdown("---")
+    st.subheader("🧠 DQN 실제 학습 추천")
+
+    st.markdown(
+        """
+        현재 DQN은 실제 매출 이력 대신 앱에서 계산한 추천 후보를 이용해 학습하는 **시뮬레이션 기반 DQN**입니다.  
+        후보별 상태를 입력받고, `재고 이동`, `할인`, `폐기`, `보류` 행동의 Q값을 학습한 뒤 가장 높은 Q값의 행동을 추천합니다.  
+        학습이 끝나면 모델 가중치, 추천 결과, 학습 로그, 요약 파일을 `dqn_artifacts` 폴더에 저장합니다.  
+        GitHub 외부 저장이 설정되어 있으면 같은 결과 파일을 GitHub 저장소에도 자동 업로드합니다.
+        """
+    )
+
+    dqn_col1, dqn_col2, dqn_col3 = st.columns(3)
+
+    with dqn_col1:
+        dqn_episodes = st.slider(
+            "DQN 학습 반복 수",
+            min_value=30,
+            max_value=500,
+            value=120,
+            step=30,
+            key="dqn_episodes",
         )
 
-        st.markdown("---")
-        st.subheader("Greedy 추천 vs 강화학습 추천 비교")
+    with dqn_col2:
+        dqn_sample_limit = st.slider(
+            "DQN 학습 후보 수",
+            min_value=50,
+            max_value=1000,
+            value=300,
+            step=50,
+            key="dqn_sample_limit",
+        )
 
+    with dqn_col3:
+        dqn_learning_rate = st.selectbox(
+            "학습률",
+            [0.003, 0.005, 0.01, 0.02],
+            index=2,
+            key="dqn_learning_rate",
+        )
+
+    run_dqn = st.button(
+        "DQN 학습 실행",
+        width="stretch",
+        key="run_actual_dqn_training",
+    )
+
+    if run_dqn:
         try:
-            from rl_policy_helper import recommend_action_for_rl_log
+            from dqn_agent import train_dqn_policy
 
+            with st.spinner("DQN이 후보별 State-Action-Reward를 학습하는 중입니다..."):
+                dqn_compare, dqn_history, dqn_summary = train_dqn_policy(
+                    final_recommendations=final_recommendations,
+                    transfer_path_result=transfer_path_result,
+                    inventory=inventory,
+                    episodes=dqn_episodes,
+                    lr=dqn_learning_rate,
+                    hidden_dim=32,
+                    batch_size=64,
+                    sample_limit=dqn_sample_limit,
+                    seed=42,
+                    save_artifacts=True,
+                    output_dir="dqn_artifacts",
+                )
+
+            if dqn_compare.empty:
+                st.warning("DQN 학습 결과가 없습니다.")
+            else:
+                d1, d2, d3, d4 = st.columns(4)
+                d1.metric("DQN 학습 후보", f"{dqn_summary['training_samples']}개")
+                d2.metric("학습 Transition", f"{dqn_summary['transition_count']}개")
+                d3.metric("최종 Loss", f"{dqn_summary['final_loss']:.3f}")
+                d4.metric("Greedy-DQN 일치율", f"{dqn_summary['match_rate']:.1f}%")
+
+                st.markdown(
+                    f"""
+                    **DQN 1순위 추천**  
+                    - 상품/경로: **{dqn_summary['dqn_top_product']} / {dqn_summary['dqn_top_route']}**  
+                    - DQN 추천 행동: **{dqn_summary['dqn_top_action']}**  
+                    - Greedy 기준 행동: **{dqn_summary['greedy_top_action']}**
+                    """
+                )
+
+                if dqn_summary.get("model_saved"):
+                    saved_paths = dqn_summary.get("saved_paths", {})
+
+                    st.success(
+                        "DQN 학습 결과를 저장했습니다. "
+                        "다음 단계에서는 이 저장 모델을 불러와서 이어서 학습하도록 확장할 수 있습니다."
+                    )
+
+                    github_upload = dqn_summary.get("github_upload", {})
+
+                    if github_upload.get("configured"):
+                        if github_upload.get("fail_count", 0) == 0:
+                            st.success(
+                                f"GitHub 외부 저장 완료: {github_upload.get('ok_count', 0)}개 파일 업로드"
+                            )
+                        else:
+                            st.warning(
+                                f"GitHub 외부 저장 일부 실패: 성공 {github_upload.get('ok_count', 0)}개 / "
+                                f"실패 {github_upload.get('fail_count', 0)}개"
+                            )
+
+                        with st.expander("GitHub 외부 저장 결과 보기", expanded=False):
+                            for result in github_upload.get("results", []):
+                                if result.get("ok"):
+                                    st.write(f"✅ `{result.get('github_path')}`")
+                                else:
+                                    st.write(f"❌ `{result.get('github_path')}` - {result.get('message')}")
+                    else:
+                        st.info(
+                            "GitHub 외부 저장은 아직 설정되지 않았습니다. "
+                            "GITHUB_TOKEN, GITHUB_REPO, GITHUB_BRANCH를 Streamlit Secrets에 넣으면 자동 업로드됩니다."
+                        )
+
+                    with st.expander("저장된 DQN 파일 확인 및 다운로드", expanded=False):
+                        from pathlib import Path as _Path
+
+                        file_labels = [
+                            ("모델 가중치", "model_file", "application/octet-stream"),
+                            ("추천 결과 CSV", "compare_file", "text/csv"),
+                            ("학습 로그 CSV", "history_file", "text/csv"),
+                            ("요약 JSON", "summary_file", "application/json"),
+                        ]
+
+                        for label, key, mime in file_labels:
+                            file_path = saved_paths.get(key)
+
+                            if file_path and _Path(file_path).exists():
+                                st.write(f"**{label}**: `{file_path}`")
+
+                                with open(file_path, "rb") as f:
+                                    st.download_button(
+                                        label=f"{label} 다운로드",
+                                        data=f.read(),
+                                        file_name=_Path(file_path).name,
+                                        mime=mime,
+                                        key=f"download_{key}_dqn_saved",
+                                    )
+                            else:
+                                st.caption(f"{label} 파일을 찾지 못했습니다.")
+
+                st.markdown("### DQN 학습 Loss 변화")
+                if not dqn_history.empty:
+                    st.line_chart(dqn_history.set_index("episode")["loss"])
+                    with st.expander("DQN 학습 로그"):
+                        _safe_dataframe(dqn_history, width="stretch")
+
+                st.markdown("### Greedy 추천 vs DQN 추천 비교")
+
+                view_cols = [
+                    "product_name",
+                    "source_store",
+                    "target_store",
+                    "greedy_action",
+                    "dqn_recommended_action",
+                    "dqn_expected_q",
+                    "heuristic_score",
+                    "suggested_qty",
+                    "estimated_cost",
+                    "dqn_match_greedy",
+                ]
+
+                view = dqn_compare[[c for c in view_cols if c in dqn_compare.columns]].rename(
+                    columns={
+                        "product_name": "상품명",
+                        "source_store": "보내는 점포",
+                        "target_store": "받는 점포",
+                        "greedy_action": "Greedy 기준 Action",
+                        "dqn_recommended_action": "DQN 추천 Action",
+                        "dqn_expected_q": "DQN 기대 Q값",
+                        "heuristic_score": "휴리스틱 총점",
+                        "suggested_qty": "추천 수량",
+                        "estimated_cost": "예상 비용",
+                        "dqn_match_greedy": "Greedy-DQN 비교",
+                    }
+                )
+
+                _safe_dataframe(view, width="stretch")
+
+                with st.expander("행동별 Q값 보기"):
+                    q_cols = [
+                        "product_name",
+                        "source_store",
+                        "target_store",
+                        "Q_재고 이동",
+                        "Q_할인",
+                        "Q_폐기",
+                        "Q_보류",
+                    ]
+
+                    q_view = dqn_compare[[c for c in q_cols if c in dqn_compare.columns]].rename(
+                        columns={
+                            "product_name": "상품명",
+                            "source_store": "보내는 점포",
+                            "target_store": "받는 점포",
+                        }
+                    )
+
+                    _safe_dataframe(q_view, width="stretch")
+
+                with st.expander("DQN 학습 방식 설명"):
+                    st.markdown(
+                        """
+                        - **State**: 후보의 총점, 추천 수량, 예상 비용, 이동거리, 수요/재고 차이 등으로 구성됩니다.
+                        - **Action**: 재고 이동, 할인, 폐기, 보류 4가지 행동입니다.
+                        - **Reward**: 비용 절감 가능성, 재고 처리 효과, 수량, 거리, 휴리스틱 총점을 이용해 계산한 시뮬레이션 보상입니다.
+                        - **Q값**: 특정 상태에서 특정 행동을 선택했을 때 기대되는 보상입니다.
+                        - DQN은 Q값이 가장 높은 행동을 추천합니다.
+                        """
+                    )
+
+        except ImportError:
+            st.error("dqn_agent.py 파일을 찾지 못했습니다. 새로 받은 dqn_agent.py를 프로젝트 폴더에 넣어 주세요.")
+        except Exception as e:
+            st.error(f"DQN 학습 중 오류가 발생했습니다: {e}")
+
+    else:
+        st.info("DQN 학습 결과를 보려면 위의 'DQN 학습 실행' 버튼을 누르세요.")
+
+    # =========================
+    # 3. 기존 Q-table 정책 비교
+    # =========================
+    st.markdown("---")
+    st.subheader("기존 정책 테이블 비교")
+
+    try:
+        from rl_data_logger import build_rl_training_log
+        from rl_policy_helper import recommend_action_for_rl_log
+
+        rl_training_log = build_rl_training_log(
+            stores=stores,
+            products=products,
+            inventory=inventory,
+            final_recommendations=final_recommendations,
+            transfer_path_result=transfer_path_result,
+            promotion_result=promotion_result,
+        )
+
+        if not rl_training_log.empty:
             rl_compare_result = recommend_action_for_rl_log(
                 rl_training_log,
                 policy_file="rl_policy_table.csv",
@@ -1982,7 +2273,7 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
 
                 rc1, rc2, rc3 = st.columns(3)
                 rc1.metric("비교 후보 수", f"{len(rl_compare_result)}개")
-                rc2.metric("RL 정책 매칭 수", f"{matched_count}개")
+                rc2.metric("정책 매칭 수", f"{matched_count}개")
 
                 if rl_compare_result["expected_reward"].notna().any():
                     avg_expected_reward = rl_compare_result["expected_reward"].dropna().mean()
@@ -2009,49 +2300,23 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
                         "source_store": "보내는 점포",
                         "target_store": "받는 점포",
                         "action": "현재 추천 Action",
-                        "rl_recommended_action": "강화학습 추천 Action",
+                        "rl_recommended_action": "정책 추천 Action",
                         "reward": "현재 Reward",
-                        "expected_reward": "RL 기대 Reward",
+                        "expected_reward": "기대 Reward",
                         "heuristic_score": "총점",
                         "greedy_rank": "Greedy 순위",
-                        "rl_match_status": "RL 매칭 상태",
+                        "rl_match_status": "매칭 상태",
                     }
                 )
 
                 _safe_dataframe(view, width="stretch")
 
-                with st.expander("강화학습 정책 근거 보기"):
-                    reason_cols = [
-                        "product_name",
-                        "source_store",
-                        "target_store",
-                        "state_key",
-                        "policy_reason",
-                    ]
-                    reason_view = rl_compare_result[
-                        [c for c in reason_cols if c in rl_compare_result.columns]
-                    ].rename(
-                        columns={
-                            "product_name": "상품명",
-                            "source_store": "보내는 점포",
-                            "target_store": "받는 점포",
-                            "state_key": "상태 Key",
-                            "policy_reason": "정책 선택 근거",
-                        }
-                    )
-                    _safe_dataframe(reason_view, width="stretch")
-
-        except FileNotFoundError:
-            st.warning("rl_policy_table.csv 파일을 찾지 못했습니다. 먼저 py train_rl_agent.py를 실행해 주세요.")
-        except ImportError:
-            st.warning("rl_policy_helper.py 파일을 찾지 못했습니다.")
-        except Exception as e:
-            st.warning(f"강화학습 정책 비교 중 오류가 발생했습니다: {e}")
-
+    except FileNotFoundError:
+        st.info("rl_policy_table.csv 파일이 없어서 기존 Q-table 비교는 생략합니다.")
     except ImportError:
-        st.warning("rl_data_logger.py 파일을 찾지 못했습니다.")
+        st.info("rl_policy_helper.py 파일이 없어서 기존 Q-table 비교는 생략합니다.")
     except Exception as e:
-        st.warning(f"강화학습 데이터 생성 중 오류가 발생했습니다: {e}")
+        st.warning(f"기존 정책 비교 중 오류가 발생했습니다: {e}")
 
     st.markdown("</div>", unsafe_allow_html=True)
 

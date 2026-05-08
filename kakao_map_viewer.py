@@ -85,7 +85,7 @@ def create_kakao_map_html(stores, routes, kakao_js_key, highlight_paths=None):
 
                 if (stores.length > 0) map.setBounds(bounds);
 
-                routes.forEach(function(route) {
+                routes.slice(0, 400).forEach(function(route) {
                     var fromStore = storeById[String(route.from_id)];
                     var toStore = storeById[String(route.to_id)];
                     if (!fromStore || !toStore) return;
@@ -97,9 +97,9 @@ def create_kakao_map_html(stores, routes, kakao_js_key, highlight_paths=None):
 
                     var polyline = new kakao.maps.Polyline({
                         path: path,
-                        strokeWeight: 2,
+                        strokeWeight: 1,
                         strokeColor: '#C9CDD2',
-                        strokeOpacity: 0.55,
+                        strokeOpacity: 0.18,
                         strokeStyle: 'solid'
                     });
 
@@ -120,9 +120,9 @@ def create_kakao_map_html(stores, routes, kakao_js_key, highlight_paths=None):
 
                     var highlightLine = new kakao.maps.Polyline({
                         path: coords,
-                        strokeWeight: 7,
-                        strokeColor: '#FFD43B',
-                        strokeOpacity: 0.95,
+                        strokeWeight: 2,
+                        strokeColor: '#F59F00',
+                        strokeOpacity: 0.45,
                         strokeStyle: 'solid'
                     });
 
@@ -523,9 +523,9 @@ def show_kakao_map_with_multi_trucks(
 
                     var polyline = new kakao.maps.Polyline({
                         path: path,
-                        strokeWeight: 2,
+                        strokeWeight: 1,
                         strokeColor: '#C9CDD2',
-                        strokeOpacity: 0.25,
+                        strokeOpacity: 0.08,
                         strokeStyle: 'solid'
                     });
 
@@ -550,9 +550,9 @@ def show_kakao_map_with_multi_trucks(
 
                     var polyline = new kakao.maps.Polyline({
                         path: linePath,
-                        strokeWeight: 5,
+                        strokeWeight: 2,
                         strokeColor: color,
-                        strokeOpacity: 0.5,
+                        strokeOpacity: 0.38,
                         strokeStyle: 'solid'
                     });
 
@@ -565,7 +565,7 @@ def show_kakao_map_with_multi_trucks(
                     });
 
                     kakao.maps.event.addListener(polyline, 'mouseover', function(mouseEvent) {
-                        polyline.setOptions({ strokeWeight: 9, strokeOpacity: 1.0 });
+                        polyline.setOptions({ strokeWeight: 4, strokeOpacity: 0.85 });
                     });
 
                     kakao.maps.event.addListener(polyline, 'mouseout', function() {
@@ -647,8 +647,8 @@ def show_kakao_map_with_multi_trucks(
                     var selected = !!selectedIndexes[state.idx];
 
                     state.polyline.setOptions({
-                        strokeWeight: selected ? 9 : 4,
-                        strokeOpacity: selected ? 1.0 : 0.35,
+                        strokeWeight: selected ? 4 : 2,
+                        strokeOpacity: selected ? 0.85 : 0.22,
                         strokeColor: selected ? state.color : '#ADB5BD'
                     });
                 });
