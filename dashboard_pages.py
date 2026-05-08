@@ -1,5 +1,6 @@
 
 from numbers import Number
+import html as html_lib
 import pandas as pd
 import streamlit as st
 
@@ -276,6 +277,10 @@ def _safe_get(row, key, default="-"):
     except Exception:
         return default
 
+def _escape_text(value):
+    return html_lib.escape(str(value))
+
+
 def _display_grade(value):
     text = str(value)
 
@@ -389,7 +394,7 @@ def _apply_page_style():
             }
 
             .dash-main-title {
-                font-size: 30px;
+                font-size: 28px;
                 font-weight: 950;
                 letter-spacing: -0.7px;
                 color: #222;
@@ -441,6 +446,71 @@ def _apply_page_style():
                 box-shadow: 0 8px 22px rgba(0,0,0,0.05);
                 min-height: 128px;
                 margin-bottom: 8px;
+            }
+
+            .compact-metric-grid {
+                display: grid;
+                grid-template-columns: repeat(5, minmax(0, 1fr));
+                gap: 12px;
+                margin: 12px 0 14px 0;
+            }
+
+            .compact-metric-card {
+                background: #ffffff;
+                border: 1px solid #e9ecef;
+                border-radius: 18px;
+                padding: 14px 14px 12px 14px;
+                min-height: 94px;
+                box-shadow: 0 6px 16px rgba(0,0,0,0.035);
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+            }
+
+            .compact-metric-label {
+                font-size: 13px;
+                font-weight: 750;
+                color: #555;
+                line-height: 1.25;
+                margin-bottom: 8px;
+                white-space: normal;
+                word-break: keep-all;
+            }
+
+            .compact-metric-value {
+                font-size: 23px;
+                font-weight: 900;
+                color: #2b2d36;
+                line-height: 1.12;
+                letter-spacing: -0.7px;
+                white-space: normal;
+                word-break: keep-all;
+                overflow-wrap: anywhere;
+            }
+
+            .compact-metric-value.small {
+                font-size: 20px;
+                line-height: 1.18;
+            }
+
+            @media (max-width: 1250px) {
+                .compact-metric-grid {
+                    grid-template-columns: repeat(3, minmax(0, 1fr));
+                }
+            }
+
+            @media (max-width: 760px) {
+                .compact-metric-grid {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+
+                .compact-metric-value {
+                    font-size: 20px;
+                }
+
+                .compact-metric-value.small {
+                    font-size: 18px;
+                }
             }
             .dash-menu-title {
                 font-size: 17px;
@@ -581,7 +651,7 @@ def _show_dashboard_home(
         <div class="dash-hero">
             <div class="dash-small-title">AI 추천 결과</div>
             <div class="dash-main-title">{product_name}</div>
-            <div style="font-size: 20px; font-weight: 800; color:#333; margin-top:-2px; margin-bottom:12px;">
+            <div style="font-size: 18px; font-weight: 800; color:#333; margin-top:-2px; margin-bottom:12px;">
                 {source_store} → {target_store}
             </div>
             <div class="dash-desc">
@@ -592,12 +662,39 @@ def _show_dashboard_home(
         unsafe_allow_html=True,
     )
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("추천 수량", f"{suggested_qty}개")
-    c2.metric("예상 비용", _format_money(estimated_cost))
-    c3.metric("총점", f"{heuristic_score}점")
-    c4.metric("추천 등급", str(display_grade))
-    c5.metric("추천 이동수단", str(dashboard_transport_type))
+    metric_qty = _escape_text(f"{suggested_qty}개")
+    metric_cost = _escape_text(_format_money(estimated_cost))
+    metric_score = _escape_text(f"{heuristic_score}점")
+    metric_grade = _escape_text(display_grade)
+    metric_transport = _escape_text(dashboard_transport_type)
+
+    st.markdown(
+        f"""
+        <div class="compact-metric-grid">
+            <div class="compact-metric-card">
+                <div class="compact-metric-label">추천 수량</div>
+                <div class="compact-metric-value">{metric_qty}</div>
+            </div>
+            <div class="compact-metric-card">
+                <div class="compact-metric-label">예상 비용</div>
+                <div class="compact-metric-value small">{metric_cost}</div>
+            </div>
+            <div class="compact-metric-card">
+                <div class="compact-metric-label">총점</div>
+                <div class="compact-metric-value">{metric_score}</div>
+            </div>
+            <div class="compact-metric-card">
+                <div class="compact-metric-label">추천 등급</div>
+                <div class="compact-metric-value">{metric_grade}</div>
+            </div>
+            <div class="compact-metric-card">
+                <div class="compact-metric-label">추천 이동수단</div>
+                <div class="compact-metric-value small">{metric_transport}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     dashboard_ratios = _estimate_ratio_summary(
         move_cost=estimated_cost,
