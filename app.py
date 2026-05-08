@@ -6,11 +6,6 @@ from numbers import Number
 
 warnings.filterwarnings(
     "ignore",
-    message=".*use_container_width.*"
-)
-
-warnings.filterwarnings(
-    "ignore",
     message=".*extension is not supported and will be removed.*"
 )
 
@@ -95,28 +90,28 @@ def apply_global_style():
             }
 
             .main-hero {
-                padding: 42px 44px;
-                border-radius: 32px;
+                padding: 30px 36px;
+                border-radius: 26px;
                 background:
                     radial-gradient(circle at top left, rgba(255, 212, 59, 0.45), transparent 32%),
                     linear-gradient(135deg, #fff3bf 0%, #fff9db 45%, #ffffff 100%);
                 border: 1px solid #f6e58d;
                 box-shadow: 0 12px 34px rgba(0,0,0,0.07);
-                margin-bottom: 28px;
+                margin-bottom: 20px;
             }
 
             .main-hero h1 {
-                font-size: 54px;
+                font-size: 42px;
                 margin-bottom: 8px;
                 color: #222;
                 letter-spacing: -1px;
             }
 
             .main-hero p {
-                font-size: 19px;
+                font-size: 16px;
                 color: #555;
                 margin-bottom: 0;
-                line-height: 1.65;
+                line-height: 1.55;
             }
 
             .hero-sub {
@@ -126,12 +121,12 @@ def apply_global_style():
 
             .badge {
                 display: inline-block;
-                padding: 8px 13px;
+                padding: 7px 11px;
                 border-radius: 999px;
                 background: #fff3bf;
                 border: 1px solid #ffd43b;
                 font-weight: 700;
-                font-size: 13px;
+                font-size: 12px;
                 margin-right: 6px;
                 margin-bottom: 6px;
             }
@@ -152,12 +147,12 @@ def apply_global_style():
             }
 
             .mode-card {
-                padding: 32px;
+                padding: 26px;
                 border-radius: 28px;
                 border: 1px solid #eee;
                 background: #ffffff;
                 box-shadow: 0 10px 28px rgba(0,0,0,0.055);
-                min-height: 340px;
+                min-height: 300px;
                 margin-bottom: 12px;
             }
 
@@ -176,12 +171,12 @@ def apply_global_style():
             }
 
             .mode-card h3 {
-                font-size: 28px;
+                font-size: 24px;
                 margin-bottom: 12px;
             }
 
             .mode-card p {
-                font-size: 15.5px;
+                font-size: 14px;
                 color: #444;
                 line-height: 1.7;
             }
@@ -265,7 +260,7 @@ def apply_global_style():
                 font-size: 16px;
                 color: #555;
                 margin-bottom: 0;
-                line-height: 1.65;
+                line-height: 1.55;
             }
 
             .feature-grid {
@@ -346,7 +341,7 @@ def apply_global_style():
 
             .best-label {
                 color: #666;
-                font-size: 13px;
+                font-size: 12px;
                 margin-bottom: 5px;
             }
 
@@ -387,7 +382,7 @@ def apply_global_style():
             .footer-note {
                 text-align: center;
                 color: #777;
-                font-size: 13px;
+                font-size: 12px;
                 padding-top: 18px;
             }
 
@@ -578,7 +573,7 @@ def show_main_hero():
                 <span class="badge">휴리스틱 점수</span>
                 <span class="badge blue-badge">Greedy 선택</span>
                 <span class="badge green-badge">강화학습 확장</span>
-                <span class="badge pink-badge">Truck 시뮬레이션</span>
+                <span class="badge pink-badge">재고 이동</span>
             </div>
         </div>
         """,
@@ -608,7 +603,7 @@ def show_workflow():
                 <div class="workflow-number">3</div>
                 <div class="workflow-title">Greedy/RL 비교</div>
                 <div class="workflow-text">
-                    Greedy 추천과 강화학습 정책 추천을 비교하고, 지도에서 Truck 이동과 Inventory 변화를 확인합니다.
+                    Greedy 추천과 강화학습 정책 추천을 비교하고, 지도에서 이동수단 흐름과 재고 변화를 확인합니다.
                 </div>
             </div>
         </div>
@@ -662,7 +657,7 @@ def show_excel_feature_cards():
             </div>
             <div class="feature-card">
                 <div class="feature-icon">🚚</div>
-                <div class="feature-title">Multi-Truck</div>
+                <div class="feature-title">다중 이동수단</div>
                 <div class="feature-desc">지도에서 경로를 클릭해 선택하고 여러 Truck을 동시에 이동시킵니다.</div>
             </div>
         </div>
@@ -722,13 +717,13 @@ def show_mode_selector():
                     <span class="badge">휴리스틱 점수</span>
                     <span class="badge">Greedy 알고리즘</span>
                     <span class="badge green-badge">강화학습 정책</span>
-                    <span class="badge pink-badge">Multi-Truck</span>
+                    <span class="badge pink-badge">다중 이동수단</span>
                 </div>
                 <p><b>추천 상황</b></p>
                 <ul>
                     <li>여러 점포를 동시에 분석할 때</li>
                     <li>최적 이동 경로를 추천받고 싶을 때</li>
-                    <li>지도에서 경로를 클릭해 Truck 이동과 Inventory 변화를 확인할 때</li>
+                    <li>지도에서 경로를 클릭해 재고 이동과 Inventory 변화를 확인할 때</li>
                 </ul>
             </div>
             """,
@@ -913,7 +908,7 @@ def show_excel_optimizer():
     # show_mode_header(
     #     "📊 엑셀 기반 최적 경로 추천",
     #     "여러 점포, 상품, 재고, 경로 데이터를 기반으로 휴리스틱 점수, Greedy 알고리즘, 강화학습 정책 비교를 적용합니다.",
-    #     ["엑셀 업로드", "휴리스틱 점수", "Greedy 알고리즘", "강화학습 정책", "Multi-Truck"],
+    #     ["엑셀 업로드", "휴리스틱 점수", "Greedy 알고리즘", "강화학습 정책", "다중 이동수단"],
     # )
     # show_excel_feature_cards()
 
@@ -1552,13 +1547,13 @@ def show_excel_optimizer():
     st.markdown("</div>", unsafe_allow_html=True)
 
     # =========================
-    # Truck 이동 + Inventory 변화
+    # 재고 이동 + Inventory 변화
     # =========================
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("🚚 지도 클릭 기반 Multi-Truck 이동 시뮬레이션")
+    st.subheader("🚚 지도 클릭 기반 Multi-재고 이동 시뮬레이션")
 
     truck_speed = st.slider(
-        "Truck 이동 배속",
+        "재고 이동 배속",
         min_value=0.5,
         max_value=10.0,
         value=1.0,
@@ -1759,10 +1754,10 @@ def show_excel_optimizer():
     truck_candidates = truck_candidates.head(max_truck_routes)
 
     if truck_candidates.empty:
-        st.info("Truck 이동을 표시할 추천 경로가 없습니다.")
+        st.info("재고 이동을 표시할 추천 경로가 없습니다.")
 
     elif not kakao_js_key:
-        st.info("Truck 이동 시뮬레이션을 보려면 왼쪽 사이드바에 카카오맵 JavaScript 키를 입력하세요.")
+        st.info("재고 이동 시뮬레이션을 보려면 왼쪽 사이드바에 카카오맵 JavaScript 키를 입력하세요.")
 
     elif show_kakao_map_with_multi_trucks is None:
         st.warning("kakao_map_viewer.py에 show_kakao_map_with_multi_trucks 함수가 없습니다.")
