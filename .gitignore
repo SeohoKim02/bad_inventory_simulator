@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 dqn_artifacts/
+
+.streamlit/secrets.toml
+streamlit/secrets.toml

@@ -1,5 +1,6 @@
 
 from numbers import Number
+import io
 import html as html_lib
 import pandas as pd
 import streamlit as st
@@ -285,7 +286,7 @@ def _display_grade(value):
     text = str(value)
 
     if text in ["-", "nan", "None", ""]:
-        return "-"
+        return "검토"
 
     if "최우선" in text or "최적" in text or "매우" in text or text == "상":
         return "최적"
@@ -293,40 +294,72 @@ def _display_grade(value):
     if "우선" in text or "추천" in text or "권장" in text or text == "중":
         return "권장"
 
-    return "보류"
+    if "보류" in text or "비추천" in text or "하" in text:
+        return "검토"
+
+    numeric = _safe_numeric(text.replace("점", ""), None)
+    if numeric is not None:
+        if numeric >= 80:
+            return "최적"
+        if numeric >= 65:
+            return "권장"
+        return "검토"
+
+    return "검토"
 
 
 def _map_grade_series(series):
     return series.apply(_display_grade)
 
 
-def _safe_dataframe(df, **kwargs):
+def _prepare_display_dataframe(df, max_rows=500):
+    """
+    Streamlit 표 표시 전에 데이터 타입과 행 수를 안전하게 정리한다.
+    문자/숫자가 섞인 object 컬럼 때문에 생기는 pyarrow 경고를 줄이고,
+    큰 표는 화면에 일부만 보여준다.
+    """
     if df is None:
-        st.info("표시할 데이터가 없습니다.")
-        return
+        return pd.DataFrame(), 0
 
     try:
-        st.dataframe(df.copy().astype(str), **kwargs)
+        total_rows = len(df)
     except Exception:
-        st.dataframe(df.astype(str), **kwargs)
+        total_rows = 0
 
+    try:
+        display_df = df.head(max_rows).copy()
+    except Exception:
+        try:
+            display_df = pd.DataFrame(df).head(max_rows).copy()
+        except Exception:
+            display_df = pd.DataFrame({"value": [str(df)]})
+            total_rows = 1
+
+    display_df.columns = [str(c) for c in display_df.columns]
+
+    for col in display_df.columns:
+        try:
+            if str(display_df[col].dtype) in ["object", "category"]:
+                display_df[col] = display_df[col].map(lambda x: "" if pd.isna(x) else str(x))
+        except Exception:
+            display_df[col] = display_df[col].astype(str)
+
+    return display_df, total_rows
 
 
 def _safe_dataframe(df, **kwargs):
-    """
-    Streamlit/pyarrow가 object 컬럼 안에 숫자와 문자가 섞인 경우 오류를 낼 수 있어서,
-    화면 표시용 데이터프레임은 문자열로 통일해서 안전하게 보여준다.
-    """
-    if df is None:
+    max_rows = kwargs.pop("max_rows", 500)
+    display_df, total_rows = _prepare_display_dataframe(df, max_rows=max_rows)
+
+    if display_df.empty:
         st.info("표시할 데이터가 없습니다.")
         return
 
     try:
-        display_df = df.copy()
-        display_df = display_df.astype(str)
         st.dataframe(display_df, **kwargs)
     except Exception:
-        st.dataframe(df.astype(str), **kwargs)
+        st.dataframe(display_df.astype(str), **kwargs)
+
 
 
 def _best_row(final_recommendations):
@@ -334,6 +367,28 @@ def _best_row(final_recommendations):
         return None
 
     df = final_recommendations.copy()
+
+    # 추천 후보 더보기에서 사용자가 선택한 후보가 있으면
+    # 대시보드 메인 카드도 그 후보 기준으로 보여준다.
+    selected_candidate_index = st.session_state.get("dashboard_selected_candidate_index", None)
+
+    if selected_candidate_index is not None:
+        try:
+            # 원본 DataFrame index 기준으로 선택
+            if selected_candidate_index in df.index:
+                return df.loc[selected_candidate_index]
+
+            # 혹시 문자열로 저장된 경우 대비
+            selected_candidate_index_int = int(selected_candidate_index)
+            if selected_candidate_index_int in df.index:
+                return df.loc[selected_candidate_index_int]
+
+            # 마지막 안전장치: 위치 index로 선택
+            if 0 <= selected_candidate_index_int < len(df):
+                return df.iloc[selected_candidate_index_int]
+        except Exception:
+            # 선택값이 꼬였으면 기본 추천으로 돌아감
+            st.session_state.pop("dashboard_selected_candidate_index", None)
 
     if "is_greedy_selected" in df.columns:
         selected = df[df["is_greedy_selected"] == True]
@@ -711,15 +766,13 @@ def _show_dashboard_home(
         r3.metric("비용 부담률", f"{dashboard_ratios['비용 부담률']}%")
         r4.metric("이동수단 비용", _format_money(dashboard_transport_cost))
 
-        st.write(f"**비율 기반 추천 이유:** {dashboard_reason}")
-
-        st.caption(
-            "현재 값은 총점, 추천 수량, 비용 정보를 기반으로 한 추정 지표입니다. "
-            "향후 실제 판매 데이터가 누적되면 더 정교한 수익/폐기 비율로 개선할 수 있습니다."
-        )
+        st.write(dashboard_reason)
 
     with st.expander("📈 추천 후보 더보기", expanded=False):
         top_candidates = final_recommendations.copy()
+
+        # 원본 index를 보관해야 후보를 눌렀을 때 대시보드 메인 카드가 같은 후보로 바뀜
+        top_candidates["_candidate_original_index"] = top_candidates.index
 
         if "greedy_rank" in top_candidates.columns:
             top_candidates["_rank"] = pd.to_numeric(top_candidates["greedy_rank"], errors="coerce")
@@ -731,83 +784,91 @@ def _show_dashboard_home(
             top_candidates["_cost"] = pd.to_numeric(top_candidates["estimated_cost"], errors="coerce")
             top_candidates = top_candidates.sort_values("_cost", na_position="last")
 
-        top_candidates = top_candidates.head(5).reset_index(drop=True)
+        # 현재 대시보드에 올라온 후보는 더보기 목록에서 제외.
+        # 다른 후보를 누르면 기존 메인 후보가 다시 더보기 목록으로 내려감.
+        current_candidate = _best_row(final_recommendations)
+        current_original_index = None
 
-        if top_candidates.empty:
-            st.info("표시할 추천 후보가 없습니다.")
-        else:
-            candidate_cols = [
-                "greedy_rank",
-                "product_name",
-                "source_store",
-                "target_store",
-                "suggested_qty",
-                "estimated_cost",
-                "final_recommendation",
-                "heuristic_score",
-                "heuristic_grade",
+        try:
+            if current_candidate is not None:
+                current_original_index = current_candidate.name
+        except Exception:
+            current_original_index = None
+
+        if current_original_index is not None:
+            top_candidates = top_candidates[
+                top_candidates["_candidate_original_index"].astype(str) != str(current_original_index)
             ]
 
-            candidate_view = top_candidates[
-                [c for c in candidate_cols if c in top_candidates.columns]
-            ].rename(
-                columns={
-                    "greedy_rank": "순위",
-                    "product_name": "상품명",
-                    "source_store": "보내는 점포",
-                    "target_store": "받는 점포",
-                    "suggested_qty": "추천 수량",
-                    "estimated_cost": "예상 비용",
-                    "final_recommendation": "추천 전략",
-                    "heuristic_score": "총점",
-                    "heuristic_grade": "추천 등급",
-                }
-            )
+        top_candidates = top_candidates.head(7).reset_index(drop=True)
 
-            if "추천 등급" in candidate_view.columns:
-                candidate_view["추천 등급"] = _map_grade_series(candidate_view["추천 등급"])
+        if top_candidates.empty:
+            st.info("표시할 다른 추천 후보가 없습니다.")
+        else:
+            for candidate_position, candidate in top_candidates.iterrows():
+                original_index = candidate.get("_candidate_original_index")
 
-            _safe_dataframe(candidate_view, width="stretch")
+                c_product = _safe_get(candidate, "product_name", "-")
+                c_source = _safe_get(candidate, "source_store", "-")
+                c_target = _safe_get(candidate, "target_store", "-")
+                c_qty = _safe_get(candidate, "suggested_qty", 0)
+                c_cost = _format_money(_safe_get(candidate, "estimated_cost", 0))
+                c_strategy = _safe_get(candidate, "final_recommendation", "-")
+                c_score = _safe_get(candidate, "heuristic_score", "-")
+                c_grade = _display_grade(_safe_get(candidate, "heuristic_grade", "-"))
+
+                rank_text = candidate_position + 1
+                if "greedy_rank" in candidate.index and not pd.isna(candidate.get("greedy_rank")):
+                    try:
+                        rank_text = int(float(candidate.get("greedy_rank")))
+                    except Exception:
+                        rank_text = candidate_position + 1
+
+                grade_color = _grade_color(c_grade)
+
+                # 순위는 작게, 후보 정보는 크게 보여줌
+                st.markdown(
+                    f"""
+                    <div style="
+                        margin-top: 10px;
+                        margin-bottom: 3px;
+                        font-size: 12px;
+                        color: #888;
+                        font-weight: 800;
+                    ">
+                        후보 <span style="color:{grade_color};">#{rank_text}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                # 별도의 '이 후보 보기' 버튼을 없애고,
+                # 후보 항목 자체가 선택 버튼 역할을 하게 함.
+                button_label = (
+                    f"{c_product}  ·  {c_source} → {c_target}\n\n"
+                    f"{c_score}점 · {c_grade}  |  {c_qty}개  |  {c_cost}  |  {c_strategy}"
+                )
+
+                if st.button(
+                    button_label,
+                    width="stretch",
+                    key=f"candidate_row_select_{candidate_position}_{original_index}",
+                ):
+                    st.session_state["dashboard_selected_candidate_index"] = original_index
+                    st.rerun()
 
     menu_col1, menu_col2, menu_col3 = st.columns(3)
 
     with menu_col1:
-        st.markdown(
-            """
-            <div class="dash-menu-card">
-                <div class="dash-menu-title">🧠 AI 추천 결과</div>
-                <div class="dash-menu-desc">총점, Greedy 순위, 추천 근거를 확인합니다.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.button("AI 추천 결과 열기", width="stretch", key="go_score"):
+        if st.button("🧠 AI 추천 결과", width="stretch", key="go_score"):
             _go("score")
 
     with menu_col2:
-        st.markdown(
-            """
-            <div class="dash-menu-card">
-                <div class="dash-menu-title">🗺 재고 이동 지도</div>
-                <div class="dash-menu-desc">카카오맵, 추천 경로, 이동수단 흐름, 재고 변화를 한 화면에서 확인합니다.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.button("재고 이동 지도 열기", width="stretch", key="go_movement"):
+        if st.button("🗺 재고 이동 지도", width="stretch", key="go_movement"):
             _go("movement")
 
     with menu_col3:
-        st.markdown(
-            """
-            <div class="dash-menu-card">
-                <div class="dash-menu-title">🤖 강화학습 비교</div>
-                <div class="dash-menu-desc">Greedy 추천과 강화학습 정책 추천을 비교합니다.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.button("강화학습 비교 열기", width="stretch", key="go_rl"):
+        if st.button("🤖 강화학습 비교", width="stretch", key="go_rl"):
             _go("rl")
 
     with st.expander("관리자용 메뉴", expanded=False):
@@ -839,76 +900,104 @@ def _show_dashboard_home(
             if st.button("상세 데이터 보기", width="stretch", key="go_data_admin"):
                 _go("data")
 
-    st.markdown("---")
-    st.markdown("### 분석 진행 흐름")
 
-    st.markdown(
-        """
-        <div class="dash-step-grid">
-            <div class="dash-step">
-                <div class="dash-step-icon">📥</div>
-                <div class="dash-step-title">1. 데이터 입력</div>
-                <div class="dash-step-desc">엑셀 업로드</div>
-            </div>
-            <div class="dash-step">
-                <div class="dash-step-icon">🔎</div>
-                <div class="dash-step-title">2. 후보 생성</div>
-                <div class="dash-step-desc">재배치/프로모션 비교</div>
-            </div>
-            <div class="dash-step">
-                <div class="dash-step-icon">🧠</div>
-                <div class="dash-step-title">3. 휴리스틱</div>
-                <div class="dash-step-desc">후보 점수화</div>
-            </div>
-            <div class="dash-step">
-                <div class="dash-step-icon">⚡</div>
-                <div class="dash-step-title">4. Greedy</div>
-                <div class="dash-step-desc">최고 점수 선택</div>
-            </div>
-            <div class="dash-step">
-                <div class="dash-step-icon">🚚</div>
-                <div class="dash-step-title">5. 실행 확인</div>
-                <div class="dash-step-desc">지도/재고</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+
+
+
+
+
+# =========================
+# 상품별 AI 추천 화면 유틸
+# =========================
+def _grade_from_score(score, grade_value="-"):
+    base_grade = _display_grade(grade_value)
+    if base_grade in ["최적", "권장"]:
+        return base_grade
+
+    score_value = _safe_numeric(score, None)
+    if score_value is None:
+        return base_grade
+
+    if score_value >= 80:
+        return "최적"
+    if score_value >= 65:
+        return "권장"
+    return "검토"
+
+
+def _grade_color(grade):
+    grade = str(grade)
+    if grade == "최적":
+        return "#ff6b6b"
+    if grade == "권장":
+        return "#f59f00"
+    if grade == "검토":
+        return "#4dabf7"
+    return "#adb5bd"
+
+
+def _make_product_filtered_df(df, product_query="", product_selected="전체"):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    filtered = df.copy()
+    product_col = "product_name" if "product_name" in filtered.columns else "상품명" if "상품명" in filtered.columns else None
+    if product_col is None:
+        return filtered
+
+    if product_selected and product_selected != "전체":
+        filtered = filtered[filtered[product_col].astype(str) == str(product_selected)]
+
+    if product_query:
+        filtered = filtered[filtered[product_col].astype(str).str.contains(str(product_query), case=False, na=False)]
+
+    return filtered
+
+
+def _render_product_filter(df, key_prefix="product_filter"):
+    if df is None or df.empty:
+        return "", "전체"
+
+    product_col = "product_name" if "product_name" in df.columns else "상품명" if "상품명" in df.columns else None
+    if product_col is None:
+        return "", "전체"
+
+    product_names = sorted([str(x) for x in df[product_col].dropna().unique()])
+    col1, col2 = st.columns([1.2, 1])
+
+    with col1:
+        product_query = st.text_input("상품명 검색", placeholder="예: 우유, 도시락, 냉동", key=f"{key_prefix}_query")
+
+    with col2:
+        product_selected = st.selectbox("상품 선택", ["전체"] + product_names, key=f"{key_prefix}_select")
+
+    return product_query, product_selected
+
+
+def _download_filtered_excel_button(df, file_name, key):
+    if df is None or df.empty:
+        return
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="filtered_result")
+
+    st.download_button(
+        "현재 필터 결과 엑셀 다운로드",
+        data=output.getvalue(),
+        file_name=file_name,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        width="stretch",
+        key=key,
     )
 
 
-
-
-# =========================
-# 개별 페이지
-# =========================
-def _show_score_page(final_recommendations):
-    _back_to_dashboard()
-    st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("🧠 AI 추천 결과")
-
-    if st.button("💰 이동 / 할인 / 폐기 비교 보기", width="stretch", key="go_cost_compare_from_score"):
-        _go("cost_compare")
-
+def _build_score_view(final_recommendations):
     if final_recommendations is None or final_recommendations.empty:
-        st.info("표시할 추천 후보가 없습니다.")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
+        return pd.DataFrame()
 
-    view_cols = [
-        "greedy_rank",
-        "product_name",
-        "source_store",
-        "target_store",
-        "suggested_qty",
-        "estimated_cost",
-        "final_recommendation",
-        "heuristic_score",
-        "heuristic_grade",
-        "greedy_reason",
-    ]
-
+    view_cols = ["product_name", "source_store", "target_store", "suggested_qty", "estimated_cost", "final_recommendation", "heuristic_score", "heuristic_grade", "greedy_reason"]
     rename_map = {
-        "greedy_rank": "Greedy 순위",
         "product_name": "상품명",
         "source_store": "보내는 점포",
         "target_store": "받는 점포",
@@ -917,57 +1006,113 @@ def _show_score_page(final_recommendations):
         "final_recommendation": "추천 전략",
         "heuristic_score": "총점",
         "heuristic_grade": "추천 등급",
-        "greedy_reason": "Greedy 선택 근거",
+        "greedy_reason": "그리디 선택 근거",
     }
 
-    score_view = final_recommendations[
-        [c for c in view_cols if c in final_recommendations.columns]
-    ].rename(columns=rename_map)
-
-    if "추천 등급" in score_view.columns:
-        score_view["추천 등급"] = _map_grade_series(score_view["추천 등급"])
+    score_view = final_recommendations[[c for c in view_cols if c in final_recommendations.columns]].rename(columns=rename_map)
 
     if "총점" in score_view.columns:
-        score_view["수익 회수 가능성"] = score_view["총점"].apply(
-            lambda score: f"{_clamp(_safe_numeric(score, 0))}%"
-        )
-        score_view["폐기 위험 감소 효과"] = score_view["총점"].apply(
-            lambda score: f"{_clamp(_safe_numeric(score, 0) * 0.85)}%"
-        )
+        score_view["총점"] = pd.to_numeric(score_view["총점"], errors="coerce").fillna(0).round(1)
 
-    if "추천 전략" in score_view.columns and "총점" in score_view.columns:
-        score_view["비율 기반 추천 이유"] = score_view.apply(
-            lambda row: _make_ratio_reason(
-                {
-                    "수익 회수 가능성": str(row.get("수익 회수 가능성", "0%")).replace("%", ""),
-                    "폐기 위험 감소 효과": str(row.get("폐기 위험 감소 효과", "0%")).replace("%", ""),
-                    "비용 부담률": max(0, 100 - _safe_numeric(str(row.get("총점", 0)).replace("점", ""), 0)),
-                },
-                row.get("추천 전략", "-"),
-            ),
-            axis=1,
-        )
+    if "추천 등급" in score_view.columns:
+        score_view["추천 등급"] = score_view.apply(lambda row: _grade_from_score(row.get("총점", 0), row.get("추천 등급", "-")), axis=1)
+    elif "총점" in score_view.columns:
+        score_view["추천 등급"] = score_view["총점"].apply(lambda score: _grade_from_score(score, "-"))
 
-    _safe_dataframe(score_view, width="stretch")
+    if "예상 비용" in score_view.columns:
+        score_view["예상 비용"] = pd.to_numeric(score_view["예상 비용"], errors="coerce").fillna(0)
 
-    if "heuristic_score" in final_recommendations.columns:
-        chart_df = final_recommendations.copy()
-        chart_df["heuristic_score"] = pd.to_numeric(chart_df["heuristic_score"], errors="coerce")
-        chart_df["label"] = (
-            chart_df["product_name"].astype(str)
-            + " | "
-            + chart_df["source_store"].astype(str)
-            + "→"
-            + chart_df["target_store"].astype(str)
-        )
-        chart_df = chart_df.dropna(subset=["heuristic_score"]).head(10)
+    if "총점" in score_view.columns:
+        score_view = score_view.sort_values("총점", ascending=False, na_position="last")
 
-        if not chart_df.empty:
-            st.subheader("상위 추천 후보 총점")
-            st.bar_chart(chart_df.set_index("label")["heuristic_score"])
+    return score_view.reset_index(drop=True)
+
+
+def _render_score_bar_chart(score_view, max_rows=10):
+    """
+    상품별 AI 추천 결과 그래프.
+
+    기존 버전은 HTML div 문자열을 직접 만들어서 표시했는데,
+    일부 환경에서 HTML 코드가 그대로 화면에 보이는 문제가 생길 수 있었다.
+    그래서 여기서는 Streamlit 기본 progress bar로 안전하게 표시한다.
+    """
+    if score_view is None or score_view.empty or "총점" not in score_view.columns:
+        st.info("그래프로 표시할 총점 데이터가 없습니다.")
+        return
+
+    chart_df = score_view.copy().head(max_rows)
+    st.markdown("### 상품별 AI 추천 결과")
+
+    for _, row in chart_df.iterrows():
+        product_name = str(row.get("상품명", "-"))
+        source_store = str(row.get("보내는 점포", "-"))
+        target_store = str(row.get("받는 점포", "-"))
+
+        score = _clamp(_safe_numeric(row.get("총점", 0), 0))
+        grade = _display_grade(row.get("추천 등급", _grade_from_score(score, "-")))
+
+        label = f"{product_name}  {source_store} → {target_store}"
+
+        st.markdown(f"**{label}**")
+        st.progress(int(score))
+        st.write(f"{score:.0f}점 · {grade}")
+
+
+# =========================
+# 개별 페이지
+# =========================
+def _show_score_page(final_recommendations):
+    _back_to_dashboard()
+    st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
+    st.header("🧠 상품별 AI 추천 결과")
+
+    if st.button("💰 상품별 비용 비교 보기", width="stretch", key="go_cost_compare_from_score"):
+        _go("cost_compare")
+
+    if final_recommendations is None or final_recommendations.empty:
+        st.info("표시할 추천 후보가 없습니다.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    score_view = _build_score_view(final_recommendations)
+    product_query, product_selected = _render_product_filter(score_view, key_prefix="score_page_product")
+    filtered_view = _make_product_filtered_df(score_view, product_query, product_selected)
+
+    if filtered_view.empty:
+        st.info("선택한 상품명에 해당하는 추천 결과가 없습니다.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    selected_grade = st.radio("추천 등급 필터", ["전체", "최적", "권장", "검토"], horizontal=True, key="score_page_grade_filter")
+
+    if selected_grade != "전체" and "추천 등급" in filtered_view.columns:
+        filtered_view = filtered_view[filtered_view["추천 등급"] == selected_grade]
+
+    if filtered_view.empty:
+        st.info("선택한 등급에 해당하는 추천 결과가 없습니다.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    main_cols = ["상품명", "보내는 점포", "받는 점포", "추천 수량", "예상 비용", "추천 전략", "총점", "추천 등급"]
+    display_table = filtered_view[[c for c in main_cols if c in filtered_view.columns]].copy()
+
+    if "예상 비용" in display_table.columns:
+        display_table["예상 비용"] = display_table["예상 비용"].apply(_format_money)
+
+    st.subheader("AI 추천 결과 요약")
+    _safe_dataframe(display_table, width="stretch", max_rows=300)
+    _download_filtered_excel_button(display_table, file_name="상품별_AI_추천_결과.xlsx", key="download_score_filtered_excel")
+    _render_score_bar_chart(filtered_view, max_rows=12)
+
+    with st.expander("그리디 선택 근거 상세보기", expanded=False):
+        if "그리디 선택 근거" not in filtered_view.columns:
+            st.info("표시할 그리디 선택 근거가 없습니다.")
+        else:
+            reason_cols = ["상품명", "보내는 점포", "받는 점포", "총점", "추천 등급", "그리디 선택 근거"]
+            reason_view = filtered_view[[c for c in reason_cols if c in filtered_view.columns]].copy()
+            _safe_dataframe(reason_view, width="stretch", max_rows=300)
 
     st.markdown("</div>", unsafe_allow_html=True)
-
 
 
 
@@ -1263,47 +1408,63 @@ def _build_cost_comparison_table(
 
 
 
+
+def _transport_usage_text(name):
+    if name == "오토바이":
+        return "소량·근거리 일반 상품"
+    if name == "소형 차량":
+        return "중간 수량 점포 간 이동"
+    if name == "소형 트럭":
+        return "대량 이동 또는 DC 경유"
+    if name == "냉동/냉장 탑차":
+        return "냉장·냉동·신선식품"
+    return "일반 이동"
+
+
 def _show_transport_rule_page():
     _back_to_dashboard()
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("🚛 이동수단 기준")
+    st.header("🚛 이동수단 기준 보기")
 
-    st.markdown(
-        """
-        이 페이지는 추천 경로에 사용할 **이동수단 선택 기준**을 정리한 화면입니다.  
-        현재는 상품 특성, 추천 수량, DC 경유 여부를 기준으로 이동수단을 제안합니다.
-        """
-    )
 
-    transport_df = pd.DataFrame(
-        [
-            {
-                "이동수단": name,
-                "아이콘": profile["icon"],
-                "기본비용": _format_money(profile["base_cost"]),
-                "km당 비용": _format_money(profile["cost_per_km"]),
-                "적재 가능 수량": f"{profile['capacity']}개",
-                "속도 계수": profile["speed_factor"],
-                "특징": profile["description"],
-            }
-            for name, profile in TRANSPORT_PROFILES.items()
-        ]
-    )
+    cost_rule_df = pd.DataFrame([
+        {"항목": "이동비용", "설명": "점포 간 이동 또는 DC 경유 이동에 필요한 운송비"},
+        {"항목": "할인손실비용", "설명": "사용자가 입력한 할인율을 기준으로 정상 판매 대비 줄어드는 금액"},
+        {"항목": "폐기비용", "설명": "폐기 수량과 단위 폐기비용을 곱해 계산한 비용"},
+        {"항목": "추천 이동수단", "설명": "상품 특성, 추천 수량, 경유 여부를 기준으로 오토바이, 소형 차량, 소형 트럭, 냉동/냉장 탑차 중 선택"},
+        {"항목": "AI 추천 방식", "설명": "비용뿐 아니라 총점, 추천 수량, 거리, 시간, 재고 처리 효과까지 함께 반영한 결과"},
+    ])
+
+    st.subheader("비용·추천 기준")
+    _safe_dataframe(cost_rule_df, width="stretch")
+
+    st.subheader("이동수단별 기준")
+    transport_df = pd.DataFrame([
+        {
+            "이동수단": f"{profile['icon']} {name}",
+            "기본비용": _format_money(profile["base_cost"]),
+            "km당 비용": _format_money(profile["cost_per_km"]),
+            "적재 가능 수량": f"{profile['capacity']}개",
+            "특징": profile["description"],
+            "추천 상황": _transport_usage_text(name),
+        }
+        for name, profile in TRANSPORT_PROFILES.items()
+    ])
 
     _safe_dataframe(transport_df, width="stretch")
 
-    st.markdown("### 적용 방식")
-
     st.markdown(
         """
-        - 상품명에 **냉동/냉장 관련 키워드**가 있으면 냉동/냉장 탑차를 우선 추천합니다.
-        - DC 경유 이동은 물류 거점 경유 특성을 고려해 소형 트럭을 우선 추천합니다.
-        - 일반 점포 간 이동은 추천 수량에 따라 오토바이, 소형 차량, 소형 트럭으로 구분합니다.
-        - 향후에는 실제 운송비, 차량 용량, 냉장 여부, 배송 가능 시간까지 반영해 이동수단을 더 정교하게 선택할 수 있습니다.
+        - **오토바이**: 소량·근거리 일반 상품 이동에 우선 적용합니다.  
+        - **소형 차량**: 중간 수량의 점포 간 이동에 적용합니다.  
+        - **소형 트럭**: 대량 이동 또는 DC 경유 이동에 적용합니다.  
+        - **냉동/냉장 탑차**: 우유, 냉장, 냉동, 아이스, 샐러드처럼 온도 유지가 필요한 상품에 우선 적용합니다.  
+        - 최종 선택은 비용만이 아니라 추천 수량, 거리, 시간, 재고 처리 효과까지 반영한 AI 추천 결과와 함께 판단합니다.
         """
     )
 
     st.markdown("</div>", unsafe_allow_html=True)
+
 
 
 def _show_cost_compare_page(
@@ -1316,27 +1477,14 @@ def _show_cost_compare_page(
 ):
     _back_to_dashboard()
 
-    if st.button("← AI 추천 결과 페이지로 돌아가기", width="stretch", key="back_to_ai_recommendation_from_cost"):
+    if st.button("← 상품별 AI 추천 결과로 돌아가기", width="stretch", key="back_to_ai_recommendation_from_cost"):
         _go("score")
 
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("💰 이동 / 할인 / 폐기 비교")
+    st.header("💰 상품별 비용 비교")
 
-    st.markdown(
-        """
-        이 페이지는 각 추천 후보에 대해 **이동비용, 할인손실비용, 폐기비용**을 비교합니다.  
-        최종 추천은 단순 비용만이 아니라 총점, 수량, 거리, 시간, 재고 처리 효과를 함께 반영합니다.
-        """
-    )
 
-    discount_rate_for_loss = st.number_input(
-        "할인손실비용 계산용 할인율(%)",
-        min_value=0.0,
-        max_value=100.0,
-        value=20.0,
-        step=1.0,
-        key="cost_compare_discount_rate",
-    )
+    discount_rate_for_loss = st.number_input("할인손실비용 계산용 할인율(%)", min_value=0.0, max_value=100.0, value=20.0, step=1.0, key="cost_compare_discount_rate")
 
     compare_table = _build_cost_comparison_table(
         stores=stores,
@@ -1353,36 +1501,30 @@ def _show_cost_compare_page(
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    best_row = compare_table.iloc[0]
+    product_query, product_selected = _render_product_filter(compare_table, key_prefix="cost_compare_product")
+    filtered_table = _make_product_filtered_df(compare_table, product_query, product_selected)
 
+    if filtered_table.empty:
+        st.info("선택한 상품명에 해당하는 비용 비교 결과가 없습니다.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    best_row = filtered_table.iloc[0]
     c1, c2, c3 = st.columns(3)
     c1.metric("이동비용", _format_money(best_row["이동비용"]))
     c2.metric("할인손실비용", _format_money(best_row["할인손실비용"]))
     c3.metric("폐기비용", _format_money(best_row["폐기비용"]))
 
-    r1, r2, r3 = st.columns(3)
-    r1.metric("수익 회수 가능성", str(best_row.get("수익 회수 가능성", "-")))
-    r2.metric("폐기 위험 감소 효과", str(best_row.get("폐기 위험 감소 효과", "-")))
-    r3.metric("비용 부담률", str(best_row.get("비용 부담률", "-")))
+    cost_cols = ["이동비용", "할인손실비용", "폐기비용", "비용 최소 방식", "AI 추천 방식", "수익 회수 가능성", "폐기 위험 감소 효과", "비용 부담률"]
+    display_table = filtered_table[[c for c in cost_cols if c in filtered_table.columns]].copy()
 
-    st.subheader("처리 방식별 비용 비교표")
-
-    display_table = compare_table.copy()
-
-    for col in [
-        "AI 이동수단 비용",
-        "오토바이 비용",
-        "소형 차량 비용",
-        "소형 트럭 비용",
-        "냉동/냉장 탑차 비용",
-        "이동비용",
-        "할인손실비용",
-        "폐기비용",
-    ]:
+    for col in ["이동비용", "할인손실비용", "폐기비용"]:
         if col in display_table.columns:
             display_table[col] = display_table[col].apply(_format_money)
 
-    _safe_dataframe(display_table, width="stretch")
+    st.subheader("비용 비교표")
+    _safe_dataframe(display_table, width="stretch", max_rows=300)
+    _download_filtered_excel_button(filtered_table, file_name="상품별_비용_비교.xlsx", key="download_cost_filtered_excel")
 
     with st.expander("비용 계산 기준", expanded=False):
         if st.button("이동수단 기준 보기", width="stretch", key="go_transport_rule_from_cost"):
@@ -1399,6 +1541,7 @@ def _show_cost_compare_page(
         )
 
     st.markdown("</div>", unsafe_allow_html=True)
+
 
 
 def _show_score_formula_page(final_recommendations):
@@ -1797,11 +1940,6 @@ def _show_movement_page(
     if not scenarios:
         st.info("지도에 표시 가능한 이동 경로가 없습니다.")
     else:
-        st.info(
-            "지도 위 색깔 경로선을 클릭하면 선택/해제됩니다. "
-            "선택한 여러 경로의 재고 이동과 재고 변화를 함께 확인할 수 있습니다."
-        )
-
         show_kakao_map_with_multi_trucks(
             stores,
             routes,
@@ -1817,72 +1955,45 @@ def _show_movement_page(
 def _show_explain_page():
     _back_to_dashboard()
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("📘 설명 페이지")
+    st.header("📘 설명")
 
     st.markdown(
         """
         ## 화면 구성
 
-        이 앱은 처음 보는 사람도 쉽게 이해할 수 있도록 **대시보드 중심 구조**로 구성되어 있습니다.  
-        첫 화면에서는 최적 추천 결과만 간단히 보여주고, 점수·그래프·지도·이동수단·강화학습·상세 데이터는 각각 별도 페이지로 분리했습니다.
+        이 앱은 편의점 악성재고 처리 후보를 자동 계산하고, 실행 가치가 높은 후보를 대시보드에 표시합니다.
 
-        ## 자동 분석 조건
+        - **AI 추천 결과**: 상품별 추천 후보, 총점, 추천 등급을 확인합니다.
+        - **재고 이동 지도**: 선택한 추천 경로를 지도에서 확인합니다.
+        - **강화학습 비교**: Greedy 추천과 DQN 기반 추천을 비교합니다.
+        - **관리자용 메뉴**: 계산 방식, 비용 기준, 이동수단 기준, 상세 데이터를 확인합니다.
 
-        이 버전에서는 사용자가 출발 시간, 할인율, 프로모션 유형을 직접 입력하지 않아도 됩니다.  
-        프로그램은 엑셀에 `config` 시트가 있으면 해당 값을 우선 사용하고, `config` 시트가 없으면 재고 데이터와 점포 데이터를 바탕으로 분석 조건을 자동 추정합니다.
+        ## 추천 후보 계산 흐름
 
-        자동 분석 조건은 다음 기준으로 결정됩니다.
+        1. 엑셀 데이터에서 점포, 상품, 재고, 경로 정보를 불러옵니다.
+        2. 악성재고 가능성이 높은 상품과 이동 후보를 선별합니다.
+        3. 이동비용, 할인손실비용, 폐기비용을 계산합니다.
+        4. 추천 수량, 거리, 시간, 재고 처리 효과를 함께 반영해 총점을 계산합니다.
+        5. 총점 기준으로 최적, 권장, 검토 등급을 부여합니다.
+        6. 지도와 표에서 실행 가능한 추천 후보를 확인합니다.
 
-        - **출발 시간**: 점포의 거래 가능 시작 시간을 참고하여 가장 많이 가능한 시간대로 자동 설정합니다.
-        - **프로모션 유형**: 폐기 위험도, 유통기한 임박 비율, 악성재고 비중을 기준으로 할인 프로모션 또는 1+1 프로모션을 선택합니다.
-        - **할인율**: 폐기 위험도와 유통기한 임박 정도가 높을수록 높은 할인율을 적용합니다.
-        - **예상 판매 증가율**: 할인율과 유통기한 임박 비율을 바탕으로 자동 추정합니다.
-        - **프로모션 고정비**: config 시트 값이 있으면 사용하고, 없으면 기본값을 적용합니다.
+        ## 비용 항목
 
-        따라서 사용자는 엑셀을 업로드하기만 하면 자동 분석이 수행되고, 대시보드에서 추천 결과를 바로 확인할 수 있습니다.
+        - **이동비용**: 점포 간 이동 또는 DC 경유 이동에 필요한 운송비입니다.
+        - **할인손실비용**: 사용자가 입력한 할인율을 기준으로 정상 판매 대비 줄어드는 금액입니다.
+        - **폐기비용**: 폐기 수량과 단위 폐기비용을 곱해 계산한 비용입니다.
 
-        ## 알고리즘 구조
+        ## 이동수단 기준
 
-        ### 1. 기존 악성재고 위험점수
-        상품이 악성재고인지 판단하는 점수입니다.  
-        재고량, 판매량, 입고 후 경과일 등을 기준으로 위험도를 계산합니다.
+        - **오토바이**: 소량·근거리 일반 상품 이동에 사용합니다.
+        - **소형 차량**: 중간 수량의 점포 간 이동에 사용합니다.
+        - **소형 트럭**: 대량 이동 또는 DC 경유 이동에 사용합니다.
+        - **냉동/냉장 탑차**: 냉장, 냉동, 아이스, 샐러드 등 온도 유지가 필요한 상품에 사용합니다.
 
-        ### 2. 빠른 분석 모드: 휴리스틱 기반 Top-K 필터링
-        빠른 분석 모드는 대형 엑셀 데이터를 효율적으로 처리하기 위한 **후보 축소 알고리즘**입니다.  
-        전체 재고와 전체 경로를 모두 분석하면 시간이 오래 걸리기 때문에, 먼저 중요한 후보만 선별합니다.
+        ## DQN 비교
 
-        후보 점수는 다음 기준을 바탕으로 계산합니다.
-
-        - **악성재고 수량**: 처리해야 할 재고가 많을수록 우선순위가 높습니다.
-        - **현재 재고량**: 점포에 재고가 많이 쌓여 있을수록 우선 분석합니다.
-        - **폐기 위험도**: 폐기 또는 만료 위험이 높을수록 우선순위가 높습니다.
-        - **유통기한 임박 정도**: 유통기한이 가까운 상품을 먼저 분석합니다.
-
-        즉, 빠른 분석 모드는 **악성재고 수량, 현재 재고량, 폐기 위험도, 유통기한 임박 정도를 기준으로 후보 점수를 계산하고, 점수가 높은 재고 후보와 관련 경로만 우선 분석**합니다.  
-        이를 통해 대형 데이터에서도 분석 속도를 높일 수 있습니다.
-
-        ### 3. 휴리스틱 총점
-        추천 후보를 평가하는 점수입니다.  
-        예상 비용, 추천 수량, 추천 전략, 추천 이유를 반영하여 후보별 우선순위를 계산합니다.
-
-        ### 4. Greedy 알고리즘
-        휴리스틱 총점이 가장 높은 후보를 자동 분석 조건에서의 최적 추천으로 선택합니다.
-
-        ### 5. 강화학습 확장
-        추천 후보를 State / Action / Reward 구조로 변환하여 학습 데이터로 만들고,  
-        학습된 정책과 Greedy 추천을 비교할 수 있게 했습니다.
-
-        ### 6. 실제 DQN 학습 추천
-        DQN은 후보의 상태(State)를 입력받아 `재고 이동`, `할인`, `폐기`, `보류` 행동별 Q값을 학습합니다.  
-        이후 각 후보에서 Q값이 가장 높은 행동을 강화학습 추천으로 제시하고, Greedy 추천과 비교합니다.  
-        현재 DQN은 실제 장기 판매 이력 대신 앱에서 계산된 비용, 수량, 거리, 휴리스틱 총점으로 만든 시뮬레이션 보상을 사용합니다.
-
-        ### 7. DQN 학습 결과 저장
-        DQN 학습이 끝나면 모델 가중치, 후보별 추천 결과, episode별 loss 로그, 요약 JSON을 저장합니다.  
-        저장된 파일은 `dqn_artifacts` 폴더에 보관되며, 이후 모델을 불러와 이어서 학습하는 구조로 확장할 수 있습니다.
-
-        ### 8. 지도 기반 재고 이동 시뮬레이션
-        선택된 경로를 카카오맵 위에서 확인하고, 이동수단별 재고 이동 및 재고 변화를 시각화합니다.
+        DQN은 추천 후보의 상태값을 입력받고, 재고 이동, 할인, 폐기, 보류 중 하나를 선택하도록 학습하는 비교용 강화학습 모델입니다.
+        현재 앱에서는 Greedy 추천 결과와 DQN 추천 결과를 비교해 의사결정 보조 자료로 사용합니다.
         """
     )
 
@@ -1965,12 +2076,6 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     st.header("🤖 강화학습 비교 페이지")
 
-    st.markdown(
-        """
-        이 페이지에서는 기존 **Greedy 추천**과 실제 **DQN 기반 추천**을 비교합니다.  
-        DQN은 후보 상태(State)를 입력받아 행동(Action)별 Q값을 학습하고, 가장 높은 Q값을 가진 행동을 추천합니다.
-        """
-    )
 
     # =========================
     # 1. 기존 RL 로그 생성
@@ -2019,14 +2124,6 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
     st.markdown("---")
     st.subheader("🧠 DQN 실제 학습 추천")
 
-    st.markdown(
-        """
-        현재 DQN은 실제 매출 이력 대신 앱에서 계산한 추천 후보를 이용해 학습하는 **시뮬레이션 기반 DQN**입니다.  
-        후보별 상태를 입력받고, `재고 이동`, `할인`, `폐기`, `보류` 행동의 Q값을 학습한 뒤 가장 높은 Q값의 행동을 추천합니다.  
-        학습이 끝나면 모델 가중치, 추천 결과, 학습 로그, 요약 파일을 `dqn_artifacts` 폴더에 저장합니다.  
-        GitHub 외부 저장이 설정되어 있으면 같은 결과 파일을 GitHub 저장소에도 자동 업로드합니다.
-        """
-    )
 
     dqn_col1, dqn_col2, dqn_col3 = st.columns(3)
 
@@ -2611,19 +2708,63 @@ def _show_truck_page(
     if not scenarios:
         st.info("지도에 표시 가능한 이동 경로가 없습니다.")
     else:
-        st.info(
-            "지도 위 색깔 경로선을 클릭하면 선택/해제됩니다. "
-            "여러 경로를 선택한 뒤 지도 아래의 '선택 경로 이동수단 재생' 버튼을 누르면 여러 이동수단이 동시에 이동합니다."
+        candidate_labels = []
+        label_to_index = {}
+
+        for scenario_index, scenario in enumerate(scenarios):
+            product_name = scenario.get("product_name", "-")
+            source_store = scenario.get("source_store", "-")
+            target_store = scenario.get("target_store", "-")
+            move_qty = scenario.get("move_qty", "-")
+            recommended_path = scenario.get("recommended_path", "-")
+            heuristic_score = scenario.get("heuristic_score", "-")
+
+            try:
+                score_text = f" | {float(heuristic_score):.0f}점"
+            except Exception:
+                score_text = ""
+
+            label = (
+                f"AI {scenario_index + 1}위 | {product_name} | "
+                f"{source_store} → {target_store} | "
+                f"{move_qty}개 | {recommended_path}{score_text}"
+            )
+
+            candidate_labels.append(label)
+            label_to_index[label] = scenario_index
+
+        default_labels = candidate_labels[: min(default_selected_count, len(candidate_labels))]
+
+        selected_labels = st.multiselect(
+            "🚚 지도에 표시할 AI 추천 후보 선택",
+            options=candidate_labels,
+            default=default_labels,
+            key="dashboard_truck_ai_candidate_selector",
         )
 
-        show_kakao_map_with_multi_trucks(
-            stores,
-            routes,
-            kakao_js_key,
-            scenarios,
-            speed_multiplier=truck_speed,
-            default_selected_count=default_selected_count,
-        )
+        selected_indexes = [
+            label_to_index[label]
+            for label in selected_labels
+            if label in label_to_index
+        ]
+
+        selected_scenarios = [
+            scenarios[i]
+            for i in selected_indexes
+            if 0 <= i < len(scenarios)
+        ]
+
+        if not selected_scenarios:
+            st.info("지도에 표시할 후보를 1개 이상 선택해 주세요.")
+        else:
+            show_kakao_map_with_multi_trucks(
+                stores,
+                routes,
+                kakao_js_key,
+                selected_scenarios,
+                speed_multiplier=truck_speed,
+                default_selected_count=min(default_selected_count, len(selected_scenarios)),
+            )
 
     st.markdown("</div>", unsafe_allow_html=True)
 

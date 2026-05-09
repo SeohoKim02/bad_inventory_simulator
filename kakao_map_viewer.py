@@ -366,6 +366,78 @@ def show_kakao_map_with_multi_trucks(
 
             button:hover { background: #fff3bf; }
 
+            .candidate-selector {
+                margin-top: 12px;
+                padding: 10px 12px;
+                background: rgba(255,255,255,0.72);
+                border: 1px solid rgba(255,255,255,0.9);
+                border-radius: 14px;
+            }
+
+            .candidate-title {
+                font-size: 14px;
+                font-weight: 900;
+                margin-bottom: 8px;
+                cursor: pointer;
+                user-select: none;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+            }
+
+            .candidate-title:hover {
+                color: #0b5ed7;
+            }
+
+            .candidate-title-left {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .candidate-toggle-icon {
+                font-size: 13px;
+                color: #555;
+            }
+
+            .candidate-list {
+                display: none;
+                margin-top: 8px;
+            }
+
+            .candidate-list.open {
+                display: block;
+            }
+
+            .candidate-item {
+                display: flex;
+                align-items: flex-start;
+                gap: 7px;
+                padding: 7px 8px;
+                margin: 5px 0;
+                background: #ffffff;
+                border: 1px solid #f1e5b8;
+                border-radius: 10px;
+                cursor: pointer;
+                font-size: 13px;
+                line-height: 1.35;
+            }
+
+            .candidate-item:hover {
+                background: #fff8db;
+            }
+
+            .candidate-item input {
+                margin-top: 2px;
+                cursor: pointer;
+            }
+
+            .candidate-rank {
+                font-weight: 900;
+                color: #f08c00;
+            }
+
             .click-guide {
                 margin-top: 8px;
                 color: #555;
@@ -394,17 +466,15 @@ def show_kakao_map_with_multi_trucks(
             현재 배속: <b><span id="speed-text">__SPEED__</span>x</b> /
             전체 후보 경로 수: <b><span id="route-count">0</span>개</b> /
             선택 경로 수: <b><span id="selected-count">0</span>개</b>
+
+            <div id="candidate-selector" class="candidate-selector"></div>
+
             <div style="margin-top:10px;">
                 <button onclick="restart이동수단s()">선택 경로 재고 이동 재생</button>
                 <button onclick="selectAllRoutes()">전체 경로 선택</button>
                 <button onclick="clearSelectedRoutes()">선택 해제</button>
                 <button onclick="pause이동수단s()">일시정지</button>
                 <button onclick="resume이동수단s()">다시 재생</button>
-            </div>
-            <div class="click-guide">
-                ① 지도 위 색깔 경로선을 클릭하면 선택/해제됩니다.<br>
-                ② 클릭한 경로의 추천 결과와 재고 변화가 아래에 표시됩니다.<br>
-                ③ 여러 경로를 선택한 뒤 <b>선택 경로 재고 이동 재생</b>을 누르면 이동수단 여러 대가 동시에 이동합니다.
             </div>
             <div id="selected-list" class="selected-list">선택된 경로가 없습니다.</div>
         </div>
@@ -465,6 +535,7 @@ def show_kakao_map_with_multi_trucks(
                 document.getElementById('route-count').innerHTML = String(scenarios.length);
                 updateRouteStyles();
                 updateSelectedList();
+                renderCandidateSelector();
 
                 if (scenarios.length > 0) {
                     lastClickedIndex = 0;
@@ -610,6 +681,7 @@ def show_kakao_map_with_multi_trucks(
                 updateRouteStyles();
                 updateSelectedList();
                 restart이동수단s();
+                renderCandidateSelector();
             }
 
             function selectAllRoutes() {
@@ -654,24 +726,115 @@ def show_kakao_map_with_multi_trucks(
                 });
             }
 
+            function routeLabel(idx) {
+                var scenario = scenarios[idx] || {};
+                var rawLabel = scenario.label || '-';
+                rawLabel = String(rawLabel).replace(/^\s*\d+\.\s*/, '');
+                return rawLabel;
+            }
+
+            function routeCandidateLabel(idx) {
+                var scenario = scenarios[idx] || {};
+                var rawLabel = routeLabel(idx);
+                var score = scenario.heuristic_score;
+                var scoreText = '';
+
+                if (score !== undefined && score !== null && score !== '-') {
+                    var scoreNum = Number(score);
+                    if (!isNaN(scoreNum)) scoreText = ' · ' + Math.round(scoreNum) + '점';
+                }
+
+                var grade = scenario.heuristic_grade || scenario.recommendation_grade || scenario.grade || '';
+                var gradeText = grade ? ' · ' + grade : '';
+
+                return '<span class="candidate-rank">AI ' + (idx + 1) + '위</span> | ' + rawLabel + scoreText + gradeText;
+            }
+
+            var candidateSelectorOpen = false;
+
+            function toggleCandidateSelector() {
+                candidateSelectorOpen = !candidateSelectorOpen;
+
+                var list = document.getElementById('candidate-list');
+                var icon = document.getElementById('candidate-toggle-icon');
+
+                if (list) {
+                    if (candidateSelectorOpen) {
+                        list.classList.add('open');
+                    } else {
+                        list.classList.remove('open');
+                    }
+                }
+
+                if (icon) {
+                    icon.innerText = candidateSelectorOpen ? '▲' : '▼';
+                }
+            }
+
+            function renderCandidateSelector() {
+                var box = document.getElementById('candidate-selector');
+                if (!box) return;
+
+                if (!scenarios || scenarios.length === 0) {
+                    box.innerHTML = '<div class="candidate-title" onclick="toggleCandidateSelector()"><span class="candidate-title-left">🚚 지도에 표시할 AI 추천 후보 선택</span><span id="candidate-toggle-icon" class="candidate-toggle-icon">▼</span></div><div id="candidate-list" class="candidate-list">표시할 후보가 없습니다.</div>';
+                    return;
+                }
+
+                var selectedCount = Object.keys(selectedIndexes).length;
+                var html = '';
+                html += '<div class="candidate-title" onclick="toggleCandidateSelector()">';
+                html += '<span class="candidate-title-left">🚚 지도에 표시할 AI 추천 후보 선택 <span style="font-size:12px; color:#666;">(' + selectedCount + '/' + scenarios.length + ')</span></span>';
+                html += '<span id="candidate-toggle-icon" class="candidate-toggle-icon">' + (candidateSelectorOpen ? '▲' : '▼') + '</span>';
+                html += '</div>';
+
+                html += '<div id="candidate-list" class="candidate-list' + (candidateSelectorOpen ? ' open' : '') + '">';
+
+                scenarios.forEach(function(scenario, idx) {
+                    var checked = selectedIndexes[idx] ? 'checked' : '';
+                    html += '<label class="candidate-item">';
+                    html += '<input type="checkbox" ' + checked + ' onchange="setRouteSelectionFromCheckbox(' + idx + ', this.checked)">';
+                    html += '<span>' + routeCandidateLabel(idx) + '</span>';
+                    html += '</label>';
+                });
+
+                html += '</div>';
+                box.innerHTML = html;
+            }
+
+            function setRouteSelectionFromCheckbox(idx, checked) {
+                if (checked) {
+                    selectedIndexes[idx] = true;
+                    lastClickedIndex = idx;
+                    if (scenarios[idx]) renderRoutePanel(scenarios[idx], routeStates[idx] ? routeStates[idx].arrived : false);
+                } else {
+                    delete selectedIndexes[idx];
+                }
+
+                updateRouteStyles();
+                updateSelectedList();
+                restart이동수단s();
+            }
+
             function updateSelectedList() {
                 var selectedNames = [];
 
                 Object.keys(selectedIndexes).forEach(function(key) {
                     var idx = Number(key);
                     if (scenarios[idx]) {
-                        selectedNames.push((idx + 1) + '. ' + (scenarios[idx].label || '-'));
+                        selectedNames.push((idx + 1) + '. ' + routeLabel(idx));
                     }
                 });
 
                 document.getElementById('selected-count').innerHTML = String(selectedNames.length);
 
                 if (selectedNames.length === 0) {
-                    document.getElementById('selected-list').innerHTML = '선택된 경로가 없습니다. 지도 위 경로선을 클릭해 선택하세요.';
+                    document.getElementById('selected-list').innerHTML = '선택된 경로가 없습니다.';
                 } else {
                     document.getElementById('selected-list').innerHTML =
                         '<b>선택된 경로</b><br>' + selectedNames.join('<br>');
                 }
+
+                renderCandidateSelector();
             }
 
             function get이동수단Offset(idx) {

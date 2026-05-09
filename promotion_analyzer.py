@@ -20,10 +20,10 @@ def safe_int(value, default=0):
         return default
 
 
-def get_first_existing_value(row, columns, default=0):
+def get_first_existing_value(row, columns, default=None):
     for col in columns:
         if col in row.index:
-            value = row[col]
+            value = row.get(col)
             if not pd.isna(value):
                 return value
     return default
@@ -33,111 +33,82 @@ def get_transfer_cost(row):
     recommended_path = str(row.get("recommended_path", ""))
 
     if "직접" in recommended_path:
-        return safe_float(row.get("direct_cost", row.get("transfer_cost", 0)))
+        return safe_float(row.get("direct_cost", row.get("transfer_cost", row.get("estimated_cost", 0))))
 
     if "DC" in recommended_path or "경유" in recommended_path:
-        return safe_float(row.get("via_cost", row.get("transfer_cost", 0)))
+        return safe_float(row.get("via_cost", row.get("transfer_cost", row.get("estimated_cost", 0))))
 
     return safe_float(
         get_first_existing_value(
             row,
-            [
-                "transfer_cost",
-                "network_cost",
-                "estimated_cost",
-                "direct_cost",
-                "via_cost",
-            ],
+            ["transfer_cost", "network_cost", "estimated_cost", "direct_cost", "via_cost"],
             default=0,
         )
     )
 
 
-def find_source_inventory(inventory, stores, source_store_name, product_name):
-    """
-    source_store와 product_name에 해당하는 inventory 행을 찾는다.
-    데이터 구조가 조금 달라도 최대한 안전하게 찾도록 구성.
-    """
-
+def _build_inventory_lookup(inventory, stores):
     if inventory is None or inventory.empty:
-        return None
+        return {}
 
     inv = inventory.copy()
 
-    # inventory에 store_name이 있으면 바로 사용
-    if "store_name" in inv.columns:
-        store_matched = inv[inv["store_name"] == source_store_name]
-    else:
-        store_matched = inv
+    if "store_name" not in inv.columns and stores is not None and not stores.empty:
+        if "store_id" in inv.columns and "store_id" in stores.columns and "store_name" in stores.columns:
+            inv = inv.merge(
+                stores[["store_id", "store_name"]].drop_duplicates("store_id"),
+                on="store_id",
+                how="left",
+            )
 
-        if stores is not None and not stores.empty:
-            if "store_name" in stores.columns and "store_id" in stores.columns:
-                store_id_map = dict(zip(stores["store_name"], stores["store_id"]))
-                source_store_id = store_id_map.get(source_store_name)
+    if "product_name" not in inv.columns and "inventory_product_name" in inv.columns:
+        inv["product_name"] = inv["inventory_product_name"]
 
-                if source_store_id is not None and "store_id" in inv.columns:
-                    store_matched = inv[inv["store_id"] == source_store_id]
+    lookup = {}
 
-    if store_matched.empty:
-        return None
+    for row in inv.itertuples(index=False):
+        r = row._asdict()
+        store_name = str(r.get("store_name", "")).strip()
+        product_name = str(r.get("product_name", "")).strip()
 
-    # inventory에 product_name이 있으면 상품명으로도 필터링
-    if "product_name" in store_matched.columns:
-        product_matched = store_matched[store_matched["product_name"] == product_name]
+        if not store_name or not product_name:
+            continue
 
-        if not product_matched.empty:
-            return product_matched.iloc[0]
+        lookup.setdefault((store_name, product_name), r)
 
-    # product_name이 없으면 같은 점포의 첫 번째 행 사용
-    return store_matched.iloc[0]
+    return lookup
+
+
+def _source_inventory_from_lookup(lookup, source_store, product_name):
+    return lookup.get((str(source_store).strip(), str(product_name).strip()))
 
 
 def estimate_unit_cost(source_inv, transfer_row):
-    """
-    unit_cost가 없을 때도 앱이 멈추지 않도록 원가를 추정한다.
-    우선순위:
-    1. inventory 행의 unit_cost 계열 열
-    2. transfer 결과 행의 unit_cost 계열 열
-    3. 기본값 1000원
-    """
-
-    unit_cost_columns = [
-        "unit_cost",
-        "cost",
-        "product_cost",
-        "item_cost",
-        "price",
-        "unit_price",
-    ]
+    columns = ["unit_cost", "cost", "product_cost", "item_cost", "price", "unit_price"]
 
     if source_inv is not None:
-        value = get_first_existing_value(source_inv, unit_cost_columns, default=None)
-        if value is not None:
-            return safe_float(value, 1000)
+        for col in columns:
+            if col in source_inv and not pd.isna(source_inv.get(col)):
+                return safe_float(source_inv.get(col), 1000)
 
-    value = get_first_existing_value(transfer_row, unit_cost_columns, default=None)
-    if value is not None:
-        return safe_float(value, 1000)
+    for col in columns:
+        if col in transfer_row.index and not pd.isna(transfer_row.get(col)):
+            return safe_float(transfer_row.get(col), 1000)
 
     return 1000.0
 
 
 def estimate_daily_holding_cost(source_inv, transfer_row):
-    holding_columns = [
-        "daily_holding_cost",
-        "holding_cost",
-        "storage_cost",
-        "daily_storage_cost",
-    ]
+    columns = ["daily_holding_cost", "holding_cost", "storage_cost", "daily_storage_cost"]
 
     if source_inv is not None:
-        value = get_first_existing_value(source_inv, holding_columns, default=None)
-        if value is not None:
-            return safe_float(value, 20)
+        for col in columns:
+            if col in source_inv and not pd.isna(source_inv.get(col)):
+                return safe_float(source_inv.get(col), 20)
 
-    value = get_first_existing_value(transfer_row, holding_columns, default=None)
-    if value is not None:
-        return safe_float(value, 20)
+    for col in columns:
+        if col in transfer_row.index and not pd.isna(transfer_row.get(col)):
+            return safe_float(transfer_row.get(col), 20)
 
     return 20.0
 
@@ -163,10 +134,8 @@ def calculate_promotion_cost(
     holding_saving = expected_extra_sales * daily_holding_cost
 
     if promotion_type == "1+1 프로모션":
-        # 1+1은 판매 촉진을 위해 대략 절반 수준의 상품 원가 부담이 생긴다고 가정
         promotion_loss = math.ceil(suggested_qty / 2) * unit_cost
         promotion_net_cost = promotion_loss + fixed_cost - holding_saving
-
         formula = (
             f"1+1 프로모션 순비용 = "
             f"증정 원가({math.ceil(suggested_qty / 2)}개 × {unit_cost:,.0f}원) "
@@ -174,12 +143,9 @@ def calculate_promotion_cost(
             f"- 보관비 절감({holding_saving:,.0f}원) "
             f"= {promotion_net_cost:,.0f}원"
         )
-
     else:
-        # 할인 프로모션
         discount_loss = suggested_qty * unit_cost * discount_rate
         promotion_net_cost = discount_loss + fixed_cost - holding_saving
-
         formula = (
             f"할인 프로모션 순비용 = "
             f"할인 손실({suggested_qty}개 × {unit_cost:,.0f}원 × {discount_rate * 100:.1f}%) "
@@ -201,61 +167,44 @@ def analyze_promotion_vs_transfer(
     promotion_fixed_cost,
 ):
     """
-    프로모션 비용과 재배치 비용을 비교한다.
-
-    입력:
-    - stores
-    - inventory
-    - transfer_path_result
-    - promotion_type
-    - promotion_discount_rate
-    - promotion_sales_increase_rate
-    - promotion_fixed_cost
-
-    출력:
-    - promotion_result DataFrame
+    속도 개선판.
+    기존에는 transfer 후보마다 inventory를 다시 검색해서 느렸음.
+    이제는 inventory lookup을 한 번만 만들어서 바로 찾음.
     """
 
     if transfer_path_result is None or transfer_path_result.empty:
         return pd.DataFrame()
 
-    results = []
+    transfer_df = transfer_path_result.copy().head(500)
+    inventory_lookup = _build_inventory_lookup(inventory, stores)
 
-    for _, row in transfer_path_result.iterrows():
-        recommended_path = str(row.get("recommended_path", ""))
+    rows = []
 
+    for row in transfer_df.itertuples(index=False):
+        r = pd.Series(row._asdict())
+
+        recommended_path = str(r.get("recommended_path", ""))
         if recommended_path == "이동 비추천":
             continue
 
-        product_name = row.get("product_name", "-")
-        source_store = row.get("source_store", "-")
-        target_store = row.get("target_store", "-")
+        product_name = r.get("product_name", "-")
+        source_store = r.get("source_store", "-")
+        target_store = r.get("target_store", "-")
 
         suggested_qty = safe_int(
             get_first_existing_value(
-                row,
-                [
-                    "suggested_transfer_qty",
-                    "suggested_qty",
-                    "transfer_qty",
-                    "qty",
-                ],
+                r,
+                ["suggested_transfer_qty", "suggested_qty", "transfer_qty", "qty"],
                 default=0,
             ),
             default=0,
         )
 
-        transfer_cost = get_transfer_cost(row)
+        transfer_cost = get_transfer_cost(r)
+        source_inv = _source_inventory_from_lookup(inventory_lookup, source_store, product_name)
 
-        source_inv = find_source_inventory(
-            inventory,
-            stores,
-            source_store,
-            product_name,
-        )
-
-        unit_cost = estimate_unit_cost(source_inv, row)
-        daily_holding_cost = estimate_daily_holding_cost(source_inv, row)
+        unit_cost = estimate_unit_cost(source_inv, r)
+        daily_holding_cost = estimate_daily_holding_cost(source_inv, r)
 
         promotion_net_cost, promotion_formula = calculate_promotion_cost(
             promotion_type=promotion_type,
@@ -274,7 +223,7 @@ def analyze_promotion_vs_transfer(
             final_decision = "프로모션 추천"
             decision_reason = "프로모션 순비용이 재배치 비용보다 낮습니다."
 
-        results.append(
+        rows.append(
             {
                 "product_name": product_name,
                 "source_store": source_store,
@@ -292,4 +241,4 @@ def analyze_promotion_vs_transfer(
             }
         )
 
-    return pd.DataFrame(results)
+    return pd.DataFrame(rows)

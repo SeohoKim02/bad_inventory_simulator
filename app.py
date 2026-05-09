@@ -8,6 +8,55 @@ from numbers import Number
 import pandas as pd
 import streamlit as st
 
+
+# =========================
+# Streamlit 표 출력 안전 패치
+# =========================
+# st.dataframe()이 object 컬럼 안의 문자/숫자 혼합 때문에
+# pyarrow 경고(Expected bytes, got int object)를 길게 출력하는 문제를 막음.
+_ORIGINAL_ST_DATAFRAME = st.dataframe
+
+
+def _prepare_dataframe_for_display(data):
+    """화면 표시용 DataFrame을 안전하게 정리한다."""
+    if data is None:
+        return pd.DataFrame()
+
+    if isinstance(data, pd.DataFrame):
+        df = data.copy()
+    else:
+        try:
+            df = pd.DataFrame(data)
+        except Exception:
+            return data
+
+    # 컬럼명을 문자열로 통일
+    df.columns = [str(col) for col in df.columns]
+
+    # object/category 컬럼은 문자열로 통일해서 Arrow 변환 오류 방지
+    for col in df.columns:
+        try:
+            dtype_name = str(df[col].dtype)
+            if pd.api.types.is_object_dtype(df[col]) or dtype_name == "category":
+                df[col] = df[col].map(lambda x: "" if pd.isna(x) else str(x))
+        except Exception:
+            try:
+                df[col] = df[col].astype(str)
+            except Exception:
+                pass
+
+    return df
+
+
+def _safe_streamlit_dataframe(data=None, *args, **kwargs):
+    """기존 st.dataframe 대신 안전하게 표를 표시한다."""
+    safe_data = _prepare_dataframe_for_display(data)
+    return _ORIGINAL_ST_DATAFRAME(safe_data, *args, **kwargs)
+
+
+# app.py뿐 아니라 dashboard_pages.py, dashboard_view.py에서 쓰는 st.dataframe도 같이 안전 처리됨.
+st.dataframe = _safe_streamlit_dataframe
+
 warnings.filterwarnings(
     "ignore",
     message=".*extension is not supported and will be removed.*",
@@ -568,16 +617,10 @@ def show_main_hero():
         <div class="main-hero">
             <h1>📦 Varo</h1>
             <p class="hero-sub">
-                편의점 악성재고를 줄이기 위해 재고 상태, 이동 비용, 프로모션 효과, 최적 경로를 함께 분석하는
-                <b>재고 공유 및 의사결정 지원 시스템</b>입니다.
+                AI 기반으로 재고 데이터를 자동 분석해 악성재고 판단, 재고 이동 추천,
+                비용 비교, 최적 경로 계산, 강화학습 비교까지 지원하는
+                <b>재고관리 의사결정 시스템.</b>
             </p>
-            <div style="margin-top:20px;">
-                <span class="badge">악성재고 판단</span>
-                <span class="badge">휴리스틱 점수</span>
-                <span class="badge blue-badge">Greedy 선택</span>
-                <span class="badge green-badge">강화학습 확장</span>
-                <span class="badge pink-badge">재고 이동</span>
-            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -615,18 +658,10 @@ def show_workflow():
     )
 
 
-def show_mode_header(title, description, badges=None):
-    badge_html = ""
-
-    if badges:
-        for badge in badges:
-            badge_html += f'<span class="badge">{escape_text(badge)}</span>'
-
+def show_mode_header(title, description=None, badges=None):
     html = (
         '<div class="mode-header">'
         f"<h2>{escape_text(title)}</h2>"
-        f"<p>{escape_text(description)}</p>"
-        f'<div style="margin-top:14px;">{badge_html}</div>'
         "</div>"
     )
 
@@ -675,69 +710,17 @@ def show_excel_feature_cards():
 def show_mode_selector():
     show_main_hero()
 
-    st.markdown("### 사용할 방식을 선택하세요")
-
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown(
-            """
-            <div class="mode-card mode-card-yellow">
-                <h3>🧮 개별 입력 계산</h3>
-                <p>
-                점포명, 상품명, 재고 수량, 판매량, 할인율, 이동 가능 여부를 직접 입력해서
-                악성재고 여부와 처리 전략을 빠르게 계산합니다.
-                </p>
-                <p><b>추천 상황</b></p>
-                <ul>
-                    <li>단일 상품을 빠르게 테스트할 때</li>
-                    <li>계산 원리를 설명할 때</li>
-                    <li>발표에서 기본 구조를 시연할 때</li>
-                </ul>
-                <div class="mode-mini">
-                    현재 점수제도는 악성재고 위험을 판단하는 데 사용됩니다.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if st.button("🧮 개별 입력 계산 시작", width="stretch", type="primary"):
+        if st.button("🧮 개별 입력 계산", width="stretch", type="primary"):
             st.session_state.selected_mode = "single"
             st.rerun()
 
     with col2:
-        st.markdown(
-            """
-            <div class="mode-card mode-card-blue">
-                <h3>📊 엑셀 기반 최적 경로 추천</h3>
-                <p>
-                여러 점포, 상품, 재고, 경로 데이터를 기반으로
-                <b>휴리스틱 점수, Greedy 알고리즘, 강화학습 정책 비교</b>를 적용합니다.
-                </p>
-                <div style="margin-top:14px; margin-bottom:12px;">
-                    <span class="badge blue-badge">엑셀 업로드</span>
-                    <span class="badge">휴리스틱 점수</span>
-                    <span class="badge">Greedy 알고리즘</span>
-                    <span class="badge green-badge">강화학습 정책</span>
-                    <span class="badge pink-badge">다중 이동수단</span>
-                </div>
-                <p><b>추천 상황</b></p>
-                <ul>
-                    <li>여러 점포를 동시에 분석할 때</li>
-                    <li>최적 이동 경로를 추천받고 싶을 때</li>
-                    <li>지도에서 경로를 클릭해 재고 이동과 Inventory 변화를 확인할 때</li>
-                </ul>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if st.button("📊 엑셀 기반 분석 시작", width="stretch", type="primary"):
+        if st.button("📊 엑셀 기반 분석", width="stretch", type="primary"):
             st.session_state.selected_mode = "excel"
             st.rerun()
-
-    show_workflow()
 
 
 # =========================
@@ -1394,8 +1377,6 @@ def show_excel_optimizer():
             key="excel_preview_rows",
         )
 
-        st.caption("속도 보호를 위해 전체 데이터가 아니라 일부 행만 미리보기로 보여줍니다.")
-
         st.write("stores 시트")
         st.dataframe(stores.head(preview_rows), width="stretch")
 
@@ -1437,7 +1418,6 @@ def show_excel_optimizer():
     st.sidebar.markdown("---")
     st.sidebar.subheader("자동 분석")
     st.sidebar.success("분석 조건 자동 적용")
-    st.sidebar.caption("상세 기준은 관리자용 메뉴의 설명 페이지에서 확인할 수 있습니다.")
 
     with st.sidebar.expander("자동 적용값 보기", expanded=False):
         st.write(f"출발 시간: **{analysis_condition_summary['departure_time']}**")
@@ -1445,7 +1425,6 @@ def show_excel_optimizer():
         st.write(f"할인율: **{analysis_condition_summary['promotion_discount_rate']}%**")
         st.write(f"예상 판매 증가율: **{analysis_condition_summary['promotion_sales_increase_rate']}%**")
         st.write(f"고정비: **{analysis_condition_summary['promotion_fixed_cost']:,}원**")
-        st.caption(f"기준: {analysis_condition_summary['source']}")
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("속도 최적화")
@@ -1455,7 +1434,6 @@ def show_excel_optimizer():
     fast_mode = st.sidebar.checkbox(
         "빠른 분석 모드",
         value=fast_mode_default,
-        help="대형 파일에서는 악성재고 가능성이 높은 후보와 핵심 경로만 우선 분석해서 속도를 높입니다.",
         key="fast_mode_excel",
     )
 
@@ -1478,14 +1456,6 @@ def show_excel_optimizer():
         key="fast_route_limit",
         disabled=not fast_mode,
     )
-
-    if fast_mode:
-        st.sidebar.info(
-            f"빠른 분석 모드: 재고 {max_inventory_rows:,}건, 경로 {max_routes:,}건 이내로 우선 분석합니다."
-        )
-    else:
-        st.sidebar.warning("전체 분석 모드는 대형 파일에서 오래 걸릴 수 있습니다.")
-
 
     # =========================
     # 분석 계산
@@ -2183,10 +2153,85 @@ def show_excel_optimizer():
 
         truck_candidates = truck_candidates.sort_values("greedy_rank_for_truck")
 
-    truck_candidates = truck_candidates.head(max_truck_routes)
+    # 지도에 표시할 AI 추천 후보를 사용자가 직접 선택할 수 있게 함
+    truck_candidates = truck_candidates.head(max_truck_routes).reset_index(drop=True)
+
+    if not truck_candidates.empty:
+        st.markdown("### 🚚 지도에 표시할 AI 추천 후보 선택")
+
+        candidate_labels = []
+        label_to_position = {}
+
+        for candidate_position, candidate_row in truck_candidates.iterrows():
+            product_name_label = str(candidate_row.get("product_name", "-"))
+            source_store_label = str(candidate_row.get("source_store", "-"))
+            target_store_label = str(candidate_row.get("target_store", "-"))
+            recommended_path_label = str(candidate_row.get("recommended_path", "-"))
+
+            qty_value = candidate_row.get(
+                "suggested_transfer_qty",
+                candidate_row.get("suggested_qty", "-")
+            )
+
+            try:
+                qty_label = f"{int(float(qty_value))}개"
+            except Exception:
+                qty_label = f"{qty_value}개"
+
+            rank_label = candidate_position + 1
+
+            for rank_col in ["greedy_rank_for_truck", "greedy_rank", "ai_rank", "rank"]:
+                if rank_col in candidate_row.index and pd.notna(candidate_row.get(rank_col)):
+                    try:
+                        rank_label = int(float(candidate_row.get(rank_col)))
+                        break
+                    except Exception:
+                        pass
+
+            score_text = ""
+            for score_col in ["heuristic_score", "ai_score", "score", "total_score"]:
+                if score_col in candidate_row.index and pd.notna(candidate_row.get(score_col)):
+                    try:
+                        score_text = f" | {float(candidate_row.get(score_col)):.0f}점"
+                        break
+                    except Exception:
+                        pass
+
+            grade_text = ""
+            for grade_col in ["heuristic_grade", "recommendation_grade", "grade"]:
+                if grade_col in candidate_row.index and pd.notna(candidate_row.get(grade_col)):
+                    grade_text = f" | {candidate_row.get(grade_col)}"
+                    break
+
+            label = (
+                f"AI {rank_label}위 | {product_name_label} | "
+                f"{source_store_label} → {target_store_label} | "
+                f"{qty_label} | {recommended_path_label}"
+                f"{score_text}{grade_text}"
+            )
+
+            candidate_labels.append(label)
+            label_to_position[label] = candidate_position
+
+        default_labels = candidate_labels[: min(default_selected_count, len(candidate_labels))]
+
+        selected_candidate_labels = st.multiselect(
+            "후보 선택",
+            options=candidate_labels,
+            default=default_labels,
+            key="truck_ai_candidate_selector_fixed",
+        )
+
+        selected_positions = [
+            label_to_position[label]
+            for label in selected_candidate_labels
+            if label in label_to_position
+        ]
+
+        truck_candidates = truck_candidates.iloc[selected_positions].copy()
 
     if truck_candidates.empty:
-        st.info("재고 이동을 표시할 추천 경로가 없습니다.")
+        st.info("재고 이동을 표시할 추천 경로가 없습니다. 위 후보 선택창에서 1개 이상 선택해 주세요.")
 
     elif not kakao_js_key:
         st.info("재고 이동 시뮬레이션을 보려면 왼쪽 사이드바에 카카오맵 JavaScript 키를 입력하세요.")
@@ -2206,11 +2251,6 @@ def show_excel_optimizer():
         if not truck_scenarios:
             st.info("지도에 표시 가능한 Truck 경로가 없습니다.")
         else:
-            st.info(
-                "지도 위 색깔 경로선을 클릭하면 선택/해제됩니다. "
-                "여러 경로를 선택한 뒤 지도 아래의 '선택 경로 Truck 재생' 버튼을 누르면 여러 Truck이 동시에 이동합니다."
-            )
-
             show_kakao_map_with_multi_trucks(
                 stores,
                 routes,
