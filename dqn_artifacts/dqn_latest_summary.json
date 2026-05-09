@@ -1,5 +1,5 @@
 {
-  "created_at": "20260509_174046",
+  "created_at": "20260509_174339",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -19,13 +19,13 @@
   "summary": {
     "training_samples": 1000,
     "transition_count": 4000,
-    "final_loss": 19.10964308613714,
+    "final_loss": 12.787782312409377,
     "dqn_top_action": "재고 이동",
     "dqn_top_product": "에너지드링크029",
     "dqn_top_route": "잠실2점 → 잠원점",
     "greedy_top_action": "재고 이동",
-    "match_count": 341,
-    "match_rate": 34.1,
+    "match_count": 524,
+    "match_rate": 52.400000000000006,
     "feature_names": [
       "score_norm",
       "qty_norm",
