@@ -800,7 +800,7 @@ def _show_dashboard_home(
                 top_candidates["_candidate_original_index"].astype(str) != str(current_original_index)
             ]
 
-        top_candidates = top_candidates.head(7).reset_index(drop=True)
+        top_candidates = top_candidates.head(5).reset_index(drop=True)
 
         if top_candidates.empty:
             st.info("표시할 다른 추천 후보가 없습니다.")
@@ -955,6 +955,14 @@ def _make_product_filtered_df(df, product_query="", product_selected="전체"):
 
 
 def _render_product_filter(df, key_prefix="product_filter"):
+    """
+    상품명 검색/선택 필터.
+
+    - 검색어 입력 후 Enter 가능
+    - 검색 버튼 클릭 가능
+    - 검색어가 비어 있으면 전체 상품 표시
+    """
+
     if df is None or df.empty:
         return "", "전체"
 
@@ -962,14 +970,63 @@ def _render_product_filter(df, key_prefix="product_filter"):
     if product_col is None:
         return "", "전체"
 
+    query_key = f"{key_prefix}_query"
+    committed_key = f"{key_prefix}_committed_query"
+
+    if committed_key not in st.session_state:
+        st.session_state[committed_key] = ""
+
+    search_col, button_col = st.columns([5, 1])
+
+    with search_col:
+        typed_query = st.text_input(
+            "상품명 검색",
+            value=st.session_state.get(committed_key, ""),
+            placeholder="예: 우유, 도시락, 냉동",
+            key=query_key,
+        )
+
+    with button_col:
+        st.write("")
+        st.write("")
+        search_clicked = st.button(
+            "검색",
+            width="stretch",
+            key=f"{key_prefix}_search_button",
+        )
+
+    # Enter로 입력값이 바뀌어도 검색 반영, 검색 버튼을 눌러도 검색 반영
+    if search_clicked or typed_query != st.session_state.get(committed_key, ""):
+        st.session_state[committed_key] = str(typed_query).strip()
+
+    product_query = st.session_state.get(committed_key, "").strip()
+
     product_names = sorted([str(x) for x in df[product_col].dropna().unique()])
-    col1, col2 = st.columns([1.2, 1])
 
-    with col1:
-        product_query = st.text_input("상품명 검색", placeholder="예: 우유, 도시락, 냉동", key=f"{key_prefix}_query")
+    if product_query:
+        filtered_product_names = [
+            name for name in product_names
+            if product_query.lower() in name.lower()
+        ]
+    else:
+        filtered_product_names = product_names
 
-    with col2:
-        product_selected = st.selectbox("상품 선택", ["전체"] + product_names, key=f"{key_prefix}_select")
+    if not filtered_product_names:
+        product_selected = "전체"
+        st.info("검색 결과가 없습니다.")
+    else:
+        product_selected = st.selectbox(
+            "상품 선택",
+            ["전체"] + filtered_product_names,
+            key=f"{key_prefix}_select",
+        )
+
+    if product_query:
+        clear_col, _ = st.columns([1, 5])
+        with clear_col:
+            if st.button("초기화", width="stretch", key=f"{key_prefix}_clear_button"):
+                st.session_state[committed_key] = ""
+                st.rerun()
 
     return product_query, product_selected
 
@@ -1028,7 +1085,7 @@ def _build_score_view(final_recommendations):
     return score_view.reset_index(drop=True)
 
 
-def _render_score_bar_chart(score_view, max_rows=10):
+def _render_score_bar_chart(score_view, max_rows=5):
     """
     상품별 AI 추천 결과 그래프.
 
@@ -1066,7 +1123,7 @@ def _show_score_page(final_recommendations):
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     st.header("🧠 상품별 AI 추천 결과")
 
-    if st.button("💰 상품별 비용 비교 보기", width="stretch", key="go_cost_compare_from_score"):
+    if st.button("💰 비용 산정 기준 보기", width="stretch", key="go_cost_compare_from_score"):
         _go("cost_compare")
 
     if final_recommendations is None or final_recommendations.empty:
@@ -1270,23 +1327,6 @@ def _build_cost_comparison_table(
 
         move_cost = min(move_cost_candidates) if move_cost_candidates else 0
 
-        discount_loss_candidates = []
-
-        if promo_row is not None:
-            for col in [
-                "discount_loss_cost",
-                "promotion_loss_cost",
-                "promotion_net_cost",
-                "promotion_cost",
-                "promo_cost",
-                "expected_discount_loss",
-            ]:
-                value = _first_existing_value(promo_row, [col], None)
-                numeric_value = _safe_numeric(value, None)
-
-                if numeric_value is not None and numeric_value >= 0:
-                    discount_loss_candidates.append(numeric_value)
-
         unit_price = _get_unit_price(
             products=products,
             inventory=inventory,
@@ -1295,13 +1335,12 @@ def _build_cost_comparison_table(
             stores=stores,
         )
 
+        # 비용 산정 기준 화면의 할인율 입력값이 바로 반영되도록
+        # 기존 promotion_result의 고정 계산값을 쓰지 않고, 현재 입력 할인율로 다시 계산한다.
+        #
+        # 할인손실비용 = 단가 × 추천 수량 × 할인율
         discount_rate = _safe_numeric(discount_rate, 20.0)
-        discount_loss_by_rate = unit_price * suggested_qty * (discount_rate / 100)
-
-        if discount_loss_candidates:
-            discount_loss_cost = min(discount_loss_candidates)
-        else:
-            discount_loss_cost = discount_loss_by_rate
+        discount_loss_cost = unit_price * suggested_qty * (discount_rate / 100)
 
         disposal_unit_cost = _get_disposal_unit_cost(
             products,
@@ -1382,6 +1421,7 @@ def _build_cost_comparison_table(
                 "냉동/냉장 탑차 비용": transport_cost_map.get("냉동/냉장 탑차", 0),
                 "이동비용": move_cost,
                 "할인손실비용": discount_loss_cost,
+                "적용 할인율": f"{discount_rate:g}%",
                 "폐기비용": disposal_cost,
                 "비용 최소 방식": minimum_cost_action,
                 "AI 추천 방식": final_recommendation,
@@ -1424,18 +1464,18 @@ def _transport_usage_text(name):
 def _show_transport_rule_page():
     _back_to_dashboard()
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("🚛 이동수단 기준 보기")
+    st.header("🚛 이동수단·비용 산정 기준")
 
 
     cost_rule_df = pd.DataFrame([
-        {"항목": "이동비용", "설명": "점포 간 이동 또는 DC 경유 이동에 필요한 운송비"},
-        {"항목": "할인손실비용", "설명": "사용자가 입력한 할인율을 기준으로 정상 판매 대비 줄어드는 금액"},
-        {"항목": "폐기비용", "설명": "폐기 수량과 단위 폐기비용을 곱해 계산한 비용"},
-        {"항목": "추천 이동수단", "설명": "상품 특성, 추천 수량, 경유 여부를 기준으로 오토바이, 소형 차량, 소형 트럭, 냉동/냉장 탑차 중 선택"},
-        {"항목": "AI 추천 방식", "설명": "비용뿐 아니라 총점, 추천 수량, 거리, 시간, 재고 처리 효과까지 함께 반영한 결과"},
+        {"항목": "이동비용", "설명": "추천 경로의 이동거리, 경유 여부, 선택 이동수단의 단가를 반영한 예상 운송비"},
+        {"항목": "할인손실비용", "설명": "할인 판매 시 정상 판매 대비 감소하는 예상 매출 손실"},
+        {"항목": "폐기비용", "설명": "처리하지 못한 재고를 폐기할 때 발생하는 예상 손실 비용"},
+        {"항목": "추천 이동수단", "설명": "상품 특성, 이동 수량, 거리, 경유 여부를 기준으로 선택한 운송수단"},
+        {"항목": "AI 추천 방식", "설명": "비용, 거리, 시간, 추천 수량, 재고 처리 효과를 함께 반영한 종합 판단"},
     ])
 
-    st.subheader("비용·추천 기준")
+    st.subheader("비용 산정 기준")
     _safe_dataframe(cost_rule_df, width="stretch")
 
     st.subheader("이동수단별 기준")
@@ -1481,7 +1521,7 @@ def _show_cost_compare_page(
         _go("score")
 
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("💰 상품별 비용 비교")
+    st.header("💰 상품별 비용 산정 기준")
 
 
     discount_rate_for_loss = st.number_input("할인손실비용 계산용 할인율(%)", min_value=0.0, max_value=100.0, value=20.0, step=1.0, key="cost_compare_discount_rate")
@@ -1515,14 +1555,26 @@ def _show_cost_compare_page(
     c2.metric("할인손실비용", _format_money(best_row["할인손실비용"]))
     c3.metric("폐기비용", _format_money(best_row["폐기비용"]))
 
-    cost_cols = ["이동비용", "할인손실비용", "폐기비용", "비용 최소 방식", "AI 추천 방식", "수익 회수 가능성", "폐기 위험 감소 효과", "비용 부담률"]
+    cost_cols = [
+        "보내는 점포",
+        "받는 점포",
+        "이동비용",
+        "할인손실비용",
+        "적용 할인율",
+        "폐기비용",
+        "비용 최소 방식",
+        "AI 추천 방식",
+        "수익 회수 가능성",
+        "폐기 위험 감소 효과",
+        "비용 부담률",
+    ]
     display_table = filtered_table[[c for c in cost_cols if c in filtered_table.columns]].copy()
 
     for col in ["이동비용", "할인손실비용", "폐기비용"]:
         if col in display_table.columns:
             display_table[col] = display_table[col].apply(_format_money)
 
-    st.subheader("비용 비교표")
+    st.subheader("비용 산정 결과")
     _safe_dataframe(display_table, width="stretch", max_rows=300)
     _download_filtered_excel_button(filtered_table, file_name="상품별_비용_비교.xlsx", key="download_cost_filtered_excel")
 
@@ -1532,9 +1584,9 @@ def _show_cost_compare_page(
 
         st.markdown(
             """
-            - **이동비용**: 점포 간 이동 또는 DC 경유 이동에 필요한 운송비입니다.
-            - **할인손실비용**: 사용자가 입력한 할인율을 기준으로 정상 판매 대비 줄어드는 금액입니다.
-            - **폐기비용**: 폐기 수량과 단위 폐기비용을 곱해 계산한 비용입니다.
+            - **이동비용**: 추천 경로의 이동거리, 경유 여부, 선택 이동수단의 단가를 반영한 예상 운송비.
+            - **할인손실비용**: 할인 판매 시 정상 판매 대비 감소하는 예상 매출 손실.
+            - **폐기비용**: 처리하지 못한 재고를 폐기할 때 발생하는 예상 손실 비용.
             - **추천 이동수단**: 상품 특성, 추천 수량, 경유 여부를 기준으로 오토바이, 소형 차량, 소형 트럭, 냉동/냉장 탑차 중 하나를 제안합니다.
             - **AI 추천 방식**: 비용뿐 아니라 총점, 추천 수량, 거리, 시간, 재고 처리 효과까지 함께 반영한 결과입니다.
             """
@@ -1701,10 +1753,10 @@ def _show_graph_page(final_recommendations, final_rec_summary, promotion_result,
                 + "→"
                 + cost_df["target_store"].astype(str)
             )
-            cost_df = cost_df.dropna(subset=["estimated_cost"]).sort_values("estimated_cost").head(10)
+            cost_df = cost_df.dropna(subset=["estimated_cost"]).sort_values("estimated_cost").head(5)
 
             if not cost_df.empty:
-                st.subheader("예상 비용이 낮은 추천 후보 Top 10")
+                st.subheader("예상 비용이 낮은 추천 후보 Top 5")
                 st.bar_chart(cost_df.set_index("label")["estimated_cost"])
 
     if transfer_path_result is not None and not transfer_path_result.empty:
@@ -1855,9 +1907,9 @@ def _show_movement_page(
     with col2:
         max_truck_routes = st.slider(
             "표시할 추천 경로 후보 수",
-            min_value=3,
-            max_value=20,
-            value=8,
+            min_value=1,
+            max_value=5,
+            value=5,
             step=1,
             key="movement_page_max_routes",
         )
@@ -1977,11 +2029,11 @@ def _show_explain_page():
         5. 총점 기준으로 최적, 권장, 검토 등급을 부여합니다.
         6. 지도와 표에서 실행 가능한 추천 후보를 확인합니다.
 
-        ## 비용 항목
+        ## 비용 산정 기준
 
-        - **이동비용**: 점포 간 이동 또는 DC 경유 이동에 필요한 운송비입니다.
-        - **할인손실비용**: 사용자가 입력한 할인율을 기준으로 정상 판매 대비 줄어드는 금액입니다.
-        - **폐기비용**: 폐기 수량과 단위 폐기비용을 곱해 계산한 비용입니다.
+        - **이동비용**: 추천 경로의 이동거리, 경유 여부, 선택 이동수단의 단가를 반영한 예상 운송비.
+        - **할인손실비용**: 할인 판매 시 정상 판매 대비 감소하는 예상 매출 손실.
+        - **폐기비용**: 처리하지 못한 재고를 폐기할 때 발생하는 예상 손실 비용.
 
         ## 이동수단 기준
 
@@ -2427,6 +2479,7 @@ def _build_truck_scenarios(
     max_truck_routes,
     selected_transport_type="AI 추천 이동수단",
 ):
+    max_truck_routes = min(int(max_truck_routes), 5)
     store_location_map = {}
 
     for _, row in stores.iterrows():
@@ -2679,9 +2732,9 @@ def _show_truck_page(
     with col2:
         max_truck_routes = st.slider(
             "지도에 표시할 추천 경로 후보 수",
-            min_value=3,
-            max_value=20,
-            value=8,
+            min_value=1,
+            max_value=5,
+            value=5,
             step=1,
             key="truck_page_max_routes",
         )

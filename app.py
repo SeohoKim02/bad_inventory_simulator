@@ -455,7 +455,99 @@ def apply_global_style():
                     font-size: 40px;
                 }
             }
-        </style>
+        
+/* =========================
+   배포/모바일 글자색 고정
+   =========================
+   Streamlit Cloud, 모바일, 브라우저 다크모드에서
+   글씨가 흰색으로 잡혀 안 보이는 문제를 방지한다.
+*/
+html, body, [class*="stApp"], .stApp {
+    color: #222222 !important;
+    background-color: #fffdf5 !important;
+}
+
+.main, .block-container, section.main, div[data-testid="stAppViewContainer"] {
+    color: #222222 !important;
+    background-color: #fffdf5 !important;
+}
+
+div[data-testid="stSidebar"], section[data-testid="stSidebar"] {
+    color: #222222 !important;
+    background: #fff8d8 !important;
+}
+
+div[data-testid="stSidebar"] *,
+section[data-testid="stSidebar"] * {
+    color: #222222 !important;
+}
+
+h1, h2, h3, h4, h5, h6, p, span, label, div, small, strong, b, li {
+    color: #222222 !important;
+}
+
+.stMarkdown, .stMarkdown *, .stText, .stText *, .stCaptionContainer, .stCaptionContainer * {
+    color: #222222 !important;
+}
+
+div[data-testid="stMetric"] *,
+div[data-testid="stDataFrame"] *,
+div[data-testid="stTable"] * {
+    color: #222222 !important;
+}
+
+input, textarea, select {
+    color: #222222 !important;
+    background-color: #ffffff !important;
+}
+
+button {
+    color: #222222 !important;
+}
+
+.main-hero,
+.mode-header,
+.mode-card,
+.section-card,
+.dash-page-box {
+    color: #222222 !important;
+}
+
+.main-hero *,
+.mode-header *,
+.mode-card *,
+.section-card *,
+.dash-page-box * {
+    color: #222222 !important;
+}
+
+/* 입력창 placeholder는 너무 진하지 않게 */
+input::placeholder,
+textarea::placeholder {
+    color: #777777 !important;
+    opacity: 1 !important;
+}
+
+/* 파일 업로더 내부도 밝은 배경 기준으로 고정 */
+div[data-testid="stFileUploader"] *,
+div[data-testid="stFileUploaderDropzone"] * {
+    color: #222222 !important;
+}
+
+/* selectbox, multiselect 내부 텍스트 */
+div[data-baseweb="select"] *,
+div[data-baseweb="popover"] * {
+    color: #222222 !important;
+}
+
+/* 탭/라디오/체크박스 */
+div[role="tab"] *,
+div[role="radiogroup"] *,
+label[data-baseweb="checkbox"] * {
+    color: #222222 !important;
+}
+
+</style>
         """,
         unsafe_allow_html=True,
     )
