@@ -1,5 +1,5 @@
 {
-  "created_at": "20260512_211856",
+  "created_at": "20260512_211938",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -17,15 +17,15 @@
     "demand_gap_norm"
   ],
   "summary": {
-    "training_samples": 300,
-    "transition_count": 1200,
-    "final_loss": 47.981809140899216,
+    "training_samples": 535,
+    "transition_count": 2140,
+    "final_loss": 4.84554207767877,
     "dqn_top_action": "재고 이동",
     "dqn_top_product": "차음료024",
     "dqn_top_route": "신촌2점 → 합정점",
     "greedy_top_action": "재고 이동",
-    "match_count": 263,
-    "match_rate": 87.66666666666667,
+    "match_count": 407,
+    "match_rate": 76.07476635514018,
     "feature_names": [
       "score_norm",
       "qty_norm",
