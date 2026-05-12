@@ -1,5 +1,5 @@
 {
-  "created_at": "20260509_192859",
+  "created_at": "20260512_211856",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -17,15 +17,15 @@
     "demand_gap_norm"
   ],
   "summary": {
-    "training_samples": 109,
-    "transition_count": 436,
-    "final_loss": 42.006385186899,
+    "training_samples": 300,
+    "transition_count": 1200,
+    "final_loss": 47.981809140899216,
     "dqn_top_action": "재고 이동",
-    "dqn_top_product": "빵002",
-    "dqn_top_route": "왕십리점 → 잠실2점",
+    "dqn_top_product": "차음료024",
+    "dqn_top_route": "신촌2점 → 합정점",
     "greedy_top_action": "재고 이동",
-    "match_count": 101,
-    "match_rate": 92.66055045871559,
+    "match_count": 263,
+    "match_rate": 87.66666666666667,
     "feature_names": [
       "score_norm",
       "qty_norm",
