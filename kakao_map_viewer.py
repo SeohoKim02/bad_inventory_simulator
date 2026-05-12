@@ -978,11 +978,12 @@ def show_kakao_map_with_multi_trucks(
                 html += '<div class="route-mini"><div class="route-label">경로</div><div class="route-value">' + (scenario.source_store || '-') + ' → ' + (scenario.target_store || '-') + '</div></div>';
                 html += '<div class="route-mini"><div class="route-label">추천 수량</div><div class="route-value">' + (scenario.move_qty || 0) + '개</div></div>';
                 html += '<div class="route-mini"><div class="route-label">예상 비용</div><div class="route-value">' + (scenario.estimated_cost || '-') + '</div></div>';
-                html += '<div class="route-mini"><div class="route-label">추천 방식</div><div class="route-value">' + (scenario.recommended_path || '-') + '</div></div>';
+                html += '<div class="route-mini"><div class="route-label">추천 전략</div><div class="route-value">' + (scenario.recommended_path || '-') + '</div></div>';
+                html += '<div class="route-mini"><div class="route-label">추천 등급</div><div class="route-value">' + (scenario.heuristic_grade || '-') + '</div></div>';
                 html += '<div class="route-mini"><div class="route-label">이동수단</div><div class="route-value">' + (scenario.transport_icon || '🚚') + ' ' + (scenario.transport_type || '-') + '</div></div>';
                 html += '<div class="route-mini"><div class="route-label">이동수단 비용</div><div class="route-value">' + (scenario.transport_cost || '-') + '원</div></div>';
                 html += '<div class="route-mini"><div class="route-label">이동거리</div><div class="route-value">' + (scenario.distance_km || '-') + 'km</div></div>';
-                html += '<div class="route-mini"><div class="route-label">휴리스틱 점수</div><div class="route-value">' + (scenario.heuristic_score || '-') + '</div></div>';
+                html += '<div class="route-mini"><div class="route-label">총점</div><div class="route-value">' + (scenario.heuristic_score || '-') + '</div></div>';
                 html += '<div class="route-mini"><div class="route-label">이동 상태</div><div class="route-value">' + (arrived ? '도착 완료' : '이동 전/이동 중') + '</div></div>';
                 html += '<div class="route-mini"><div class="route-label">경로 노드</div><div class="route-value">' + (scenario.path_names || []).join(' → ') + '</div></div>';
                 html += '</div>';

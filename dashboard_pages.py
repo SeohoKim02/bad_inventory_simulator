@@ -278,6 +278,90 @@ def _safe_get(row, key, default="-"):
     except Exception:
         return default
 
+def _safe_qty(row, default=0):
+    """
+    추천 수량 컬럼이 여러 개 있을 수 있으므로,
+    0보다 큰 값을 우선 찾고 없을 때만 0을 사용한다.
+    """
+    qty_columns = [
+        "suggested_qty",
+        "suggested_transfer_qty",
+        "move_qty",
+        "recommended_qty",
+        "transfer_qty",
+        "추천 수량",
+    ]
+
+    numeric_candidates = []
+
+    for col in qty_columns:
+        try:
+            if col in row.index:
+                value = row.get(col)
+                numeric_value = _safe_numeric(value, None)
+
+                if numeric_value is not None:
+                    numeric_candidates.append(numeric_value)
+        except Exception:
+            continue
+
+    positive_candidates = [v for v in numeric_candidates if v > 0]
+
+    if positive_candidates:
+        return int(round(positive_candidates[0]))
+
+    if numeric_candidates:
+        return int(round(numeric_candidates[0]))
+
+    return int(default)
+
+
+def _filter_positive_qty_recommendations(df):
+    """
+    추천 수량이 0 이하인 후보는 실제 실행 추천으로 보기 어렵기 때문에
+    대시보드, AI 추천 결과, 지도 후보에서 제외한다.
+
+    단, suggested_qty가 0이어도 suggested_transfer_qty 등 다른 수량 컬럼이
+    양수라면 그 양수 값을 사용한다.
+    """
+    if df is None or df.empty:
+        return df
+
+    filtered = df.copy()
+
+    qty_columns = [
+        "suggested_qty",
+        "suggested_transfer_qty",
+        "move_qty",
+        "recommended_qty",
+        "transfer_qty",
+        "추천 수량",
+    ]
+
+    existing_qty_cols = [col for col in qty_columns if col in filtered.columns]
+
+    if not existing_qty_cols:
+        return filtered
+
+    qty_frame = pd.DataFrame(index=filtered.index)
+
+    for col in existing_qty_cols:
+        qty_frame[col] = pd.to_numeric(filtered[col], errors="coerce")
+
+    # 각 행마다 0보다 큰 수량을 우선 사용
+    positive_frame = qty_frame.where(qty_frame > 0)
+    qty_series = positive_frame.bfill(axis=1).iloc[:, 0]
+
+    # 양수 수량이 전혀 없으면 기존 값 중 첫 번째 값을 fallback으로 사용
+    fallback_series = qty_frame.bfill(axis=1).iloc[:, 0]
+    qty_series = qty_series.fillna(fallback_series).fillna(0)
+
+    filtered["_display_qty_filter"] = qty_series
+    filtered = filtered[filtered["_display_qty_filter"] > 0].drop(columns=["_display_qty_filter"], errors="ignore")
+
+    return filtered
+
+
 def _escape_text(value):
     return html_lib.escape(str(value))
 
@@ -366,7 +450,9 @@ def _best_row(final_recommendations):
     if final_recommendations is None or final_recommendations.empty:
         return None
 
-    df = final_recommendations.copy()
+    df = _filter_positive_qty_recommendations(final_recommendations)
+    if df is None or df.empty:
+        return None
 
     # 추천 후보 더보기에서 사용자가 선택한 후보가 있으면
     # 대시보드 메인 카드도 그 후보 기준으로 보여준다.
@@ -665,7 +751,7 @@ def _show_dashboard_home(
     product_name = _safe_get(best, "product_name")
     source_store = _safe_get(best, "source_store")
     target_store = _safe_get(best, "target_store")
-    suggested_qty = _safe_get(best, "suggested_qty", 0)
+    suggested_qty = _safe_qty(best, 0)
     final_recommendation = _safe_get(best, "final_recommendation")
     estimated_cost = _safe_get(best, "estimated_cost", 0)
     heuristic_score = _safe_get(best, "heuristic_score", "-")
@@ -769,7 +855,7 @@ def _show_dashboard_home(
         st.write(dashboard_reason)
 
     with st.expander("📈 추천 후보 더보기", expanded=False):
-        top_candidates = final_recommendations.copy()
+        top_candidates = _filter_positive_qty_recommendations(final_recommendations).copy()
 
         # 원본 index를 보관해야 후보를 눌렀을 때 대시보드 메인 카드가 같은 후보로 바뀜
         top_candidates["_candidate_original_index"] = top_candidates.index
@@ -811,7 +897,7 @@ def _show_dashboard_home(
                 c_product = _safe_get(candidate, "product_name", "-")
                 c_source = _safe_get(candidate, "source_store", "-")
                 c_target = _safe_get(candidate, "target_store", "-")
-                c_qty = _safe_get(candidate, "suggested_qty", 0)
+                c_qty = _safe_qty(candidate, 0)
                 c_cost = _format_money(_safe_get(candidate, "estimated_cost", 0))
                 c_strategy = _safe_get(candidate, "final_recommendation", "-")
                 c_score = _safe_get(candidate, "heuristic_score", "-")
@@ -1053,13 +1139,45 @@ def _build_score_view(final_recommendations):
     if final_recommendations is None or final_recommendations.empty:
         return pd.DataFrame()
 
-    view_cols = ["product_name", "source_store", "target_store", "suggested_qty", "estimated_cost", "final_recommendation", "heuristic_score", "heuristic_grade", "greedy_reason"]
+    view_cols = [
+        "category",
+        "product_category",
+        "category_name",
+        "product_name",
+        "source_store",
+        "target_store",
+        "suggested_qty",
+        "suggested_transfer_qty",
+        "move_qty",
+        "recommended_qty",
+        "transfer_qty",
+        "estimated_cost",
+        "recommended_distance_km",
+        "distance_km",
+        "direct_distance_km",
+        "network_distance_km",
+        "final_recommendation",
+        "heuristic_score",
+        "heuristic_grade",
+        "greedy_reason",
+    ]
     rename_map = {
+        "category": "카테고리",
+        "product_category": "카테고리",
+        "category_name": "카테고리",
         "product_name": "상품명",
         "source_store": "보내는 점포",
         "target_store": "받는 점포",
         "suggested_qty": "추천 수량",
+        "suggested_transfer_qty": "추천 수량",
+        "move_qty": "추천 수량",
+        "recommended_qty": "추천 수량",
+        "transfer_qty": "추천 수량",
         "estimated_cost": "예상 비용",
+        "recommended_distance_km": "이동거리",
+        "distance_km": "이동거리",
+        "direct_distance_km": "이동거리",
+        "network_distance_km": "이동거리",
         "final_recommendation": "추천 전략",
         "heuristic_score": "총점",
         "heuristic_grade": "추천 등급",
@@ -1067,6 +1185,13 @@ def _build_score_view(final_recommendations):
     }
 
     score_view = final_recommendations[[c for c in view_cols if c in final_recommendations.columns]].rename(columns=rename_map)
+
+    if "카테고리" not in score_view.columns:
+        score_view["카테고리"] = "전체"
+    else:
+        if isinstance(score_view["카테고리"], pd.DataFrame):
+            score_view["카테고리"] = score_view["카테고리"].iloc[:, 0]
+        score_view["카테고리"] = score_view["카테고리"].fillna("전체").astype(str)
 
     if "총점" in score_view.columns:
         score_view["총점"] = pd.to_numeric(score_view["총점"], errors="coerce").fillna(0).round(1)
@@ -1076,13 +1201,151 @@ def _build_score_view(final_recommendations):
     elif "총점" in score_view.columns:
         score_view["추천 등급"] = score_view["총점"].apply(lambda score: _grade_from_score(score, "-"))
 
+    if "추천 수량" in score_view.columns:
+        if isinstance(score_view["추천 수량"], pd.DataFrame):
+            score_view["추천 수량"] = score_view["추천 수량"].bfill(axis=1).iloc[:, 0]
+        score_view["추천 수량"] = pd.to_numeric(score_view["추천 수량"], errors="coerce").fillna(0).round(0).astype(int)
+
     if "예상 비용" in score_view.columns:
         score_view["예상 비용"] = pd.to_numeric(score_view["예상 비용"], errors="coerce").fillna(0)
+
+    # 이동거리 컬럼 후보가 여러 개 들어온 경우 첫 번째 유효 컬럼만 사용
+    if "이동거리" in score_view.columns:
+        if isinstance(score_view["이동거리"], pd.DataFrame):
+            score_view["이동거리"] = score_view["이동거리"].bfill(axis=1).iloc[:, 0]
+        score_view["이동거리"] = pd.to_numeric(score_view["이동거리"], errors="coerce")
 
     if "총점" in score_view.columns:
         score_view = score_view.sort_values("총점", ascending=False, na_position="last")
 
     return score_view.reset_index(drop=True)
+
+
+def _pick_ai_summary_top5(score_view):
+    """
+    AI 추천 결과 요약용 5개 후보 선별.
+
+    1순위: 최적 후보 우선
+    2순위: 최적이 5개 미만이면 권장 후보로 보충
+    3순위: 권장 후보는 최적 후보의 보내는 점포와 같은 후보를 우선하고,
+          이동거리/예상비용/총점 기준으로 정렬
+    4순위: 그래도 부족하면 검토 후보로 보충
+    """
+    if score_view is None or score_view.empty:
+        return pd.DataFrame()
+
+    df = score_view.copy()
+
+    if "추천 등급" not in df.columns:
+        return df.head(5).copy()
+
+    if "총점" in df.columns:
+        df["_score_sort"] = pd.to_numeric(df["총점"], errors="coerce").fillna(0)
+    else:
+        df["_score_sort"] = 0
+
+    if "예상 비용" in df.columns:
+        df["_cost_sort"] = pd.to_numeric(df["예상 비용"], errors="coerce").fillna(0)
+    else:
+        df["_cost_sort"] = 0
+
+    if "이동거리" in df.columns:
+        df["_distance_sort"] = pd.to_numeric(df["이동거리"], errors="coerce").fillna(999999)
+    else:
+        df["_distance_sort"] = 999999
+
+    df["_grade_text"] = df["추천 등급"].astype(str)
+
+    optimal = df[df["_grade_text"] == "최적"].copy()
+    recommended = df[df["_grade_text"] == "권장"].copy()
+    review = df[df["_grade_text"] == "검토"].copy()
+
+    optimal = optimal.sort_values(["_score_sort", "_cost_sort"], ascending=[False, True])
+    selected = optimal.head(5).copy()
+
+    if len(selected) < 5:
+        needed = 5 - len(selected)
+
+        source_candidates = set()
+        if not selected.empty and "보내는 점포" in selected.columns:
+            source_candidates = set(selected["보내는 점포"].dropna().astype(str).tolist())
+
+        if not recommended.empty:
+            if source_candidates and "보내는 점포" in recommended.columns:
+                recommended["_near_source_priority"] = recommended["보내는 점포"].astype(str).apply(
+                    lambda x: 0 if x in source_candidates else 1
+                )
+            else:
+                recommended["_near_source_priority"] = 1
+
+            recommended = recommended.sort_values(
+                ["_near_source_priority", "_distance_sort", "_score_sort", "_cost_sort"],
+                ascending=[True, True, False, True],
+            )
+
+            selected = pd.concat([selected, recommended.head(needed)], ignore_index=True)
+
+    if len(selected) < 5 and not review.empty:
+        needed = 5 - len(selected)
+        review = review.sort_values(["_distance_sort", "_score_sort", "_cost_sort"], ascending=[True, False, True])
+        selected = pd.concat([selected, review.head(needed)], ignore_index=True)
+
+    selected = selected.drop(
+        columns=["_score_sort", "_cost_sort", "_distance_sort", "_grade_text", "_near_source_priority"],
+        errors="ignore",
+    )
+
+    return selected.head(5).reset_index(drop=True)
+
+
+def _render_grade_category_top3(score_view):
+    if score_view is None or score_view.empty:
+        return
+
+    if "추천 등급" not in score_view.columns:
+        return
+
+    st.subheader("등급별 카테고리 추천")
+
+    selected_grade = st.radio(
+        "추천 등급",
+        ["최적", "권장", "검토"],
+        horizontal=True,
+        key="score_page_grade_category_buttons",
+    )
+
+    grade_df = score_view[score_view["추천 등급"].astype(str) == selected_grade].copy()
+
+    if grade_df.empty:
+        st.info(f"{selected_grade} 등급 추천 후보가 없습니다.")
+        return
+
+    if "카테고리" not in grade_df.columns:
+        grade_df["카테고리"] = "전체"
+
+    if "총점" in grade_df.columns:
+        grade_df["_score_sort"] = pd.to_numeric(grade_df["총점"], errors="coerce").fillna(0)
+        grade_df = grade_df.sort_values(["카테고리", "_score_sort"], ascending=[True, False])
+    else:
+        grade_df["_score_sort"] = 0
+
+    picked = (
+        grade_df.groupby("카테고리", group_keys=False)
+        .head(3)
+        .drop(columns=["_score_sort"], errors="ignore")
+        .reset_index(drop=True)
+    )
+
+    display_cols = ["상품명", "보내는 점포", "받는 점포", "추천 수량", "예상 비용", "추천 전략", "총점", "추천 등급"]
+
+    for category_name, category_df in picked.groupby("카테고리", sort=True):
+        st.markdown(f"### {category_name}")
+        category_view = category_df[[c for c in display_cols if c in category_df.columns]].copy()
+
+        if "예상 비용" in category_view.columns:
+            category_view["예상 비용"] = category_view["예상 비용"].apply(_format_money)
+
+        _safe_dataframe(category_view, width="stretch", max_rows=3)
 
 
 def _render_score_bar_chart(score_view, max_rows=5):
@@ -1131,7 +1394,8 @@ def _show_score_page(final_recommendations):
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    score_view = _build_score_view(final_recommendations)
+    score_source = _filter_positive_qty_recommendations(final_recommendations)
+    score_view = _build_score_view(score_source)
     product_query, product_selected = _render_product_filter(score_view, key_prefix="score_page_product")
     filtered_view = _make_product_filtered_df(score_view, product_query, product_selected)
 
@@ -1140,34 +1404,20 @@ def _show_score_page(final_recommendations):
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    selected_grade = st.radio("추천 등급 필터", ["전체", "최적", "권장", "검토"], horizontal=True, key="score_page_grade_filter")
-
-    if selected_grade != "전체" and "추천 등급" in filtered_view.columns:
-        filtered_view = filtered_view[filtered_view["추천 등급"] == selected_grade]
-
-    if filtered_view.empty:
-        st.info("선택한 등급에 해당하는 추천 결과가 없습니다.")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
+    summary_view = _pick_ai_summary_top5(filtered_view)
 
     main_cols = ["상품명", "보내는 점포", "받는 점포", "추천 수량", "예상 비용", "추천 전략", "총점", "추천 등급"]
-    display_table = filtered_view[[c for c in main_cols if c in filtered_view.columns]].copy()
+    display_table = summary_view[[c for c in main_cols if c in summary_view.columns]].copy()
 
     if "예상 비용" in display_table.columns:
         display_table["예상 비용"] = display_table["예상 비용"].apply(_format_money)
 
     st.subheader("AI 추천 결과 요약")
-    _safe_dataframe(display_table, width="stretch", max_rows=300)
+    _safe_dataframe(display_table, width="stretch", max_rows=5)
     _download_filtered_excel_button(display_table, file_name="상품별_AI_추천_결과.xlsx", key="download_score_filtered_excel")
-    _render_score_bar_chart(filtered_view, max_rows=12)
 
-    with st.expander("그리디 선택 근거 상세보기", expanded=False):
-        if "그리디 선택 근거" not in filtered_view.columns:
-            st.info("표시할 그리디 선택 근거가 없습니다.")
-        else:
-            reason_cols = ["상품명", "보내는 점포", "받는 점포", "총점", "추천 등급", "그리디 선택 근거"]
-            reason_view = filtered_view[[c for c in reason_cols if c in filtered_view.columns]].copy()
-            _safe_dataframe(reason_view, width="stretch", max_rows=300)
+    _render_score_bar_chart(summary_view, max_rows=5)
+    _render_grade_category_top3(filtered_view)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1526,11 +1776,13 @@ def _show_cost_compare_page(
 
     discount_rate_for_loss = st.number_input("할인손실비용 계산용 할인율(%)", min_value=0.0, max_value=100.0, value=20.0, step=1.0, key="cost_compare_discount_rate")
 
+    final_recommendations_for_cost = _filter_positive_qty_recommendations(final_recommendations)
+
     compare_table = _build_cost_comparison_table(
         stores=stores,
         products=products,
         inventory=inventory,
-        final_recommendations=final_recommendations,
+        final_recommendations=final_recommendations_for_cost,
         promotion_result=promotion_result,
         transfer_path_result=transfer_path_result,
         discount_rate=discount_rate_for_loss,
@@ -1611,7 +1863,7 @@ def _show_score_formula_page(final_recommendations):
     product_name = _safe_get(best, "product_name")
     source_store = _safe_get(best, "source_store")
     target_store = _safe_get(best, "target_store")
-    suggested_qty = _safe_get(best, "suggested_qty", 0)
+    suggested_qty = _safe_qty(best, 0)
     estimated_cost = _safe_get(best, "estimated_cost", 0)
     total_score = _safe_get(best, "heuristic_score", "-")
     grade = _display_grade(_safe_get(best, "heuristic_grade", "-"))
@@ -2515,10 +2767,14 @@ def _build_truck_scenarios(
         if final_recommendations is None or final_recommendations.empty:
             return None
 
-        matched = final_recommendations[
-            (final_recommendations["product_name"] == path_row["product_name"])
-            & (final_recommendations["source_store"] == path_row["source_store"])
-            & (final_recommendations["target_store"] == path_row["target_store"])
+        valid_final_recommendations = _filter_positive_qty_recommendations(final_recommendations)
+        if valid_final_recommendations is None or valid_final_recommendations.empty:
+            return None
+
+        matched = valid_final_recommendations[
+            (valid_final_recommendations["product_name"] == path_row["product_name"])
+            & (valid_final_recommendations["source_store"] == path_row["source_store"])
+            & (valid_final_recommendations["target_store"] == path_row["target_store"])
         ]
 
         if matched.empty:
@@ -2532,6 +2788,10 @@ def _build_truck_scenarios(
     truck_candidates = transfer_path_result[
         transfer_path_result["recommended_path"] != "이동 비추천"
     ].copy()
+
+    truck_candidates = _filter_positive_qty_recommendations(truck_candidates)
+    if truck_candidates is None or truck_candidates.empty:
+        return []
 
     if (
         not truck_candidates.empty
@@ -2567,14 +2827,35 @@ def _build_truck_scenarios(
         product_name = path_row["product_name"]
         source_store = path_row["source_store"]
         target_store = path_row["target_store"]
-        recommended_path = path_row["recommended_path"]
 
-        try:
-            move_qty = int(path_row["suggested_transfer_qty"])
-        except Exception:
-            move_qty = 0
+        # 실제 이동 경로 계산에는 transfer_path_result의 이동 방식이 필요하다.
+        route_path_type = path_row["recommended_path"]
 
-        if recommended_path == "DC 경유 이동 추천":
+        rec_match = get_recommendation_match(path_row)
+
+        # 지도 클릭 결과는 대시보드/AI 추천 결과와 같은 final_recommendations 값을 우선 사용한다.
+        if rec_match is not None:
+            recommended_path = rec_match.get("final_recommendation", route_path_type)
+            move_qty = _safe_qty(rec_match, int(_safe_numeric(path_row.get("suggested_transfer_qty", 0), 0)))
+            estimated_cost = rec_match.get("estimated_cost", "-")
+            heuristic_score = rec_match.get("heuristic_score", "-")
+            heuristic_grade = rec_match.get("heuristic_grade", "-")
+            reason = rec_match.get("reason", "-")
+        else:
+            recommended_path = route_path_type
+            try:
+                move_qty = int(path_row["suggested_transfer_qty"])
+            except Exception:
+                move_qty = 0
+            estimated_cost = path_row.get("direct_cost", path_row.get("via_cost", "-"))
+            heuristic_score = "-"
+            heuristic_grade = "-"
+            reason = path_row.get("recommendation_reason", "-")
+
+        if move_qty <= 0:
+            continue
+
+        if route_path_type == "DC 경유 이동 추천":
             via_dc = path_row.get("via_dc", None)
             if via_dc and pd.notna(via_dc):
                 path_names = [source_store, via_dc, target_store]
@@ -2633,23 +2914,12 @@ def _build_truck_scenarios(
                 "change": 0,
             }
 
-        rec_match = get_recommendation_match(path_row)
-
-        if rec_match is not None:
-            estimated_cost = rec_match.get("estimated_cost", "-")
-            heuristic_score = rec_match.get("heuristic_score", "-")
-            reason = rec_match.get("reason", "-")
-        else:
-            estimated_cost = path_row.get("direct_cost", path_row.get("via_cost", "-"))
-            heuristic_score = "-"
-            reason = path_row.get("recommendation_reason", "-")
-
         distance_km = _estimate_route_distance_km(path_row)
 
         transport_type = _choose_transport_type(
             product_name=product_name,
             qty=move_qty,
-            recommended_path=recommended_path,
+            recommended_path=route_path_type,
             selected_transport_type=selected_transport_type,
         )
 
@@ -2675,10 +2945,13 @@ def _build_truck_scenarios(
                 "source_store": source_store,
                 "target_store": target_store,
                 "move_qty": move_qty,
-                "recommended_path": recommended_path,
-                "estimated_cost": str(estimated_cost),
-                "heuristic_score": str(heuristic_score),
+                "recommended_path": str(recommended_path),
+                "route_path_type": str(route_path_type),
+                "estimated_cost": _format_money(estimated_cost) if _safe_numeric(estimated_cost, None) is not None else str(estimated_cost),
+                "heuristic_score": str(round(_safe_numeric(heuristic_score, 0), 1)) if _safe_numeric(heuristic_score, None) is not None else str(heuristic_score),
+                "heuristic_grade": str(heuristic_grade),
                 "reason": str(reason),
+                "candidate_key": f"{product_name}|{source_store}|{target_store}",
                 "path_names": path_names,
                 "path": truck_path,
                 "store_inventory": store_inventory,
