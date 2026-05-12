@@ -993,6 +993,28 @@ def _parse_time_value(value, default=time(9, 0)):
         if isinstance(value, time):
             return value
 
+        if pd.isna(value):
+            return default
+
+        if isinstance(value, (int, float)):
+            numeric = float(value)
+
+            # 엑셀 시간값: 0.3333 = 08:00, 0.9166 = 22:00
+            if 0 <= numeric < 1:
+                total_minutes = int(round(numeric * 24 * 60))
+                return time((total_minutes // 60) % 24, total_minutes % 60)
+
+            # 8.5 같은 값은 08:30으로 처리
+            if 1 <= numeric < 24:
+                hour = int(numeric)
+                minute = int(round((numeric - hour) * 60))
+                return time(hour % 24, minute % 60)
+
+            # 이미 분 단위로 들어온 값
+            if 24 <= numeric < 24 * 60:
+                total_minutes = int(round(numeric))
+                return time((total_minutes // 60) % 24, total_minutes % 60)
+
         text = str(value).strip()
 
         if not text:
@@ -1002,10 +1024,17 @@ def _parse_time_value(value, default=time(9, 0)):
             parts = text.split(":")
             hour = int(float(parts[0]))
             minute = int(float(parts[1])) if len(parts) > 1 else 0
-            return time(hour, minute)
+            return time(hour % 24, minute % 60)
 
-        hour = int(float(text))
-        return time(hour, 0)
+        numeric = float(text)
+
+        if 0 <= numeric < 1:
+            total_minutes = int(round(numeric * 24 * 60))
+            return time((total_minutes // 60) % 24, total_minutes % 60)
+
+        hour = int(numeric)
+        minute = int(round((numeric - hour) * 60))
+        return time(hour % 24, minute % 60)
     except Exception:
         return default
 
@@ -1066,18 +1095,16 @@ def auto_determine_analysis_conditions(excel_data, stores, products, inventory):
 
     if config_departure is None and stores is not None and not stores.empty and "available_start" in stores.columns:
         try:
-            start_hours = (
-                stores["available_start"]
-                .dropna()
-                .astype(str)
-                .str.extract(r"(\d{1,2})")[0]
-                .dropna()
-                .astype(int)
-            )
+            start_hours = []
 
-            if not start_hours.empty:
+            for raw_value in stores["available_start"].dropna().tolist():
+                parsed_time = _parse_time_value(raw_value, default=None)
+                if parsed_time is not None:
+                    start_hours.append(parsed_time.hour)
+
+            if start_hours:
                 # 가장 흔한 오픈 시간보다 1시간 뒤를 출발 시간으로 설정
-                common_start = int(start_hours.mode().iloc[0])
+                common_start = int(pd.Series(start_hours).mode().iloc[0])
                 departure_time = time(min(common_start + 1, 23), 0)
         except Exception:
             departure_time = time(9, 0)

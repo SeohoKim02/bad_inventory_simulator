@@ -69,15 +69,30 @@ def _get_unit_price(products, inventory, product_name, source_store=None, stores
     return default_price
 
 
-def _recommend_transport(product_name, qty, recommended_path="-"):
+def _recommend_transport(product_name, qty, recommended_path="-", distance_km=None):
+    """
+    5차 데이터 기준 이동수단 추천.
+
+    5차부터 도보/전동자전거가 추가되어,
+    초근거리·소량 이동은 도보/전동자전거를 우선 고려한다.
+    냉장·냉동·신선식품은 냉동/냉장 탑차를 우선한다.
+    """
     text = str(product_name) + " " + str(recommended_path)
     qty = _safe_numeric(qty, 0)
+    distance = _safe_numeric(distance_km, None)
 
-    if any(keyword in text for keyword in ["냉동", "아이스", "만두", "냉장", "우유", "요거트"]):
+    if any(keyword in text for keyword in ["냉동", "아이스", "만두", "냉장", "우유", "요거트", "샐러드", "신선"]):
         return "냉동/냉장 탑차"
 
     if "DC" in text or "경유" in text:
         return "소형 트럭"
+
+    if distance is not None:
+        if qty <= 3 and distance <= 0.7:
+            return "도보"
+
+        if qty <= 15 and distance <= 3.0:
+            return "전동자전거"
 
     if qty <= 20:
         return "오토바이"
@@ -89,13 +104,31 @@ def _recommend_transport(product_name, qty, recommended_path="-"):
 
 
 TRANSPORT_PROFILES = {
+    "도보": {
+        "icon": "🚶",
+        "base_cost": 0,
+        "cost_per_km": 50,
+        "capacity": 3,
+        "speed_factor": 0.35,
+        "description": "초근거리 소량 재고 이동",
+        "cold_chain": False,
+    },
+    "전동자전거": {
+        "icon": "🚲",
+        "base_cost": 700,
+        "cost_per_km": 220,
+        "capacity": 15,
+        "speed_factor": 0.95,
+        "description": "근거리 소량 재고 이동",
+        "cold_chain": False,
+    },
     "오토바이": {
         "icon": "🛵",
         "base_cost": 1200,
         "cost_per_km": 420,
         "capacity": 20,
         "speed_factor": 1.25,
-        "description": "소량·근거리 이동에 적합",
+        "description": "긴급 소량 배송",
         "cold_chain": False,
     },
     "소형 차량": {
@@ -104,7 +137,7 @@ TRANSPORT_PROFILES = {
         "cost_per_km": 620,
         "capacity": 80,
         "speed_factor": 1.0,
-        "description": "중간 수량 점포 간 이동에 적합",
+        "description": "중거리 일반 재고 운송",
         "cold_chain": False,
     },
     "소형 트럭": {
@@ -113,16 +146,16 @@ TRANSPORT_PROFILES = {
         "cost_per_km": 880,
         "capacity": 200,
         "speed_factor": 0.85,
-        "description": "대량 재고 또는 DC 경유 이동에 적합",
+        "description": "대량 일반 재고 운송 및 DC 경유 이동",
         "cold_chain": False,
     },
     "냉동/냉장 탑차": {
         "icon": "🧊",
         "base_cost": 7500,
         "cost_per_km": 1050,
-        "capacity": 150,
+        "capacity": 200,
         "speed_factor": 0.75,
-        "description": "온도 유지가 필요한 신선·냉동 상품에 적합",
+        "description": "신선식품 및 냉장·냉동 재고 운송",
         "cold_chain": True,
     },
 }
@@ -130,7 +163,7 @@ TRANSPORT_PROFILES = {
 
 def _is_cold_product(product_name):
     text = str(product_name)
-    return any(keyword in text for keyword in ["냉동", "냉장", "아이스", "만두", "우유", "요거트", "샐러드"])
+    return any(keyword in text for keyword in ["냉동", "냉장", "아이스", "만두", "우유", "요거트", "샐러드", "신선"])
 
 
 def _get_transport_profile(transport_type):
@@ -223,7 +256,7 @@ def _calculate_transport_options(product_name, qty, distance_km):
     return rows
 
 
-def _choose_transport_type(product_name, qty, recommended_path="-", selected_transport_type="AI 추천 이동수단"):
+def _choose_transport_type(product_name, qty, recommended_path="-", selected_transport_type="AI 추천 이동수단", distance_km=None):
     if selected_transport_type and selected_transport_type != "AI 추천 이동수단":
         return selected_transport_type
 
@@ -231,6 +264,7 @@ def _choose_transport_type(product_name, qty, recommended_path="-", selected_tra
         product_name=product_name,
         qty=qty,
         recommended_path=recommended_path,
+        distance_km=distance_km,
     )
 
 
@@ -443,6 +477,211 @@ def _safe_dataframe(df, **kwargs):
         st.dataframe(display_df, **kwargs)
     except Exception:
         st.dataframe(display_df.astype(str), **kwargs)
+
+
+
+def _short_label(value, max_len=18):
+    text = str(value)
+
+    if len(text) <= max_len:
+        return text
+
+    return text[:max_len - 1] + "…"
+
+
+def _make_route_label(row):
+    product = _short_label(row.get("product_name", row.get("상품명", "-")), 8)
+    source = _short_label(row.get("source_store", row.get("보내는 점포", "-")), 6)
+    target = _short_label(row.get("target_store", row.get("받는 점포", "-")), 6)
+
+    return f"{product} | {source}→{target}"
+
+
+def _format_example_table(df, max_rows=5):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    view = df.copy().head(max_rows)
+
+    rename_map = {
+        "product_name": "상품명",
+        "source_store": "보내는 점포",
+        "target_store": "받는 점포",
+        "suggested_qty": "추천 수량",
+        "suggested_transfer_qty": "추천 수량",
+        "move_qty": "추천 수량",
+        "estimated_cost": "예상 비용",
+        "final_recommendation": "추천 전략",
+        "recommended_path": "이동 방식",
+        "heuristic_score": "총점",
+        "heuristic_grade": "추천 등급",
+        "final_decision": "결정",
+    }
+
+    view = view.rename(columns=rename_map)
+
+    wanted_cols = [
+        "상품명",
+        "보내는 점포",
+        "받는 점포",
+        "추천 수량",
+        "예상 비용",
+        "추천 전략",
+        "이동 방식",
+        "결정",
+        "총점",
+        "추천 등급",
+    ]
+
+    existing_cols = [c for c in wanted_cols if c in view.columns]
+    view = view[existing_cols].copy()
+
+    if "예상 비용" in view.columns:
+        view["예상 비용"] = view["예상 비용"].apply(_format_money)
+
+    if "총점" in view.columns:
+        view["총점"] = pd.to_numeric(view["총점"], errors="coerce").fillna(0).round(1)
+
+    return view
+
+
+def _pick_examples_for_graph(
+    title,
+    final_recommendations=None,
+    transfer_path_result=None,
+    promotion_result=None,
+    group_col=None,
+    group_value=None,
+):
+    """
+    그래프 항목별 대표 후보 5개 추출.
+    그래프 카드의 접힘창에서 보여줄 표를 만든다.
+    """
+    title_text = str(title)
+
+    if "추천 유형" in title_text:
+        if final_recommendations is None or final_recommendations.empty:
+            return pd.DataFrame()
+
+        df = _filter_positive_qty_recommendations(final_recommendations).copy()
+
+        if group_col and group_value and group_col in df.columns:
+            df = df[df[group_col].astype(str) == str(group_value)]
+
+        if "heuristic_score" in df.columns:
+            df["heuristic_score"] = pd.to_numeric(df["heuristic_score"], errors="coerce").fillna(0)
+            df = df.sort_values("heuristic_score", ascending=False)
+
+        return _format_example_table(df, max_rows=5)
+
+    if "낮은 예상 비용" in title_text:
+        if final_recommendations is None or final_recommendations.empty:
+            return pd.DataFrame()
+
+        df = _filter_positive_qty_recommendations(final_recommendations).copy()
+
+        if "estimated_cost" in df.columns:
+            df["estimated_cost"] = pd.to_numeric(df["estimated_cost"], errors="coerce")
+            df = df.dropna(subset=["estimated_cost"]).sort_values("estimated_cost", ascending=True)
+
+        return _format_example_table(df, max_rows=5)
+
+    if "이동 방식" in title_text:
+        if transfer_path_result is None or transfer_path_result.empty:
+            return pd.DataFrame()
+
+        df = transfer_path_result.copy()
+
+        if group_col and group_value and group_col in df.columns:
+            df = df[df[group_col].astype(str) == str(group_value)]
+
+        if "suggested_transfer_qty" in df.columns:
+            df["suggested_transfer_qty"] = pd.to_numeric(df["suggested_transfer_qty"], errors="coerce").fillna(0)
+            df = df[df["suggested_transfer_qty"] > 0]
+
+        if "estimated_cost" in df.columns:
+            df["estimated_cost"] = pd.to_numeric(df["estimated_cost"], errors="coerce")
+
+        return _format_example_table(df, max_rows=5)
+
+    if "프로모션" in title_text or "재배치" in title_text:
+        if promotion_result is None or promotion_result.empty:
+            return pd.DataFrame()
+
+        df = promotion_result.copy()
+
+        if group_col and group_value and group_col in df.columns:
+            df = df[df[group_col].astype(str) == str(group_value)]
+
+        # promotion_result에 점수/비용이 있으면 보기 좋게 정렬
+        for sort_col in ["heuristic_score", "estimated_cost", "promotion_net_cost", "transfer_cost"]:
+            if sort_col in df.columns:
+                df[sort_col] = pd.to_numeric(df[sort_col], errors="coerce")
+
+        if "heuristic_score" in df.columns:
+            df = df.sort_values("heuristic_score", ascending=False)
+        elif "estimated_cost" in df.columns:
+            df = df.sort_values("estimated_cost", ascending=True)
+
+        return _format_example_table(df, max_rows=5)
+
+    return pd.DataFrame()
+
+
+def _render_compact_chart_card(
+    df,
+    label_col,
+    value_col,
+    title,
+    top_n=5,
+    value_suffix="",
+    ascending=False,
+    examples_df=None,
+):
+    """
+    Streamlit 기본 요소로 만든 안전한 그래프 카드.
+    카드 아래에 대표 후보 5개 접힘창을 붙인다.
+    """
+    if df is None or df.empty or label_col not in df.columns or value_col not in df.columns:
+        return
+
+    chart_df = df[[label_col, value_col]].copy()
+    chart_df[value_col] = pd.to_numeric(chart_df[value_col], errors="coerce")
+    chart_df = chart_df.dropna(subset=[value_col])
+
+    if chart_df.empty:
+        return
+
+    chart_df = chart_df.sort_values(value_col, ascending=ascending).head(top_n)
+    chart_df[label_col] = chart_df[label_col].astype(str).apply(lambda x: _short_label(x, 22))
+
+    max_value = chart_df[value_col].max()
+
+    if max_value <= 0:
+        max_value = 1
+
+    with st.container(border=True):
+        st.markdown(f"### {title}")
+
+        for _, row in chart_df.iterrows():
+            label = row[label_col]
+            value = float(row[value_col])
+            ratio = max(min(value / float(max_value), 1), 0)
+            progress_value = int(round(ratio * 100))
+
+            left_col, right_col = st.columns([3, 1])
+
+            with left_col:
+                st.markdown(f"**{label}**")
+
+            with right_col:
+                st.markdown(f"**{value:,.0f}{value_suffix}**")
+
+            st.progress(progress_value)
+
+        if examples_df is not None and not examples_df.empty:
+            with st.expander("대표 후보 5개 보기", expanded=False):
+                _safe_dataframe(examples_df, width="stretch", max_rows=5)
 
 
 
@@ -1629,6 +1868,7 @@ def _build_cost_comparison_table(
             qty=suggested_qty,
             recommended_path=final_recommendation,
             selected_transport_type="AI 추천 이동수단",
+            distance_km=distance_km,
         )
 
         transport_options = _calculate_transport_options(
@@ -1665,6 +1905,8 @@ def _build_cost_comparison_table(
                 "추천 수량": int(suggested_qty),
                 "추천 이동수단": transport_type,
                 "AI 이동수단 비용": selected_transport_cost,
+                "도보 비용": transport_cost_map.get("도보", 0),
+                "전동자전거 비용": transport_cost_map.get("전동자전거", 0),
                 "오토바이 비용": transport_cost_map.get("오토바이", 0),
                 "소형 차량 비용": transport_cost_map.get("소형 차량", 0),
                 "소형 트럭 비용": transport_cost_map.get("소형 트럭", 0),
@@ -1700,10 +1942,14 @@ def _build_cost_comparison_table(
 
 
 def _transport_usage_text(name):
+    if name == "도보":
+        return "초근거리·극소량 이동"
+    if name == "전동자전거":
+        return "근거리·소량 이동"
     if name == "오토바이":
-        return "소량·근거리 일반 상품"
+        return "긴급 소량 배송"
     if name == "소형 차량":
-        return "중간 수량 점포 간 이동"
+        return "중거리 일반 재고 운송"
     if name == "소형 트럭":
         return "대량 이동 또는 DC 경유"
     if name == "냉동/냉장 탑차":
@@ -1839,7 +2085,7 @@ def _show_cost_compare_page(
             - **이동비용**: 추천 경로의 이동거리, 경유 여부, 선택 이동수단의 단가를 반영한 예상 운송비.
             - **할인손실비용**: 할인 판매 시 정상 판매 대비 감소하는 예상 매출 손실.
             - **폐기비용**: 처리하지 못한 재고를 폐기할 때 발생하는 예상 손실 비용.
-            - **추천 이동수단**: 상품 특성, 추천 수량, 경유 여부를 기준으로 오토바이, 소형 차량, 소형 트럭, 냉동/냉장 탑차 중 하나를 제안합니다.
+            - **추천 이동수단**: 상품 특성, 추천 수량, 경유 여부를 기준으로 도보, 전동자전거, 오토바이, 소형 차량, 소형 트럭, 냉동/냉장 탑차 중 하나를 제안합니다.
             - **AI 추천 방식**: 비용뿐 아니라 총점, 추천 수량, 거리, 시간, 재고 처리 효과까지 함께 반영한 결과입니다.
             """
         )
@@ -1987,49 +2233,154 @@ def _show_score_formula_page(final_recommendations):
 def _show_graph_page(final_recommendations, final_rec_summary, promotion_result, transfer_path_result):
     _back_to_dashboard()
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("📊 그래프 페이지")
+    st.header("📊 그래프 요약")
+
+    chart_items = []
 
     if final_rec_summary is not None and not final_rec_summary.empty:
         if "final_recommendation" in final_rec_summary.columns and "count" in final_rec_summary.columns:
-            st.subheader("추천 유형별 건수")
-            st.bar_chart(final_rec_summary.set_index("final_recommendation")["count"])
+            summary_df = final_rec_summary.copy()
+            summary_df["final_recommendation"] = summary_df["final_recommendation"].astype(str)
+            summary_df["count"] = pd.to_numeric(summary_df["count"], errors="coerce").fillna(0)
+
+            # 가장 건수가 많은 추천 유형의 대표 후보 5개
+            top_type = None
+            if not summary_df.empty:
+                top_type = summary_df.sort_values("count", ascending=False).iloc[0]["final_recommendation"]
+
+            examples_df = _pick_examples_for_graph(
+                title="추천 유형별 건수",
+                final_recommendations=final_recommendations,
+                group_col="final_recommendation",
+                group_value=top_type,
+            )
+
+            chart_items.append(
+                {
+                    "df": summary_df,
+                    "label_col": "final_recommendation",
+                    "value_col": "count",
+                    "title": "추천 유형별 건수",
+                    "top_n": 5,
+                    "suffix": "건",
+                    "ascending": False,
+                    "examples_df": examples_df,
+                }
+            )
 
     if final_recommendations is not None and not final_recommendations.empty:
         if "estimated_cost" in final_recommendations.columns:
-            cost_df = final_recommendations.copy()
-            cost_df["estimated_cost"] = pd.to_numeric(cost_df["estimated_cost"], errors="coerce")
-            cost_df["label"] = (
-                cost_df["product_name"].astype(str)
-                + " | "
-                + cost_df["source_store"].astype(str)
-                + "→"
-                + cost_df["target_store"].astype(str)
-            )
-            cost_df = cost_df.dropna(subset=["estimated_cost"]).sort_values("estimated_cost").head(5)
+            cost_df = _filter_positive_qty_recommendations(final_recommendations).copy()
 
             if not cost_df.empty:
-                st.subheader("예상 비용이 낮은 추천 후보 Top 5")
-                st.bar_chart(cost_df.set_index("label")["estimated_cost"])
+                cost_df["estimated_cost"] = pd.to_numeric(cost_df["estimated_cost"], errors="coerce")
+                cost_df["label"] = cost_df.apply(_make_route_label, axis=1)
+                cost_df = cost_df.dropna(subset=["estimated_cost"])
+
+                examples_df = _pick_examples_for_graph(
+                    title="낮은 예상 비용 Top 5",
+                    final_recommendations=final_recommendations,
+                )
+
+                chart_items.append(
+                    {
+                        "df": cost_df,
+                        "label_col": "label",
+                        "value_col": "estimated_cost",
+                        "title": "낮은 예상 비용 Top 5",
+                        "top_n": 5,
+                        "suffix": "원",
+                        "ascending": True,
+                        "examples_df": examples_df,
+                    }
+                )
 
     if transfer_path_result is not None and not transfer_path_result.empty:
         if "recommended_path" in transfer_path_result.columns:
-            st.subheader("이동 방식별 후보 수")
             path_summary = (
                 transfer_path_result.groupby("recommended_path")
                 .size()
                 .reset_index(name="count")
             )
-            st.bar_chart(path_summary.set_index("recommended_path")["count"])
+            path_summary["recommended_path"] = path_summary["recommended_path"].astype(str)
+
+            top_path = None
+            if not path_summary.empty:
+                top_path = path_summary.sort_values("count", ascending=False).iloc[0]["recommended_path"]
+
+            examples_df = _pick_examples_for_graph(
+                title="이동 방식별 후보 수",
+                transfer_path_result=transfer_path_result,
+                group_col="recommended_path",
+                group_value=top_path,
+            )
+
+            chart_items.append(
+                {
+                    "df": path_summary,
+                    "label_col": "recommended_path",
+                    "value_col": "count",
+                    "title": "이동 방식별 후보 수",
+                    "top_n": 5,
+                    "suffix": "건",
+                    "ascending": False,
+                    "examples_df": examples_df,
+                }
+            )
 
     if promotion_result is not None and not promotion_result.empty:
         if "final_decision" in promotion_result.columns:
-            st.subheader("프로모션 vs 재배치 결정")
             promo_summary = (
                 promotion_result.groupby("final_decision")
                 .size()
                 .reset_index(name="count")
             )
-            st.bar_chart(promo_summary.set_index("final_decision")["count"])
+            promo_summary["final_decision"] = promo_summary["final_decision"].astype(str)
+
+            top_decision = None
+            if not promo_summary.empty:
+                top_decision = promo_summary.sort_values("count", ascending=False).iloc[0]["final_decision"]
+
+            examples_df = _pick_examples_for_graph(
+                title="프로모션/재배치 결정",
+                promotion_result=promotion_result,
+                group_col="final_decision",
+                group_value=top_decision,
+            )
+
+            chart_items.append(
+                {
+                    "df": promo_summary,
+                    "label_col": "final_decision",
+                    "value_col": "count",
+                    "title": "프로모션/재배치 결정",
+                    "top_n": 5,
+                    "suffix": "건",
+                    "ascending": False,
+                    "examples_df": examples_df,
+                }
+            )
+
+    if not chart_items:
+        st.info("표시할 그래프 데이터가 없습니다.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    for i in range(0, len(chart_items), 2):
+        col1, col2 = st.columns(2)
+
+        for col, item in zip([col1, col2], chart_items[i:i + 2]):
+            with col:
+                _render_compact_chart_card(
+                    df=item["df"],
+                    label_col=item["label_col"],
+                    value_col=item["value_col"],
+                    title=item["title"],
+                    top_n=item["top_n"],
+                    value_suffix=item["suffix"],
+                    ascending=item["ascending"],
+                    examples_df=item["examples_df"],
+                )
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -2181,6 +2532,8 @@ def _show_movement_page(
             "시뮬레이션 이동수단",
             [
                 "AI 추천 이동수단",
+                "도보",
+                "전동자전거",
                 "오토바이",
                 "소형 차량",
                 "소형 트럭",
@@ -2289,7 +2642,9 @@ def _show_explain_page():
 
         ## 이동수단 기준
 
-        - **오토바이**: 소량·근거리 일반 상품 이동에 사용합니다.
+        - **도보**: 초근거리·극소량 이동에 사용합니다.
+        - **전동자전거**: 근거리·소량 이동에 사용합니다.
+        - **오토바이**: 긴급 소량 배송에 사용합니다.
         - **소형 차량**: 중간 수량의 점포 간 이동에 사용합니다.
         - **소형 트럭**: 대량 이동 또는 DC 경유 이동에 사용합니다.
         - **냉동/냉장 탑차**: 냉장, 냉동, 아이스, 샐러드 등 온도 유지가 필요한 상품에 사용합니다.
@@ -2921,6 +3276,7 @@ def _build_truck_scenarios(
             qty=move_qty,
             recommended_path=route_path_type,
             selected_transport_type=selected_transport_type,
+            distance_km=distance_km,
         )
 
         transport_profile = _get_transport_profile(transport_type)

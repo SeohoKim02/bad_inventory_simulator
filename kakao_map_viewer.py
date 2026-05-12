@@ -747,7 +747,8 @@ def show_kakao_map_with_multi_trucks(
                 var grade = scenario.heuristic_grade || scenario.recommendation_grade || scenario.grade || '';
                 var gradeText = grade ? ' · ' + grade : '';
 
-                return '<span class="candidate-rank">AI ' + (idx + 1) + '위</span> | ' + rawLabel + scoreText + gradeText;
+                var transportText = scenario.transport_type ? ' · ' + (scenario.transport_icon || '') + ' ' + scenario.transport_type : '';
+                return '<span class="candidate-rank">AI ' + (idx + 1) + '위</span> | ' + rawLabel + scoreText + gradeText + transportText;
             }
 
             var candidateSelectorOpen = false;
@@ -980,6 +981,9 @@ def show_kakao_map_with_multi_trucks(
                 html += '<div class="route-mini"><div class="route-label">예상 비용</div><div class="route-value">' + (scenario.estimated_cost || '-') + '</div></div>';
                 html += '<div class="route-mini"><div class="route-label">추천 전략</div><div class="route-value">' + (scenario.recommended_path || '-') + '</div></div>';
                 html += '<div class="route-mini"><div class="route-label">추천 등급</div><div class="route-value">' + (scenario.heuristic_grade || '-') + '</div></div>';
+                if (scenario.route_path_type) {
+                    html += '<div class="route-mini"><div class="route-label">이동 방식</div><div class="route-value">' + scenario.route_path_type + '</div></div>';
+                }
                 html += '<div class="route-mini"><div class="route-label">이동수단</div><div class="route-value">' + (scenario.transport_icon || '🚚') + ' ' + (scenario.transport_type || '-') + '</div></div>';
                 html += '<div class="route-mini"><div class="route-label">이동수단 비용</div><div class="route-value">' + (scenario.transport_cost || '-') + '원</div></div>';
                 html += '<div class="route-mini"><div class="route-label">이동거리</div><div class="route-value">' + (scenario.distance_km || '-') + 'km</div></div>';

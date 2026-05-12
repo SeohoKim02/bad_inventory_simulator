@@ -11,22 +11,60 @@ def time_to_minutes(value):
     if isinstance(value, time):
         return value.hour * 60 + value.minute
 
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+
+        # 엑셀 시간값: 0.3333 = 08:00, 0.9166 = 22:00
+        if 0 <= numeric < 1:
+            return int(round(numeric * 24 * 60))
+
+        # 8.5 = 08:30
+        if 1 <= numeric < 24:
+            hour = int(numeric)
+            minute = int(round((numeric - hour) * 60))
+            return hour * 60 + minute
+
+        # 이미 분 단위로 들어온 값
+        return int(round(numeric))
+
     text = str(value).strip()
     parts = text.split(":")
 
     if len(parts) >= 2:
         try:
-            return int(parts[0]) * 60 + int(parts[1])
+            return int(float(parts[0])) * 60 + int(float(parts[1]))
         except Exception:
             return None
 
-    return None
+    try:
+        numeric = float(text)
+
+        if 0 <= numeric < 1:
+            return int(round(numeric * 24 * 60))
+
+        if 1 <= numeric < 24:
+            hour = int(numeric)
+            minute = int(round((numeric - hour) * 60))
+            return hour * 60 + minute
+
+        return int(round(numeric))
+    except Exception:
+        return None
 
 
 def is_within_window(target_min, start_min, end_min):
     if start_min is None or end_min is None:
         return False
-    return start_min <= target_min <= end_min
+
+    target_min = int(target_min) % (24 * 60)
+    start_min = int(start_min) % (24 * 60)
+    end_min = int(end_min) % (24 * 60)
+
+    if start_min <= end_min:
+        return start_min <= target_min <= end_min
+
+    # 예: 22:00 ~ 02:00
+    return target_min >= start_min or target_min <= end_min
 
 
 def minutes_to_time_text(minutes):

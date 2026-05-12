@@ -16,19 +16,43 @@ def _time_to_minutes(value):
     if isinstance(value, (int, float)):
         if pd.isna(value):
             return None
-        return int(value)
+
+        numeric = float(value)
+
+        # 엑셀 시간값: 0.3333 = 08:00, 0.9166 = 22:00
+        if 0 <= numeric < 1:
+            return int(round(numeric * 24 * 60))
+
+        # 8.5 = 08:30
+        if 1 <= numeric < 24:
+            hour = int(numeric)
+            minute = int(round((numeric - hour) * 60))
+            return hour * 60 + minute
+
+        # 이미 분 단위로 들어온 값
+        return int(round(numeric))
 
     text = str(value).strip()
 
     if ":" in text:
         try:
             hour, minute = text.split(":")[:2]
-            return int(hour) * 60 + int(minute)
+            return int(float(hour)) * 60 + int(float(minute))
         except Exception:
             return None
 
     try:
-        return int(float(text))
+        numeric = float(text)
+
+        if 0 <= numeric < 1:
+            return int(round(numeric * 24 * 60))
+
+        if 1 <= numeric < 24:
+            hour = int(numeric)
+            minute = int(round((numeric - hour) * 60))
+            return hour * 60 + minute
+
+        return int(round(numeric))
     except Exception:
         return None
 
