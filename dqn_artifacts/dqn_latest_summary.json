@@ -1,5 +1,5 @@
 {
-  "created_at": "20260512_211938",
+  "created_at": "20260514_190609",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -17,15 +17,15 @@
     "demand_gap_norm"
   ],
   "summary": {
-    "training_samples": 535,
-    "transition_count": 2140,
-    "final_loss": 4.84554207767877,
+    "training_samples": 300,
+    "transition_count": 1200,
+    "final_loss": 54.857498907252186,
     "dqn_top_action": "재고 이동",
-    "dqn_top_product": "차음료024",
-    "dqn_top_route": "신촌2점 → 합정점",
+    "dqn_top_product": "농심 육개장사발면",
+    "dqn_top_route": "잠원점 → 선릉점",
     "greedy_top_action": "재고 이동",
-    "match_count": 407,
-    "match_rate": 76.07476635514018,
+    "match_count": 300,
+    "match_rate": 100.0,
     "feature_names": [
       "score_norm",
       "qty_norm",
