@@ -1,5 +1,5 @@
 {
-  "created_at": "20260514_191006",
+  "created_at": "20260514_191039",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -19,13 +19,13 @@
   "summary": {
     "training_samples": 532,
     "transition_count": 2128,
-    "final_loss": 6.471103557316581,
+    "final_loss": 17.27147122678565,
     "dqn_top_action": "재고 이동",
     "dqn_top_product": "농심 육개장사발면",
     "dqn_top_route": "잠원점 → 선릉점",
     "greedy_top_action": "재고 이동",
-    "match_count": 504,
-    "match_rate": 94.73684210526315,
+    "match_count": 512,
+    "match_rate": 96.2406015037594,
     "feature_names": [
       "score_norm",
       "qty_norm",
