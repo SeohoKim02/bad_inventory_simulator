@@ -2479,6 +2479,9 @@ def _show_movement_page(
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
+    # =========================
+    # 내 주변 점포 매칭 지도
+    # =========================
     st.subheader("📍 내 주변 점포 재고 매칭 지도")
 
     show_store_matching_map(
@@ -2490,6 +2493,10 @@ def _show_movement_page(
     )
 
     st.markdown("---")
+
+    # =========================
+    # 재고 이동 시뮬레이션
+    # =========================
     st.subheader("재고 이동 및 재고 변화")
 
     if show_kakao_map_with_multi_trucks is None:
@@ -2497,39 +2504,9 @@ def _show_movement_page(
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    col1, col2, col3, col4 = st.columns(4)
+    control_col1, control_col2 = st.columns([2, 1])
 
-    with col1:
-        truck_speed = st.slider(
-            "이동 배속",
-            min_value=0.5,
-            max_value=10.0,
-            value=1.0,
-            step=0.5,
-            key="movement_page_speed",
-        )
-
-    with col2:
-        max_truck_routes = st.slider(
-            "표시할 추천 경로 후보 수",
-            min_value=1,
-            max_value=5,
-            value=5,
-            step=1,
-            key="movement_page_max_routes",
-        )
-
-    with col3:
-        default_selected_count = st.slider(
-            "처음 자동 선택할 이동수단 수",
-            min_value=1,
-            max_value=5,
-            value=3,
-            step=1,
-            key="movement_page_default_count",
-        )
-
-    with col4:
+    with control_col1:
         selected_transport_type = st.selectbox(
             "시뮬레이션 이동수단",
             [
@@ -2544,69 +2521,183 @@ def _show_movement_page(
             key="movement_page_transport_type",
         )
 
-    scenarios = _build_truck_scenarios(
+    with control_col2:
+        truck_speed = st.slider(
+            "이동 배속",
+            min_value=0.5,
+            max_value=10.0,
+            value=1.0,
+            step=0.5,
+            key="movement_page_speed",
+        )
+
+    all_scenarios = _build_truck_scenarios(
         stores=stores,
         products=products,
         inventory=inventory,
         final_recommendations=final_recommendations,
         transfer_path_result=transfer_path_result,
-        max_truck_routes=max_truck_routes,
+        max_truck_routes=200,
         selected_transport_type=selected_transport_type,
     )
 
-    if scenarios:
-        transport_rows = []
+    if not all_scenarios:
+        st.info("지도에 표시 가능한 이동 경로가 없습니다.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
 
-        for scenario in scenarios:
-            transport_rows.append(
+    def _scenario_score_value(scenario):
+        try:
+            return float(scenario.get("heuristic_score", 0))
+        except Exception:
+            return 0.0
+
+    all_scenarios = sorted(all_scenarios, key=_scenario_score_value, reverse=True)
+
+    selection_mode = st.radio(
+        "지도에 표시할 AI 추천 기준",
+        ["AI 추천 후보", "보내는 점포 기준", "상품 기준"],
+        horizontal=True,
+        key="movement_candidate_selection_mode",
+    )
+
+    def _scenario_label(scenario, index):
+        product_name = scenario.get("product_name", "-")
+        source_store = scenario.get("source_store", "-")
+        target_store = scenario.get("target_store", "-")
+        move_qty = scenario.get("move_qty", "-")
+        recommended_path = scenario.get("recommended_path", "-")
+        transport_icon = scenario.get("transport_icon", "")
+        transport_type = scenario.get("transport_type", "-")
+        heuristic_score = scenario.get("heuristic_score", "-")
+
+        try:
+            score_text = f"{float(heuristic_score):.0f}점"
+        except Exception:
+            score_text = "-"
+
+        return (
+            f"{index}. {product_name} / {source_store} → {target_store} · "
+            f"{move_qty}개 · {score_text} · {recommended_path} · {transport_icon} {transport_type}"
+        )
+
+    if selection_mode == "AI 추천 후보":
+        candidate_scenarios = all_scenarios[:5]
+        selector_label = "AI 추천 후보 자동 선택"
+
+    elif selection_mode == "보내는 점포 기준":
+        source_store_options = sorted(
+            {str(s.get("source_store", "-")) for s in all_scenarios if str(s.get("source_store", "-")) not in ["", "-"]}
+        )
+
+        selected_source_store = st.selectbox(
+            "보내는 점포 선택",
+            source_store_options,
+            key="movement_source_store_selector",
+        )
+
+        candidate_scenarios = [
+            s for s in all_scenarios
+            if str(s.get("source_store", "-")) == str(selected_source_store)
+        ][:5]
+
+        selector_label = f"{selected_source_store}에서 보낼 AI 추천 후보"
+
+    else:
+        product_options = sorted(
+            {str(s.get("product_name", "-")) for s in all_scenarios if str(s.get("product_name", "-")) not in ["", "-"]}
+        )
+
+        selected_product_name = st.selectbox(
+            "상품 선택",
+            product_options,
+            key="movement_product_selector",
+        )
+
+        candidate_scenarios = [
+            s for s in all_scenarios
+            if str(s.get("product_name", "-")) == str(selected_product_name)
+        ][:5]
+
+        selector_label = f"{selected_product_name} AI 추천 이동 후보"
+
+    if not candidate_scenarios:
+        st.info("선택한 조건에 해당하는 이동 후보가 없습니다.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    # 사용자가 후보를 하나씩 체크하지 않아도 되도록,
+    # 현재 조건에서 AI 점수순 상위 후보를 자동으로 최대 5개 선택한다.
+    selected_scenarios = candidate_scenarios[:5]
+
+    with st.expander(f"{selector_label} 결과 ({len(selected_scenarios)}개)", expanded=False):
+        preview_rows = []
+
+        for scenario_index, scenario in enumerate(selected_scenarios, start=1):
+            preview_rows.append(
                 {
+                    "순위": scenario_index,
                     "상품명": scenario.get("product_name", "-"),
-                    "경로": f"{scenario.get('source_store', '-')} → {scenario.get('target_store', '-')}",
+                    "보내는 점포": scenario.get("source_store", "-"),
+                    "받는 점포": scenario.get("target_store", "-"),
                     "추천 수량": scenario.get("move_qty", 0),
-                    "이동거리(km)": scenario.get("distance_km", "-"),
-                    "선택 이동수단": f"{scenario.get('transport_icon', '')} {scenario.get('transport_type', '-')}",
-                    "이동수단 예상비용": _format_money(scenario.get("transport_cost", 0)),
+                    "총점": scenario.get("heuristic_score", "-"),
                     "추천 방식": scenario.get("recommended_path", "-"),
+                    "이동수단": f"{scenario.get('transport_icon', '')} {scenario.get('transport_type', '-')}",
                 }
             )
 
-        with st.expander("추천 이동수단 및 비용 보기", expanded=False):
-            _safe_dataframe(pd.DataFrame(transport_rows), width="stretch")
+        _safe_dataframe(pd.DataFrame(preview_rows), width="stretch", max_rows=5)
 
-            option_rows = []
+    transport_rows = []
 
-            for scenario in scenarios:
-                for option in scenario.get("transport_cost_options", []):
-                    option_rows.append(
-                        {
-                            "상품명": scenario.get("product_name", "-"),
-                            "경로": f"{scenario.get('source_store', '-')} → {scenario.get('target_store', '-')}",
-                            "이동수단": f"{option.get('아이콘', '')} {option.get('이동수단', '-')}",
-                            "예상 이동비용": _format_money(option.get("예상 이동비용", 0)),
-                            "적재 가능 수량": option.get("적재 가능 수량", "-"),
-                            "속도 계수": option.get("속도 계수", "-"),
-                            "설명": option.get("설명", "-"),
-                        }
-                    )
-
-            if option_rows:
-                st.markdown("#### 이동수단별 예상 비용")
-                _safe_dataframe(pd.DataFrame(option_rows), width="stretch")
-
-            if st.button("이동수단 기준 보기", width="stretch", key="go_transport_rule_from_movement"):
-                _go("transport_rule")
-
-    if not scenarios:
-        st.info("지도에 표시 가능한 이동 경로가 없습니다.")
-    else:
-        show_kakao_map_with_multi_trucks(
-            stores,
-            routes,
-            kakao_js_key,
-            scenarios,
-            speed_multiplier=truck_speed,
-            default_selected_count=default_selected_count,
+    for scenario in selected_scenarios:
+        transport_rows.append(
+            {
+                "상품명": scenario.get("product_name", "-"),
+                "경로": f"{scenario.get('source_store', '-')} → {scenario.get('target_store', '-')}",
+                "추천 수량": scenario.get("move_qty", 0),
+                "이동거리(km)": scenario.get("distance_km", "-"),
+                "선택 이동수단": f"{scenario.get('transport_icon', '')} {scenario.get('transport_type', '-')}",
+                "이동수단 예상비용": _format_money(scenario.get("transport_cost", 0)),
+                "추천 방식": scenario.get("recommended_path", "-"),
+            }
         )
+
+    with st.expander("추천 이동수단 및 비용 보기", expanded=False):
+        _safe_dataframe(pd.DataFrame(transport_rows), width="stretch")
+
+        option_rows = []
+
+        for scenario in selected_scenarios:
+            for option in scenario.get("transport_cost_options", []):
+                option_rows.append(
+                    {
+                        "상품명": scenario.get("product_name", "-"),
+                        "경로": f"{scenario.get('source_store', '-')} → {scenario.get('target_store', '-')}",
+                        "이동수단": f"{option.get('아이콘', '')} {option.get('이동수단', '-')}",
+                        "예상 이동비용": _format_money(option.get("예상 이동비용", 0)),
+                        "적재 가능 수량": option.get("적재 가능 수량", "-"),
+                        "속도 계수": option.get("속도 계수", "-"),
+                        "설명": option.get("설명", "-"),
+                    }
+                )
+
+        if option_rows:
+            st.markdown("#### 이동수단별 예상 비용")
+            _safe_dataframe(pd.DataFrame(option_rows), width="stretch")
+
+        if st.button("이동수단 기준 보기", width="stretch", key="go_transport_rule_from_movement"):
+            _go("transport_rule")
+
+    show_kakao_map_with_multi_trucks(
+        stores,
+        routes,
+        kakao_js_key,
+        selected_scenarios,
+        speed_multiplier=truck_speed,
+        default_selected_count=len(selected_scenarios),
+    )
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -3088,7 +3179,7 @@ def _build_truck_scenarios(
     max_truck_routes,
     selected_transport_type="AI 추천 이동수단",
 ):
-    max_truck_routes = min(int(max_truck_routes), 5)
+    max_truck_routes = max(1, min(int(max_truck_routes), 200))
     store_location_map = {}
 
     for _, row in stores.iterrows():

@@ -368,6 +368,7 @@ def show_kakao_map_with_multi_trucks(
             button:hover { background: #fff3bf; }
 
             .candidate-selector {
+                display: none;
                 margin-top: 12px;
                 padding: 10px 12px;
                 background: rgba(255,255,255,0.72);
@@ -447,7 +448,7 @@ def show_kakao_map_with_multi_trucks(
             }
 
             .selected-list {
-                margin-top: 8px;
+                margin-top: 6px;
                 padding: 8px 10px;
                 background: rgba(255,255,255,0.65);
                 border: 1px solid rgba(255,255,255,0.8);
@@ -462,13 +463,15 @@ def show_kakao_map_with_multi_trucks(
         <div id="map"></div>
 
         <div id="control-panel">
-            <b>🚚 지도 클릭 기반 재고 이동 시뮬레이션</b><br>
-            상태: <span id="truck-status">준비 중</span><br>
-            현재 배속: <b><span id="speed-text">__SPEED__</span>x</b> /
-            전체 후보 경로 수: <b><span id="route-count">0</span>개</b> /
-            선택 경로 수: <b><span id="selected-count">0</span>개</b>
+            <b>🚚 지도 클릭 기반 재고 이동 시뮬레이션</b>
 
-            <div id="candidate-selector" class="candidate-selector"></div>
+            <div style="display:none;">
+                <span id="truck-status">준비 중</span>
+                <span id="speed-text">__SPEED__</span>
+                <span id="route-count">0</span>
+                <span id="selected-count">0</span>
+                <div id="candidate-selector" class="candidate-selector"></div>
+            </div>
 
             <div style="margin-top:10px;">
                 <button onclick="restart이동수단s()">선택 경로 재고 이동 재생</button>
