@@ -1,6 +1,7 @@
 
 import json
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 def _records_json(df):
@@ -1073,3 +1074,688 @@ def show_kakao_map_with_truck(
         speed_multiplier=speed_multiplier,
         default_selected_count=1,
     )
+
+
+def show_store_matching_map(
+    stores,
+    routes,
+    final_recommendations,
+    kakao_js_key,
+    selected_store_name=None,
+):
+    """
+    브라우저/휴대폰 GPS 기준으로 주변 점포를 표시하는 재고 매칭 지도.
+
+    색상 기준:
+    - 초록색: 내 위치
+    - 빨간색: 긴급 수요
+    - 노란색: 추천 가능
+    - 파란색: 일반 점포
+    """
+    stores_data = stores.copy().dropna(subset=["latitude", "longitude"])
+    routes_data = routes.copy() if routes is not None else None
+    rec_data = final_recommendations.copy() if final_recommendations is not None else None
+
+    if stores_data.empty:
+        components.html("<p>지도에 표시할 위치 데이터가 없습니다.</p>", height=200)
+        return
+
+    kakao_js_key = str(kakao_js_key).strip()
+
+    # GPS가 실패했을 때 사용할 fallback 중심점
+    if selected_store_name and selected_store_name in stores_data["store_name"].astype(str).values:
+        center_row = stores_data[stores_data["store_name"].astype(str) == str(selected_store_name)].iloc[0]
+    else:
+        center_row = stores_data.iloc[0]
+        selected_store_name = str(center_row["store_name"])
+
+    center_lat = float(center_row["latitude"])
+    center_lng = float(center_row["longitude"])
+
+    store_status = {}
+
+    for _, store in stores_data.iterrows():
+        store_name = str(store["store_name"])
+
+        store_status[store_name] = {
+            "store_name": store_name,
+            "status": "일반",
+            "color": "#228BE6",
+            "items": [],
+        }
+
+    def _to_number(value, default=0):
+        try:
+            if value is None:
+                return default
+
+            text = str(value).replace(",", "").replace("원", "").strip()
+
+            if text in ["", "-", "None", "nan", "NaN"]:
+                return default
+
+            return float(text)
+        except Exception:
+            return default
+
+    def _get_qty(row):
+        qty_columns = [
+            "suggested_qty",
+            "suggested_transfer_qty",
+            "move_qty",
+            "recommended_qty",
+            "transfer_qty",
+            "추천 수량",
+        ]
+
+        for col in qty_columns:
+            try:
+                if col in row.index:
+                    value = _to_number(row.get(col), None)
+
+                    if value is not None and value > 0:
+                        return int(round(value))
+            except Exception:
+                continue
+
+        return 0
+
+    def _format_cost(value):
+        try:
+            text = str(value).replace(",", "").replace("원", "").strip()
+
+            if text in ["", "-", "None", "nan", "NaN"]:
+                return "-"
+
+            numeric_value = float(text)
+            return f"{numeric_value:,.0f}원"
+        except Exception:
+            text = str(value)
+            return text if text not in ["None", "nan", "NaN"] else "-"
+
+    if rec_data is not None and not rec_data.empty:
+        for _, row in rec_data.iterrows():
+            target_store = str(row.get("target_store", "-"))
+            source_store = str(row.get("source_store", "-"))
+
+            if target_store not in store_status:
+                continue
+
+            qty = _get_qty(row)
+
+            if qty <= 0:
+                continue
+
+            score = _to_number(row.get("heuristic_score", 0), 0)
+            grade_text = str(row.get("heuristic_grade", ""))
+            strategy_text = str(row.get("final_recommendation", "-"))
+
+            item = {
+                "product_name": str(row.get("product_name", "-")),
+                "source_store": source_store,
+                "target_store": target_store,
+                "suggested_qty": str(qty),
+                "estimated_cost": _format_cost(row.get("estimated_cost", "-")),
+                "final_recommendation": strategy_text,
+                "reason": str(row.get("reason", "-")),
+                "heuristic_score": str(row.get("heuristic_score", "-")),
+                "heuristic_grade": str(row.get("heuristic_grade", "-")),
+            }
+
+            store_status[target_store]["items"].append(item)
+
+            # 긴급/추천/일반 색상 분류
+            if qty >= 100 or score >= 80 or "최적" in grade_text or "긴급" in grade_text or "최우선" in grade_text:
+                store_status[target_store]["status"] = "긴급"
+                store_status[target_store]["color"] = "#E03131"
+            elif store_status[target_store]["status"] != "긴급":
+                store_status[target_store]["status"] = "추천"
+                store_status[target_store]["color"] = "#FAB005"
+
+    stores_json = _records_json(stores_data)
+    routes_json = _records_json(routes_data) if routes_data is not None else "[]"
+    status_json = json.dumps(store_status, ensure_ascii=False)
+
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+        <style>
+            html, body {
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                height: 100%;
+                font-family: Arial, sans-serif;
+                color: #222;
+                background: #ffffff;
+            }
+
+            .wrap {
+                display: grid;
+                grid-template-columns: 2fr 1fr;
+                gap: 14px;
+                width: 100%;
+            }
+
+            #map {
+                width: 100%;
+                height: 620px;
+                border-radius: 16px;
+                border: 1px solid #dddddd;
+                overflow: hidden;
+            }
+
+            #detail-panel {
+                height: 620px;
+                overflow-y: auto;
+                border-radius: 16px;
+                border: 1px solid #e5e5e5;
+                background: #ffffff;
+                box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+                padding: 18px;
+                box-sizing: border-box;
+            }
+
+            .panel-title {
+                font-size: 22px;
+                font-weight: 900;
+                margin-bottom: 8px;
+                color: #222;
+            }
+
+            .panel-sub {
+                font-size: 14px;
+                color: #555;
+                margin-bottom: 14px;
+                line-height: 1.5;
+            }
+
+            .gps-box {
+                padding: 12px 14px;
+                border-radius: 14px;
+                background: #f8f9fa;
+                border: 1px solid #e9ecef;
+                margin-bottom: 12px;
+                font-size: 13.5px;
+                color: #444;
+                line-height: 1.45;
+            }
+
+            .legend {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                margin-bottom: 14px;
+            }
+
+            .legend-item {
+                font-size: 13px;
+                padding: 6px 9px;
+                border-radius: 999px;
+                background: #f8f9fa;
+                border: 1px solid #e9ecef;
+                color: #222;
+            }
+
+            .dot {
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                margin-right: 5px;
+            }
+
+            .store-marker {
+                width: 18px;
+                height: 18px;
+                border-radius: 50%;
+                border: 3px solid white;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+                transform: translate(-9px, -9px);
+                cursor: pointer;
+            }
+
+            .my-location-marker {
+                width: 28px;
+                height: 28px;
+                border-radius: 50%;
+                background:#2F9E44;
+                border: 4px solid white;
+                box-shadow: 0 3px 12px rgba(47,158,68,0.55);
+                transform: translate(-14px, -14px);
+                position: relative;
+            }
+
+            .my-location-marker:after {
+                content: '';
+                position: absolute;
+                left: -8px;
+                top: -8px;
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                border: 2px solid rgba(47,158,68,0.32);
+            }
+
+            .near-store-row {
+                border: 1px solid #e9ecef;
+                border-radius: 13px;
+                padding: 10px 11px;
+                margin-bottom: 8px;
+                background: #ffffff;
+                cursor: pointer;
+            }
+
+            .near-store-row:hover {
+                background: #fff9db;
+            }
+
+            .near-store-title {
+                font-size: 14px;
+                font-weight: 900;
+                color: #222;
+                margin-bottom: 4px;
+            }
+
+            .near-store-meta {
+                font-size: 12.5px;
+                color: #555;
+                line-height: 1.45;
+            }
+
+            .item-card {
+                border: 1px solid #e9ecef;
+                border-radius: 14px;
+                padding: 12px 14px;
+                margin-bottom: 10px;
+                background: #f8f9fa;
+            }
+
+            .compact-item-card {
+                padding: 11px 14px;
+            }
+
+            .item-title {
+                font-size: 16px;
+                font-weight: 900;
+                margin-bottom: 5px;
+                color: #222;
+            }
+
+            .item-row {
+                font-size: 13.5px;
+                color: #444;
+                line-height: 1.45;
+            }
+
+            .empty-box {
+                padding: 16px;
+                border-radius: 14px;
+                background: #f8f9fa;
+                border: 1px solid #e9ecef;
+                color: #666;
+                line-height: 1.5;
+            }
+
+            @media (max-width: 900px) {
+                .wrap {
+                    grid-template-columns: 1fr;
+                }
+
+                #map {
+                    height: 500px;
+                }
+
+                #detail-panel {
+                    height: auto;
+                    max-height: none;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="wrap">
+            <div id="map"></div>
+
+            <div id="detail-panel">
+                <div class="panel-title">내 주변 재고 매칭 지도</div>
+                <div id="gps-status" class="gps-box">현재 위치를 확인하는 중...</div>
+
+                <div class="legend">
+                    <span class="legend-item"><span class="dot" style="background:#2F9E44;"></span>내 위치</span>
+                    <span class="legend-item"><span class="dot" style="background:#E03131;"></span>긴급</span>
+                    <span class="legend-item"><span class="dot" style="background:#FAB005;"></span>추천</span>
+                    <span class="legend-item"><span class="dot" style="background:#228BE6;"></span>일반</span>
+                </div>
+
+                <div id="store-detail" class="empty-box">
+                    주변 점포를 불러오는 중...
+                </div>
+            </div>
+        </div>
+
+        <script>
+            var stores = __STORES_JSON__;
+            var routes = __ROUTES_JSON__;
+            var storeStatus = __STATUS_JSON__;
+            var fallbackCenter = { lat: __CENTER_LAT__, lng: __CENTER_LNG__ };
+
+            var map = null;
+            var storeById = {};
+            var storeByName = {};
+            var storeMarkers = [];
+            var routeLines = [];
+            var myLocationOverlay = null;
+            var currentLat = fallbackCenter.lat;
+            var currentLng = fallbackCenter.lng;
+            var nearbyStores = [];
+
+            var script = document.createElement('script');
+            script.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=__KAKAO_KEY__&autoload=false';
+
+            script.onload = function() {
+                kakao.maps.load(function() {
+                    initMap();
+                });
+            };
+
+            script.onerror = function() {
+                document.getElementById('map').innerHTML =
+                    '<div style="padding:20px;color:#d9480f;font-weight:bold;">카카오맵 SDK를 불러오지 못했습니다. JavaScript 키와 도메인 등록을 확인하세요.</div>';
+            };
+
+            document.head.appendChild(script);
+
+            function escapeHtml(value) {
+                if (value === null || value === undefined) return '-';
+                return String(value)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+            }
+
+            function distanceKm(lat1, lng1, lat2, lng2) {
+                var R = 6371;
+                var dLat = (lat2 - lat1) * Math.PI / 180;
+                var dLng = (lng2 - lng1) * Math.PI / 180;
+                var a =
+                    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+                var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return R * c;
+            }
+
+            function initMap() {
+                var mapContainer = document.getElementById('map');
+                var mapOption = {
+                    center: new kakao.maps.LatLng(fallbackCenter.lat, fallbackCenter.lng),
+                    level: 5
+                };
+
+                map = new kakao.maps.Map(mapContainer, mapOption);
+
+                stores.forEach(function(store) {
+                    storeById[String(store.store_id)] = store;
+                    storeByName[String(store.store_name)] = store;
+                });
+
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        function(position) {
+                            currentLat = position.coords.latitude;
+                            currentLng = position.coords.longitude;
+
+                            document.getElementById('gps-status').innerHTML =
+                                '<b>내 위치 기준</b>으로 가까운 점포를 표시 중';
+
+                            drawNearbyMap(true);
+                        },
+                        function(error) {
+                            document.getElementById('gps-status').innerHTML =
+                                '<b>위치 권한을 허용하지 않아</b> 기본 위치 기준으로 표시 중';
+
+                            drawNearbyMap(false);
+                        },
+                        {
+                            enableHighAccuracy: true,
+                            timeout: 8000,
+                            maximumAge: 60000
+                        }
+                    );
+                } else {
+                    document.getElementById('gps-status').innerHTML =
+                        '<b>브라우저 위치 기능을 지원하지 않아</b> 기본 위치 기준으로 표시 중';
+
+                    drawNearbyMap(false);
+                }
+            }
+
+            function clearMapObjects() {
+                storeMarkers.forEach(function(obj) {
+                    if (obj.overlay) obj.overlay.setMap(null);
+                    if (obj.clickMarker) obj.clickMarker.setMap(null);
+                });
+                storeMarkers = [];
+
+                routeLines.forEach(function(line) {
+                    line.setMap(null);
+                });
+                routeLines = [];
+
+                if (myLocationOverlay) {
+                    myLocationOverlay.setMap(null);
+                    myLocationOverlay = null;
+                }
+            }
+
+            function drawNearbyMap(hasGps) {
+                clearMapObjects();
+
+                var centerPosition = new kakao.maps.LatLng(currentLat, currentLng);
+                map.setCenter(centerPosition);
+                map.setLevel(5);
+
+                if (hasGps) {
+                    myLocationOverlay = new kakao.maps.CustomOverlay({
+                        position: centerPosition,
+                        content: '<div class="my-location-marker"></div>',
+                        yAnchor: 0.5,
+                        xAnchor: 0.5,
+                        zIndex: 100
+                    });
+                    myLocationOverlay.setMap(map);
+                }
+
+                nearbyStores = stores
+                    .filter(function(store) {
+                        return store.latitude !== null && store.longitude !== null &&
+                               store.latitude !== undefined && store.longitude !== undefined;
+                    })
+                    .map(function(store) {
+                        var dist = distanceKm(
+                            currentLat,
+                            currentLng,
+                            Number(store.latitude),
+                            Number(store.longitude)
+                        );
+                        var storeName = String(store.store_name);
+                        var statusInfo = storeStatus[storeName] || {};
+                        return {
+                            store: store,
+                            distance_km: dist,
+                            status: statusInfo.status || '일반',
+                            color: statusInfo.color || '#228BE6',
+                            items: statusInfo.items || []
+                        };
+                    })
+                    .sort(function(a, b) {
+                        return a.distance_km - b.distance_km;
+                    })
+                    .slice(0, 20);
+
+                drawStoreMarkers();
+                drawNearbyRoutes();
+                renderNearbyList();
+            }
+
+            function drawNearbyRoutes() {
+                var nearbyNameSet = {};
+                nearbyStores.forEach(function(item) {
+                    nearbyNameSet[String(item.store.store_name)] = true;
+                });
+
+                routes.forEach(function(route) {
+                    var fromStore = storeById[String(route.from_id)];
+                    var toStore = storeById[String(route.to_id)];
+
+                    if (!fromStore || !toStore) return;
+
+                    if (!nearbyNameSet[String(fromStore.store_name)] && !nearbyNameSet[String(toStore.store_name)]) {
+                        return;
+                    }
+
+                    var path = [
+                        new kakao.maps.LatLng(fromStore.latitude, fromStore.longitude),
+                        new kakao.maps.LatLng(toStore.latitude, toStore.longitude)
+                    ];
+
+                    var polyline = new kakao.maps.Polyline({
+                        path: path,
+                        strokeWeight: 2,
+                        strokeColor: '#CED4DA',
+                        strokeOpacity: 0.25,
+                        strokeStyle: 'solid'
+                    });
+
+                    polyline.setMap(map);
+                    routeLines.push(polyline);
+                });
+            }
+
+            function drawStoreMarkers() {
+                nearbyStores.forEach(function(item) {
+                    var store = item.store;
+                    var storeName = String(store.store_name);
+                    var color = item.color;
+                    var status = item.status;
+
+                    var position = new kakao.maps.LatLng(store.latitude, store.longitude);
+
+                    var overlay = new kakao.maps.CustomOverlay({
+                        position: position,
+                        content: '<div class="store-marker" style="background:' + color + ';"></div>',
+                        yAnchor: 0.5,
+                        xAnchor: 0.5,
+                        zIndex: status === '긴급' ? 50 : 30
+                    });
+
+                    overlay.setMap(map);
+
+                    var clickArea = new kakao.maps.Marker({
+                        map: map,
+                        position: position,
+                        opacity: 0
+                    });
+
+                    kakao.maps.event.addListener(clickArea, 'click', function() {
+                        renderStoreDetail(storeName);
+                        map.panTo(position);
+                    });
+
+                    var info = new kakao.maps.InfoWindow({
+                        content:
+                            '<div style="padding:9px 12px;font-size:14px;white-space:nowrap;">' +
+                            '<b>' + escapeHtml(storeName) + '</b><br>' +
+                            '상태: <b>' + escapeHtml(status) + '</b><br>' +
+                            '거리: <b>' + item.distance_km.toFixed(2) + 'km</b>' +
+                            '</div>'
+                    });
+
+                    kakao.maps.event.addListener(clickArea, 'mouseover', function() {
+                        info.open(map, clickArea);
+                    });
+
+                    kakao.maps.event.addListener(clickArea, 'mouseout', function() {
+                        info.close();
+                    });
+
+                    storeMarkers.push({ overlay: overlay, clickMarker: clickArea });
+                });
+            }
+
+            function renderNearbyList() {
+                var detail = document.getElementById('store-detail');
+
+                var html = '';
+                html += '<div class="panel-title">근처 점포 TOP 5</div>';
+                html += '<div class="panel-sub">점포를 누르면 추천 상품과 이동 정보를 확인할 수 있습니다.</div>';
+
+                nearbyStores.slice(0, 5).forEach(function(item, idx) {
+                    var storeName = String(item.store.store_name);
+                    var itemsCount = item.items ? item.items.length : 0;
+
+                    html += '<div class="near-store-row" onclick="renderStoreDetail(\\'' + escapeHtml(storeName).replace(/'/g, "\\\\'") + '\\')">';
+                    html += '<div class="near-store-title">' + (idx + 1) + '. ' + escapeHtml(storeName) + '</div>';
+                    html += '<div class="near-store-meta">거리 ' + item.distance_km.toFixed(2) + 'km · 상태 ' + escapeHtml(item.status) + ' · 추천 ' + itemsCount + '건</div>';
+                    html += '</div>';
+                });
+
+                detail.innerHTML = html;
+            }
+
+            function renderStoreDetail(storeName) {
+                var detail = document.getElementById('store-detail');
+                var info = storeStatus[storeName] || {};
+                var items = info.items || [];
+
+                var nearInfo = null;
+                nearbyStores.forEach(function(item) {
+                    if (String(item.store.store_name) === String(storeName)) {
+                        nearInfo = item;
+                    }
+                });
+
+                var distanceText = nearInfo ? nearInfo.distance_km.toFixed(2) + 'km' : '-';
+
+                var html = '';
+                html += '<div class="panel-title">' + escapeHtml(storeName) + '</div>';
+                html += '<div class="panel-sub">상태: <b>' + escapeHtml(info.status || '-') + '</b> · 거리: <b>' + escapeHtml(distanceText) + '</b></div>';
+
+                if (items.length === 0) {
+                    html += '<div class="empty-box">현재 표시할 필요 상품 또는 추천 후보가 없습니다.</div>';
+                    html += '<div style="margin-top:12px;"><button onclick="renderNearbyList()" style="padding:10px 14px;border-radius:12px;border:1px solid #ddd;background:#fff;cursor:pointer;">근처 점포 목록으로 돌아가기</button></div>';
+                    detail.innerHTML = html;
+                    return;
+                }
+
+                html += '<div class="panel-sub">필요 상품 ' + items.length + '건</div>';
+
+                items.slice(0, 20).forEach(function(item, idx) {
+                    html += '<div class="item-card compact-item-card">';
+                    html += '<div class="item-title">' + (idx + 1) + '. ' + escapeHtml(item.product_name || '-') + ': ' + escapeHtml(item.suggested_qty || '-') + '개</div>';
+                    html += '<div class="item-row"><b>보낼 점포:</b> ' + escapeHtml(item.source_store || '-') + '</div>';
+                    html += '</div>';
+                });
+
+                html += '<div style="margin-top:12px;"><button onclick="renderNearbyList()" style="padding:10px 14px;border-radius:12px;border:1px solid #ddd;background:#fff;cursor:pointer;">근처 점포 목록으로 돌아가기</button></div>';
+                detail.innerHTML = html;
+            }
+        </script>
+    </body>
+    </html>
+    """
+
+    html = html.replace("__KAKAO_KEY__", kakao_js_key)
+    html = html.replace("__CENTER_LAT__", str(center_lat))
+    html = html.replace("__CENTER_LNG__", str(center_lng))
+    html = html.replace("__STORES_JSON__", stores_json)
+    html = html.replace("__ROUTES_JSON__", routes_json)
+    html = html.replace("__STATUS_JSON__", status_json)
+
+    components.html(html, height=1180, scrolling=True)

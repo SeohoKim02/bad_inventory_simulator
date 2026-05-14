@@ -81,7 +81,7 @@ from network_path_analyzer import analyze_multi_store_network_paths
 from final_summary import build_final_recommendations
 from dashboard_pages import show_dashboard_router
 
-from kakao_map_viewer import show_kakao_map, show_kakao_map_with_highlights
+from kakao_map_viewer import show_kakao_map, show_kakao_map_with_highlights, show_store_matching_map
 
 try:
     from kakao_map_viewer import show_kakao_map_with_truck
@@ -1949,15 +1949,30 @@ def show_excel_optimizer():
     st.markdown("</div>", unsafe_allow_html=True)
 
     # =========================
-    # 카카오맵
+    # 점포 간 재고 매칭 지도
     # =========================
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("카카오맵 기반 점포 및 경로 시각화")
+    st.subheader("🗺️ 점포 간 재고 매칭 지도")
+
+    store_options = stores["store_name"].dropna().astype(str).tolist()
+
+    selected_store_name = st.selectbox(
+        "현재 점포 선택",
+        store_options,
+        index=store_options.index("구로점") if "구로점" in store_options else 0,
+        key="selected_store_matching_map",
+    )
 
     if kakao_js_key:
-        show_kakao_map(stores, routes, kakao_js_key)
+        show_store_matching_map(
+            stores=stores,
+            routes=routes,
+            final_recommendations=final_recommendations,
+            kakao_js_key=kakao_js_key,
+            selected_store_name=selected_store_name,
+        )
     else:
-        st.info("카카오맵을 보려면 왼쪽 사이드바에 JavaScript 키를 입력하세요.")
+        st.info("점포 간 재고 매칭 지도를 보려면 왼쪽 사이드바에 카카오맵 JavaScript 키를 입력하세요.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 

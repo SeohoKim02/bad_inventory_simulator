@@ -5,7 +5,7 @@ import html as html_lib
 import pandas as pd
 import streamlit as st
 
-from kakao_map_viewer import show_kakao_map, show_kakao_map_with_highlights
+from kakao_map_viewer import show_kakao_map, show_kakao_map_with_highlights, show_store_matching_map
 
 try:
     from kakao_map_viewer import show_kakao_map_with_multi_trucks
@@ -2434,29 +2434,30 @@ def _build_highlight_paths(transfer_path_result, network_path_result):
     return highlight_paths
 
 
-def _show_map_page(stores, routes, kakao_js_key, transfer_path_result, network_path_result):
+def _show_map_page(stores, routes, kakao_js_key, transfer_path_result, network_path_result, final_recommendations=None):
     _back_to_dashboard()
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("🗺 지도 페이지")
+    st.header("📍 내 주변 점포 재고 매칭 지도")
 
     if not kakao_js_key:
         st.info("왼쪽 사이드바에 카카오맵 JavaScript 키를 입력하면 지도가 표시됩니다.")
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    st.subheader("점포 및 전체 경로")
-    show_kakao_map(stores, routes, kakao_js_key)
+    if stores is None or stores.empty or "store_name" not in stores.columns:
+        st.info("표시할 점포 데이터가 없습니다.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
 
-    st.subheader("추천 경로 강조")
-    highlight_paths = _build_highlight_paths(transfer_path_result, network_path_result)
-
-    if highlight_paths:
-        show_kakao_map_with_highlights(stores, routes, kakao_js_key, highlight_paths)
-    else:
-        st.info("강조 표시할 추천 경로가 없습니다.")
+    show_store_matching_map(
+        stores=stores,
+        routes=routes,
+        final_recommendations=final_recommendations,
+        kakao_js_key=kakao_js_key,
+        selected_store_name=None,
+    )
 
     st.markdown("</div>", unsafe_allow_html=True)
-
 
 
 def _show_movement_page(
@@ -2478,14 +2479,15 @@ def _show_movement_page(
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    st.subheader("추천 경로 지도")
+    st.subheader("📍 내 주변 점포 재고 매칭 지도")
 
-    highlight_paths = _build_highlight_paths(transfer_path_result, network_path_result)
-
-    if highlight_paths:
-        show_kakao_map_with_highlights(stores, routes, kakao_js_key, highlight_paths)
-    else:
-        show_kakao_map(stores, routes, kakao_js_key)
+    show_store_matching_map(
+        stores=stores,
+        routes=routes,
+        final_recommendations=final_recommendations,
+        kakao_js_key=kakao_js_key,
+        selected_store_name=None,
+    )
 
     st.markdown("---")
     st.subheader("재고 이동 및 재고 변화")
@@ -3527,13 +3529,8 @@ def show_dashboard_router(
         )
 
     elif page == "map":
-        _show_map_page(
-            stores,
-            routes,
-            kakao_js_key,
-            transfer_path_result,
-            network_path_result,
-        )
+        st.session_state.excel_dashboard_page = "movement"
+        st.rerun()
 
     elif page == "truck":
         _show_truck_page(
