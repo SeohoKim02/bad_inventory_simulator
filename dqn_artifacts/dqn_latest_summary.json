@@ -1,5 +1,5 @@
 {
-  "created_at": "20260515_185305",
+  "created_at": "20260515_201945",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -23,15 +23,15 @@
     "overstock_norm"
   ],
   "summary": {
-    "training_samples": 516,
-    "transition_count": 2064,
-    "final_loss": 78.53982309573358,
+    "training_samples": 300,
+    "transition_count": 1200,
+    "final_loss": 42.599001181255275,
     "dqn_top_action": "재고 이동",
-    "dqn_top_product": "오뚜기 진라면컵",
-    "dqn_top_route": "선릉점 → 잠실점",
+    "dqn_top_product": "서울우유 흰우유",
+    "dqn_top_route": "종로점 → 성수3점",
     "greedy_top_action": "재고 이동",
-    "match_count": 515,
-    "match_rate": 99.8062015503876,
+    "match_count": 297,
+    "match_rate": 99.0,
     "feature_names": [
       "score_norm",
       "qty_norm",
