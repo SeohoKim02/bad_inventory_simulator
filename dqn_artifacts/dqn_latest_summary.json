@@ -1,5 +1,5 @@
 {
-  "created_at": "20260514_191039",
+  "created_at": "20260515_185109",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -14,18 +14,24 @@
     "via_cost_norm",
     "distance_norm",
     "time_norm",
-    "demand_gap_norm"
+    "demand_gap_norm",
+    "abc_class_norm",
+    "turnover_norm",
+    "days_inventory_norm",
+    "expiry_risk_norm",
+    "dead_stock_norm",
+    "overstock_norm"
   ],
   "summary": {
-    "training_samples": 532,
-    "transition_count": 2128,
-    "final_loss": 17.27147122678565,
+    "training_samples": 300,
+    "transition_count": 1200,
+    "final_loss": 35.9470882072477,
     "dqn_top_action": "재고 이동",
-    "dqn_top_product": "농심 육개장사발면",
-    "dqn_top_route": "잠원점 → 선릉점",
+    "dqn_top_product": "오뚜기 진라면컵",
+    "dqn_top_route": "선릉점 → 잠실점",
     "greedy_top_action": "재고 이동",
-    "match_count": 512,
-    "match_rate": 96.2406015037594,
+    "match_count": 300,
+    "match_rate": 100.0,
     "feature_names": [
       "score_norm",
       "qty_norm",
@@ -34,7 +40,13 @@
       "via_cost_norm",
       "distance_norm",
       "time_norm",
-      "demand_gap_norm"
+      "demand_gap_norm",
+      "abc_class_norm",
+      "turnover_norm",
+      "days_inventory_norm",
+      "expiry_risk_norm",
+      "dead_stock_norm",
+      "overstock_norm"
     ],
     "action_labels": [
       "재고 이동",
