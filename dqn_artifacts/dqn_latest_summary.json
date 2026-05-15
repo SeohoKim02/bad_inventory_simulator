@@ -1,5 +1,5 @@
 {
-  "created_at": "20260515_202031",
+  "created_at": "20260515_202101",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -25,13 +25,13 @@
   "summary": {
     "training_samples": 503,
     "transition_count": 2012,
-    "final_loss": 21.177324515328444,
+    "final_loss": 31.063519284777257,
     "dqn_top_action": "재고 이동",
     "dqn_top_product": "서울우유 흰우유",
     "dqn_top_route": "종로점 → 성수3점",
     "greedy_top_action": "재고 이동",
-    "match_count": 479,
-    "match_rate": 95.2286282306163,
+    "match_count": 474,
+    "match_rate": 94.23459244532803,
     "feature_names": [
       "score_norm",
       "qty_norm",
