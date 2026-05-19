@@ -220,14 +220,6 @@ def _make_state_features(df):
     else:
         feature_frame["eoq_norm"] = 0.5
 
-    # 수요 예측 위험도: 재고 소진 임박 → 이동(보충) 행동 선호
-    if "demand_forecast_score" in df.columns:
-        feature_frame["demand_forecast_norm"] = (
-            pd.to_numeric(df["demand_forecast_score"], errors="coerce").fillna(50) / 100.0
-        )
-    else:
-        feature_frame["demand_forecast_norm"] = 0.5
-
     X = feature_frame.fillna(0).clip(0, 1).values.astype(np.float64)
     return X, list(feature_frame.columns)
 
@@ -289,63 +281,53 @@ def _build_reward_matrix(df):
         else pd.Series([0.5] * len(df), index=df.index)
     )
 
-    # 수요 예측 위험: 재고 소진 임박 → 이동(보충) 행동 선호, 폐기 불리
-    demand_n = (
-        pd.to_numeric(df["demand_forecast_score"], errors="coerce").fillna(50).clip(0, 100) / 100.0
-        if "demand_forecast_score" in df.columns
-        else pd.Series([0.5] * len(df), index=df.index)
-    )
-
     base = score
 
-    # 재고 이동: A등급 + 수요 격차 + 재주문/수요 위험 높으면 이동으로 보충 유리
+    # 재고 이동: A등급 + 수요 격차 + 재주문 위험 높으면 이동으로 보충 유리
     move_reward = (
-        base * 0.45
-        + qty_n * 17
-        + demand_gap_n * 14
-        + abc_n * 9
-        + safety_stock_n * 9   # 재주문 위험
-        + demand_n * 8         # 수요 대비 재고 소진 임박
-        + eoq_n * 4
-        - cost_n * 17
-        - dist_n * 9
+        base * 0.48
+        + qty_n * 18
+        + demand_gap_n * 15
+        + abc_n * 10           # A등급이면 이동 우선
+        + safety_stock_n * 10  # 재주문 위험 높으면 이동으로 보충 우선
+        + eoq_n * 5            # 과잉 발주면 이동으로 소진 유리
+        - cost_n * 18
+        - dist_n * 10
         + 10
     )
 
     # 할인: 폐기 위험 높거나 회전율 낮으면 유리
     discount_reward = (
-        base * 0.34
-        + qty_n * 12
-        + disposal_risk_n * 13
-        + (1 - turnover_n) * 10
-        + eoq_n * 4
-        + demand_gap_n * 5
-        - cost_n * 5
+        base * 0.36
+        + qty_n * 13
+        + disposal_risk_n * 14   # 폐기 위험 높으면 할인 우선
+        + (1 - turnover_n) * 10  # 회전율 낮으면 할인 우선
+        + eoq_n * 5              # 과잉 발주 상태면 할인으로 소진 유리
+        + demand_gap_n * 6
+        - cost_n * 6
         + 8
     )
 
-    # 폐기: 폐기 위험 높고 수요 낮을 때 유리 (수요 높으면 폐기 불리)
+    # 폐기: 폐기 위험 매우 높거나 ABC C등급인 저가치 상품일 때 유리
     disposal_reward = (
         28
-        + disposal_risk_n * 18
-        + (1 - abc_n) * 8
-        + qty_n * 7
+        + disposal_risk_n * 18   # 폐기 위험 높으면 폐기 보상 상승
+        + (1 - abc_n) * 8        # C등급(저가치) 상품일수록 폐기 유리
+        + qty_n * 8
         - base * 0.18
         - demand_gap_n * 5
-        - safety_stock_n * 5
-        - demand_n * 6         # 수요 예측 높으면 폐기 불리
+        - safety_stock_n * 5     # 재고 부족 상황이면 폐기 보상 감소
         - cost_n * 2
     )
 
-    # 보류: 모든 위험 낮을 때 유리
+    # 보류: 위험 낮고 A등급 안정 상품 + 재고 여유 있을 때 유리
     hold_reward = (
         50
-        - qty_n * 17
-        - demand_gap_n * 15
-        - disposal_risk_n * 9
-        - safety_stock_n * 7
-        - demand_n * 6         # 수요 대비 소진 임박이면 보류 불리
-        - eoq_n * 4
+        - qty_n * 18
+        - demand_gap_n * 16
+        - disposal_risk_n * 10   # 폐기 위험 높으면 보류 불리
+        - safety_stock_n * 8     # 재주문 위험 높으면 보류 불리
+        - eoq_n * 5              # EOQ 과잉 상태면 보류 불리
         - (score / 100.0) * 12
     )
 

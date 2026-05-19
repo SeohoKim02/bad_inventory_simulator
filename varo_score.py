@@ -186,12 +186,11 @@ def run_all_algorithms(
     pd.DataFrame
         Varo 통합 점수가 포함된 최종 추천 DataFrame.
     """
-    from abc_analyzer             import analyze_abc
-    from turnover_analyzer        import analyze_turnover
-    from disposal_risk_analyzer   import analyze_disposal_risk
-    from safety_stock_analyzer    import analyze_safety_stock
-    from eoq_analyzer             import analyze_eoq
-    from demand_forecast_analyzer import analyze_demand_forecast
+    from abc_analyzer           import analyze_abc
+    from turnover_analyzer      import analyze_turnover
+    from disposal_risk_analyzer import analyze_disposal_risk
+    from safety_stock_analyzer  import analyze_safety_stock
+    from eoq_analyzer           import analyze_eoq
 
     if final_recommendations is None or final_recommendations.empty:
         return final_recommendations
@@ -259,9 +258,8 @@ def run_all_algorithms(
     df = analyze_abc(df)
     df = analyze_turnover(df)
     df = analyze_disposal_risk(df)
-    df = analyze_safety_stock(df)
-    df = analyze_eoq(df)
-    df = analyze_demand_forecast(df)   # Phase 2 — 수요 예측
+    df = analyze_safety_stock(df)      # Phase 2 — Safety Stock / ROP
+    df = analyze_eoq(df)               # Phase 2 — EOQ 적정 발주량
 
     # Varo 통합 점수
     df = calculate_varo_score(df)
