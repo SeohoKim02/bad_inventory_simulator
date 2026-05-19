@@ -1048,6 +1048,30 @@ def _show_dashboard_home(
     metric_grade = _escape_text(display_grade)
     metric_transport = _escape_text(dashboard_transport_type)
 
+    # Varo 통합 점수 (있으면 표시)
+    varo_card_html = ""
+    try:
+        _varo_raw = best.get("varo_score", None) if best is not None else None
+        varo_score_val = float(_varo_raw) if _varo_raw is not None else None
+        import math
+        if varo_score_val is not None and math.isnan(varo_score_val):
+            varo_score_val = None
+    except (TypeError, ValueError):
+        varo_score_val = None
+
+    varo_grade_val = str(best.get("varo_grade", "-")) if best is not None else "-"
+
+    if varo_score_val is not None:
+        _vs = f"{varo_score_val:.1f}"
+        _vg = varo_grade_val
+        varo_card_html = (
+            '<div class="compact-metric-card" style="border:2px solid #ffd43b;">'
+            '<div class="compact-metric-label">Varo 통합 점수</div>'
+            f'<div class="compact-metric-value">{_vs}점</div>'
+            f'<div style="font-size:11px; color:#888; margin-top:2px;">{_vg}</div>'
+            "</div>"
+        )
+
     st.markdown(
         f"""
         <div class="compact-metric-grid">
@@ -1071,6 +1095,7 @@ def _show_dashboard_home(
                 <div class="compact-metric-label">추천 이동수단</div>
                 <div class="compact-metric-value small">{metric_transport}</div>
             </div>
+            {varo_card_html}
         </div>
         """,
         unsafe_allow_html=True,
@@ -1195,6 +1220,11 @@ def _show_dashboard_home(
     with menu_col3:
         if st.button("🤖 강화학습 비교", width="stretch", key="go_rl"):
             _go("rl")
+
+    # 산업공학 알고리즘 버튼 — 메인 메뉴에 별도 배치
+    st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
+    if st.button("📊 산업공학 알고리즘 분석 결과", width="stretch", key="go_algorithms"):
+        _go("algorithms")
 
     with st.expander("관리자용 메뉴", expanded=False):
         admin_col1, admin_col2, admin_col3 = st.columns(3)
@@ -2716,6 +2746,7 @@ def _show_explain_page():
         - **AI 추천 결과**: 상품별 추천 후보, 총점, 추천 등급을 확인합니다.
         - **재고 이동 지도**: 선택한 추천 경로를 지도에서 확인합니다.
         - **강화학습 비교**: Greedy 추천과 DQN 기반 추천을 비교합니다.
+        - **📊 산업공학 알고리즘 분석 결과**: ABC 분석, 재고 회전율, 폐기 위험도, Safety Stock 결과를 확인합니다.
         - **관리자용 메뉴**: 계산 방식, 비용 기준, 이동수단 기준, 상세 데이터를 확인합니다.
 
         ## 추천 후보 계산 흐름
@@ -2724,8 +2755,30 @@ def _show_explain_page():
         2. 악성재고 가능성이 높은 상품과 이동 후보를 선별합니다.
         3. 이동비용, 할인손실비용, 폐기비용을 계산합니다.
         4. 추천 수량, 거리, 시간, 재고 처리 효과를 함께 반영해 총점을 계산합니다.
-        5. 총점 기준으로 최적, 권장, 검토 등급을 부여합니다.
-        6. 지도와 표에서 실행 가능한 추천 후보를 확인합니다.
+        5. **산업공학 알고리즘 4종**을 실행해 결과를 Varo 통합 점수에 반영합니다.
+        6. 총점 기준으로 최적, 권장, 검토 등급을 부여합니다.
+        7. 지도와 표에서 실행 가능한 추천 후보를 확인합니다.
+
+        ## 산업공학 알고리즘
+
+        | 알고리즘 | 설명 | 핵심 지표 |
+        |---------|------|---------|
+        | **ABC 분석** | 매출가치 기준으로 A/B/C 등급 분류 | abc_grade (A/B/C) |
+        | **재고 회전율** | 소진일수 기반 악성재고 판단 | turnover_grade (FAST/NORMAL/SLOW/DEAD) |
+        | **폐기 위험도** | 유통기한·판매속도·보관기간 복합 점수화 | disposal_risk_score (0~100) |
+        | **Safety Stock** | 수요 변동성·리드타임 기반 안전재고·재주문점 계산 | reorder_status (CRITICAL/WARNING/MONITOR/SAFE) |
+
+        ## Varo 통합 점수
+
+        4개 알고리즘 결과를 하나의 점수로 통합합니다.
+
+        | 구성 요소 | 가중치 | 설명 |
+        |---------|------|------|
+        | 휴리스틱 점수 | 40% | 비용·수량·전략 기반 기존 점수 |
+        | ABC 점수 | 20% | 핵심 상품 우선 처리 |
+        | 재고 회전율 | 20% | 악성재고 판단 |
+        | 폐기 위험도 | 20% | 폐기 위험 반영 |
+        | Safety Stock | +8% | Phase 2 — 자동 반영 |
 
         ## 비용 산정 기준
 
@@ -3545,6 +3598,278 @@ def _show_truck_page(
 
 
 # =========================
+# 산업공학 알고리즘 페이지
+# =========================
+def _show_algorithms_page(final_recommendations, inventory=None):
+    """ABC 분석, 재고 회전율, 폐기 위험도, Safety Stock 결과를 탭으로 보여준다."""
+
+    _back_to_dashboard()
+    st.header("📊 산업공학 알고리즘 분석 결과")
+
+    if final_recommendations is None or final_recommendations.empty:
+        st.info("분석 결과가 없습니다. 먼저 엑셀 파일을 업로드해 주세요.")
+        return
+
+    df = final_recommendations.copy()
+
+    # ── Varo 통합 점수 요약 카드 ──────────────────────────
+    if "varo_score" in df.columns:
+        avg_varo   = df["varo_score"].dropna().mean()
+        top_product = df.sort_values("varo_score", ascending=False).iloc[0]
+        critical_count = (
+            (df.get("reorder_status", pd.Series()) == "CRITICAL").sum()
+            if "reorder_status" in df.columns else 0
+        )
+        high_disposal = (
+            (df.get("disposal_risk_grade", pd.Series()) == "CRITICAL").sum()
+            if "disposal_risk_grade" in df.columns else 0
+        )
+
+        st.markdown(
+            f"""
+            <div style="
+                background: linear-gradient(135deg,#fff3bf 0%,#fff9db 60%,#ffffff 100%);
+                border:1px solid #f6e58d; border-radius:18px;
+                padding:20px 24px; margin-bottom:20px;
+                box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+            ">
+                <div style="font-size:13px; color:#888; font-weight:700; margin-bottom:6px;">
+                    Varo 통합 점수 요약
+                </div>
+                <div style="display:flex; gap:32px; flex-wrap:wrap;">
+                    <div>
+                        <div style="font-size:28px; font-weight:900; color:#333;">
+                            {avg_varo:.1f}점
+                        </div>
+                        <div style="font-size:12px; color:#888;">평균 Varo 점수</div>
+                    </div>
+                    <div>
+                        <div style="font-size:28px; font-weight:900; color:#e74c3c;">
+                            {critical_count}건
+                        </div>
+                        <div style="font-size:12px; color:#888;">재주문 즉각 필요</div>
+                    </div>
+                    <div>
+                        <div style="font-size:28px; font-weight:900; color:#e67e22;">
+                            {high_disposal}건
+                        </div>
+                        <div style="font-size:12px; color:#888;">폐기 위험 CRITICAL</div>
+                    </div>
+                    <div>
+                        <div style="font-size:20px; font-weight:800; color:#27ae60;">
+                            {top_product.get('product_name', '-')}
+                        </div>
+                        <div style="font-size:12px; color:#888;">최우선 처리 상품</div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # ── 탭 구성 ──────────────────────────────────────────
+    tab_labels = ["🏅 ABC 분석", "🔄 재고 회전율", "⚠️ 폐기 위험도", "🔔 Safety Stock", "📦 EOQ 발주량"]
+    tabs = st.tabs(tab_labels)
+
+    # ── 탭 1: ABC 분석 ──────────────────────────────────
+    with tabs[0]:
+        st.subheader("ABC 분석 — 상품 매출 등급")
+        if "abc_grade" not in df.columns:
+            st.info("ABC 분석 결과가 없습니다. (abc_grade 컬럼 없음)")
+        else:
+            # 요약 지표
+            grade_counts = df["abc_grade"].value_counts()
+            c1, c2, c3 = st.columns(3)
+            c1.metric("🥇 A등급 (핵심 상품)", f"{grade_counts.get('A', 0)}개",
+                      help="누적 매출 상위 80% — 최우선 처리 대상")
+            c2.metric("🥈 B등급 (중요 상품)", f"{grade_counts.get('B', 0)}개",
+                      help="누적 매출 80~95%")
+            c3.metric("🥉 C등급 (저가치 상품)", f"{grade_counts.get('C', 0)}개",
+                      help="누적 매출 하위 5%")
+
+            # 등급별 매출 구성
+            if "abc_revenue_value" in df.columns:
+                summary = (
+                    df.groupby("abc_grade")["abc_revenue_value"]
+                    .sum()
+                    .reindex(["A", "B", "C"])
+                    .reset_index()
+                )
+                summary.columns = ["등급", "총 매출가치"]
+                total = summary["총 매출가치"].sum()
+                summary["매출 비율"] = (summary["총 매출가치"] / total * 100).round(1).astype(str) + "%"
+                summary["총 매출가치"] = summary["총 매출가치"].apply(lambda x: f"{x:,.0f}원")
+                st.dataframe(summary, width='stretch', hide_index=True)
+
+            # 상세 테이블
+            with st.expander("상세 데이터 보기", expanded=False):
+                show_cols = ["product_name", "source_store", "abc_grade", "abc_score"]
+                if "abc_revenue_value" in df.columns:
+                    show_cols.append("abc_revenue_value")
+                show_df = df[[c for c in show_cols if c in df.columns]].copy()
+                show_df = show_df.sort_values("abc_grade").reset_index(drop=True)
+                st.dataframe(show_df, width='stretch')
+
+    # ── 탭 2: 재고 회전율 ───────────────────────────────
+    with tabs[1]:
+        st.subheader("재고 회전율 분석")
+        if "turnover_grade" not in df.columns:
+            st.info("재고 회전율 결과가 없습니다.")
+        else:
+            grade_map = {"FAST": "빠름", "NORMAL": "정상", "SLOW": "느림(주의)", "DEAD": "악성재고"}
+            cnt = df["turnover_grade"].value_counts()
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("⚡ FAST (빠름)", f"{cnt.get('FAST', 0)}개",
+                      help="소진일수 30일 이내")
+            c2.metric("✅ NORMAL (정상)", f"{cnt.get('NORMAL', 0)}개",
+                      help="소진일수 30~60일")
+            c3.metric("🔶 SLOW (주의)", f"{cnt.get('SLOW', 0)}개",
+                      help="소진일수 60~90일")
+            c4.metric("🔴 DEAD (악성재고)", f"{cnt.get('DEAD', 0)}개",
+                      help="소진일수 90일 초과")
+
+            if "turnover_days" in df.columns:
+                avg_days = df["turnover_days"].replace(999, None).dropna().mean()
+                st.caption(f"평균 재고 소진일수: **{avg_days:.1f}일**")
+
+            with st.expander("악성재고 위험 상품 보기", expanded=True):
+                risk_df = df[df["turnover_grade"].isin(["SLOW", "DEAD"])].copy()
+                if risk_df.empty:
+                    st.success("악성재고 위험 상품이 없습니다.")
+                else:
+                    show_cols = ["product_name", "source_store", "turnover_grade",
+                                 "turnover_days", "turnover_score"]
+                    show_df = risk_df[[c for c in show_cols if c in risk_df.columns]]
+                    show_df = show_df.sort_values("turnover_days", ascending=False).reset_index(drop=True)
+                    st.dataframe(show_df, width='stretch')
+
+    # ── 탭 3: 폐기 위험도 ───────────────────────────────
+    with tabs[2]:
+        st.subheader("폐기 위험도 분석")
+        if "disposal_risk_grade" not in df.columns:
+            st.info("폐기 위험도 결과가 없습니다.")
+        else:
+            cnt = df["disposal_risk_grade"].value_counts()
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("🔴 CRITICAL", f"{cnt.get('CRITICAL', 0)}개",
+                      help="위험도 80점 이상 — 즉시 조치 필요")
+            c2.metric("🟠 HIGH", f"{cnt.get('HIGH', 0)}개",
+                      help="위험도 60~79점")
+            c3.metric("🟡 MEDIUM", f"{cnt.get('MEDIUM', 0)}개",
+                      help="위험도 40~59점")
+            c4.metric("🟢 LOW", f"{cnt.get('LOW', 0)}개",
+                      help="위험도 39점 이하")
+
+            with st.expander("CRITICAL / HIGH 위험 상품 보기", expanded=True):
+                risk_df = df[df["disposal_risk_grade"].isin(["CRITICAL", "HIGH"])].copy()
+                if risk_df.empty:
+                    st.success("폐기 위험 상품이 없습니다.")
+                else:
+                    show_cols = ["product_name", "source_store", "disposal_risk_grade",
+                                 "disposal_risk_score", "disposal_risk_reason"]
+                    show_df = risk_df[[c for c in show_cols if c in risk_df.columns]]
+                    show_df = show_df.sort_values("disposal_risk_score", ascending=False).reset_index(drop=True)
+                    st.dataframe(show_df, width='stretch')
+
+    # ── 탭 4: Safety Stock / ROP ────────────────────────
+    with tabs[3]:
+        st.subheader("Safety Stock / Reorder Point")
+        if "reorder_status" not in df.columns:
+            st.info("Safety Stock 결과가 없습니다.")
+        else:
+            cnt = df["reorder_status"].value_counts()
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("🚨 CRITICAL", f"{cnt.get('CRITICAL', 0)}개",
+                      help="재고 ≤ 안전재고 — 즉각 발주 필요")
+            c2.metric("⚠️ WARNING", f"{cnt.get('WARNING', 0)}개",
+                      help="재고 ≤ 재주문점 — 발주 권장")
+            c3.metric("👁 MONITOR", f"{cnt.get('MONITOR', 0)}개",
+                      help="재주문점 접근 중")
+            c4.metric("✅ SAFE", f"{cnt.get('SAFE', 0)}개",
+                      help="재고 여유 있음")
+
+            # 공식 설명
+            with st.expander("📐 계산 공식 보기", expanded=False):
+                st.markdown(
+                    """
+                    | 항목 | 공식 |
+                    |------|------|
+                    | 안전재고 (SS) | `Z × σ_d × √(리드타임)` |
+                    | 재주문점 (ROP) | `(일평균판매 × 리드타임) + SS` |
+                    | 서비스 수준 | Z = 1.65 (95%) |
+
+                    - **σ_d**: 일 판매량 표준편차 (`demand_std`)
+                    - **리드타임**: 발주 후 입고까지 일수 (`lead_time_days`)
+                    """
+                )
+
+            with st.expander("발주 필요 상품 보기 (CRITICAL / WARNING)", expanded=True):
+                risk_df = df[df["reorder_status"].isin(["CRITICAL", "WARNING"])].copy()
+                if risk_df.empty:
+                    st.success("발주 필요 상품이 없습니다.")
+                else:
+                    show_cols = ["product_name", "source_store", "reorder_status",
+                                 "safety_stock", "reorder_point", "reorder_risk_score",
+                                 "reorder_advice"]
+                    show_df = risk_df[[c for c in show_cols if c in risk_df.columns]]
+                    show_df = show_df.sort_values("reorder_risk_score", ascending=False).reset_index(drop=True)
+                    st.dataframe(show_df, width='stretch')
+
+    # ── 탭 5: EOQ ───────────────────────────────────────
+    with tabs[4]:
+        st.subheader("EOQ 적정 발주량 분석")
+        if "eoq_status" not in df.columns:
+            st.info("EOQ 결과가 없습니다.")
+        else:
+            cnt = df["eoq_status"].value_counts()
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("🔴 OVER (과잉 발주)", f"{cnt.get('OVER', 0)}개",
+                      help="현재 발주량 > EOQ 1.5배 — 발주량 축소 권장")
+            c2.metric("✅ OPTIMAL (적정)", f"{cnt.get('OPTIMAL', 0)}개",
+                      help="EOQ ±50% 범위 내")
+            c3.metric("🔵 UNDER (과소 발주)", f"{cnt.get('UNDER', 0)}개",
+                      help="현재 발주량 < EOQ 0.6배 — 발주량 증가 검토")
+            c4.metric("⚪ NO_DATA", f"{cnt.get('NO_DATA', 0)}개",
+                      help="발주 이력 부족으로 계산 불가")
+
+            if "eoq_qty" in df.columns:
+                avg_eoq = df["eoq_qty"].replace(0, None).dropna().mean()
+                st.caption(f"평균 EOQ: **{avg_eoq:.1f}개**")
+
+            with st.expander("📐 EOQ 계산 공식 보기", expanded=False):
+                st.markdown(
+                    """
+                    | 항목 | 공식 |
+                    |------|------|
+                    | EOQ | `√(2 × D × S / H)` |
+                    | 발주 주기 | `EOQ ÷ 일평균판매량` |
+                    | 연간 총비용 | `(D/EOQ)×S + (EOQ/2)×H` |
+
+                    - **D**: 연간 수요량 (일평균판매 × 365)
+                    - **S**: 1회 주문비용 (`order_cost`)
+                    - **H**: 단위당 연간 보관비용 (`unit_cost × 보관비율`)
+                    - 보관비율: 신선/유제품 35%, 냉동 30%, 일반 20%
+                    """
+                )
+
+            with st.expander("과잉/과소 발주 위험 상품 보기", expanded=True):
+                risk_df = df[df["eoq_status"].isin(["OVER", "UNDER"])].copy()
+                if risk_df.empty:
+                    st.success("과잉/과소 발주 위험 상품이 없습니다.")
+                else:
+                    show_cols = ["product_name", "source_store", "eoq_status",
+                                 "eoq_qty", "eoq_order_cycle", "eoq_risk_score",
+                                 "eoq_advice"]
+                    show_df = risk_df[[c for c in show_cols if c in risk_df.columns]]
+                    show_df = show_df.sort_values("eoq_risk_score", ascending=False).reset_index(drop=True)
+                    st.dataframe(show_df, width='stretch')
+
+
+# =========================
 # 라우터
 # =========================
 def show_dashboard_router(
@@ -3642,6 +3967,12 @@ def show_dashboard_router(
             final_recommendations,
             transfer_path_result,
             promotion_result,
+        )
+
+    elif page == "algorithms":
+        _show_algorithms_page(
+            final_recommendations=final_recommendations,
+            inventory=inventory,
         )
 
     elif page == "explain":

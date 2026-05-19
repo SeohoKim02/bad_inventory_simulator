@@ -99,6 +99,11 @@ except ImportError:
     add_heuristic_scores = None
     select_greedy_best_candidate = None
 
+try:
+    from varo_score import run_all_algorithms
+except ImportError:
+    run_all_algorithms = None
+
 
 # =========================
 # 기본 설정
@@ -605,6 +610,12 @@ def apply_heuristic_and_greedy(final_recommendations):
         return temp, temp.iloc[0]
 
     scored = add_heuristic_scores(final_recommendations)
+
+    # ── Varo 통합 점수 계산 (Phase 1: ABC + 회전율 + 폐기위험도) ──
+    if run_all_algorithms is not None:
+        inventory_df = st.session_state.get("data", {}).get("inventory", None)
+        scored = run_all_algorithms(inventory_df, scored)
+
     greedy_best = select_greedy_best_candidate(scored)
 
     return scored, greedy_best

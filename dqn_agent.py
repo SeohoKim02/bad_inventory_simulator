@@ -159,10 +159,11 @@ def _prepare_candidate_table(final_recommendations, transfer_path_result=None, s
 
 def _make_state_features(df):
     if df.empty:
-        return np.empty((0, 8), dtype=np.float64), []
+        return np.empty((0, 11), dtype=np.float64), []
 
     feature_frame = pd.DataFrame(index=df.index)
 
+    # ── 기존 8개 피처 ──────────────────────────────────────
     feature_frame["score_norm"] = pd.to_numeric(df["heuristic_score"], errors="coerce").fillna(0) / 100.0
     feature_frame["qty_norm"] = _normalize_series(df["suggested_qty"])
     feature_frame["cost_norm"] = _normalize_series(df["estimated_cost"])
@@ -177,6 +178,48 @@ def _make_state_features(df):
         + pd.to_numeric(df["target_shortage_qty"], errors="coerce").fillna(0)
     )
 
+    # ── Phase 1 알고리즘 추가 3개 피처 ───────────────────
+    # ABC 점수 (A=100, B=60, C=20) → 0~1 정규화
+    if "abc_score" in df.columns:
+        feature_frame["abc_norm"] = (
+            pd.to_numeric(df["abc_score"], errors="coerce").fillna(60) / 100.0
+        )
+    else:
+        feature_frame["abc_norm"] = 0.6   # 데이터 없으면 B등급(60점) 기본값
+
+    # 재고 회전율 점수 (0~100) → 0~1 정규화
+    if "turnover_score" in df.columns:
+        feature_frame["turnover_norm"] = (
+            pd.to_numeric(df["turnover_score"], errors="coerce").fillna(50) / 100.0
+        )
+    else:
+        feature_frame["turnover_norm"] = 0.5
+
+    # 폐기 위험도 점수 (0~100) → 0~1 정규화
+    # 위험 높을수록 DQN이 '폐기 또는 할인' 행동 선호하도록 반전 없이 그대로 입력
+    if "disposal_risk_score" in df.columns:
+        feature_frame["disposal_risk_norm"] = (
+            pd.to_numeric(df["disposal_risk_score"], errors="coerce").fillna(50) / 100.0
+        )
+    else:
+        feature_frame["disposal_risk_norm"] = 0.5
+
+    # Safety Stock 위험도: 재주문 위험 높을수록 '재고 이동 or 발주' 행동 선호
+    if "safety_stock_score" in df.columns:
+        feature_frame["safety_stock_norm"] = (
+            pd.to_numeric(df["safety_stock_score"], errors="coerce").fillna(50) / 100.0
+        )
+    else:
+        feature_frame["safety_stock_norm"] = 0.5
+
+    # EOQ 이탈도: 과잉/과소 발주 위험 높을수록 '보류' 불리, '이동' 유리
+    if "eoq_score" in df.columns:
+        feature_frame["eoq_norm"] = (
+            pd.to_numeric(df["eoq_score"], errors="coerce").fillna(50) / 100.0
+        )
+    else:
+        feature_frame["eoq_norm"] = 0.5
+
     X = feature_frame.fillna(0).clip(0, 1).values.astype(np.float64)
     return X, list(feature_frame.columns)
 
@@ -185,6 +228,11 @@ def _build_reward_matrix(df):
     """
     각 후보 상태마다 4개 행동의 보상을 모두 만든다.
     이 보상은 실제 매출 데이터가 없을 때 사용하는 시뮬레이션 보상식이다.
+
+    Phase 1 업데이트:
+      - disposal_risk_score : 폐기 위험 높으면 '할인/폐기' 행동 보상 강화
+      - abc_score           : A 등급 상품은 '이동' 보상 강화 (핵심 상품 우선 처리)
+      - turnover_score      : 회전율 낮으면 '할인/이동' 보상 강화
     """
     if df.empty:
         return np.empty((0, len(ACTION_LABELS)), dtype=np.float64)
@@ -200,38 +248,87 @@ def _build_reward_matrix(df):
         + pd.to_numeric(df["target_shortage_qty"], errors="coerce").fillna(0)
     ).clip(0, 1)
 
+    # ── Phase 1 알고리즘 피처 ─────────────────────────────
+    disposal_risk_n = (
+        pd.to_numeric(df["disposal_risk_score"], errors="coerce").fillna(50).clip(0, 100) / 100.0
+        if "disposal_risk_score" in df.columns
+        else pd.Series([0.5] * len(df), index=df.index)
+    )
+
+    abc_n = (
+        pd.to_numeric(df["abc_score"], errors="coerce").fillna(60).clip(0, 100) / 100.0
+        if "abc_score" in df.columns
+        else pd.Series([0.6] * len(df), index=df.index)
+    )
+
+    turnover_n = (
+        pd.to_numeric(df["turnover_score"], errors="coerce").fillna(50).clip(0, 100) / 100.0
+        if "turnover_score" in df.columns
+        else pd.Series([0.5] * len(df), index=df.index)
+    )
+
+    # Safety Stock 위험도: 재주문 위험 높으면 이동(보충) 행동 우선
+    safety_stock_n = (
+        pd.to_numeric(df["safety_stock_score"], errors="coerce").fillna(50).clip(0, 100) / 100.0
+        if "safety_stock_score" in df.columns
+        else pd.Series([0.5] * len(df), index=df.index)
+    )
+
+    # EOQ 이탈도: 과잉 발주 위험 높으면 '보류' 불리, 이동/할인 유리
+    eoq_n = (
+        pd.to_numeric(df["eoq_score"], errors="coerce").fillna(50).clip(0, 100) / 100.0
+        if "eoq_score" in df.columns
+        else pd.Series([0.5] * len(df), index=df.index)
+    )
+
     base = score
 
+    # 재고 이동: A등급 + 수요 격차 + 재주문 위험 높으면 이동으로 보충 유리
     move_reward = (
-        base * 0.60
-        + qty_n * 25
-        + demand_gap_n * 20
-        - cost_n * 25
-        - dist_n * 12
+        base * 0.48
+        + qty_n * 18
+        + demand_gap_n * 15
+        + abc_n * 10           # A등급이면 이동 우선
+        + safety_stock_n * 10  # 재주문 위험 높으면 이동으로 보충 우선
+        + eoq_n * 5            # 과잉 발주면 이동으로 소진 유리
+        - cost_n * 18
+        - dist_n * 10
         + 10
     )
 
+    # 할인: 폐기 위험 높거나 회전율 낮으면 유리
     discount_reward = (
-        base * 0.45
-        + qty_n * 18
-        + demand_gap_n * 8
-        - cost_n * 8
+        base * 0.36
+        + qty_n * 13
+        + disposal_risk_n * 14   # 폐기 위험 높으면 할인 우선
+        + (1 - turnover_n) * 10  # 회전율 낮으면 할인 우선
+        + eoq_n * 5              # 과잉 발주 상태면 할인으로 소진 유리
+        + demand_gap_n * 6
+        - cost_n * 6
         + 8
     )
 
+    # 폐기: 폐기 위험 매우 높거나 ABC C등급인 저가치 상품일 때 유리
     disposal_reward = (
-        35
-        + qty_n * 10
-        - base * 0.20
+        28
+        + disposal_risk_n * 18   # 폐기 위험 높으면 폐기 보상 상승
+        + (1 - abc_n) * 8        # C등급(저가치) 상품일수록 폐기 유리
+        + qty_n * 8
+        - base * 0.18
         - demand_gap_n * 5
+        - safety_stock_n * 5     # 재고 부족 상황이면 폐기 보상 감소
         - cost_n * 2
     )
 
+    # 보류: 위험 낮고 A등급 안정 상품 + 재고 여유 있을 때 유리
     hold_reward = (
-        55
-        - qty_n * 25
-        - demand_gap_n * 20
-        - (score / 100.0) * 15
+        50
+        - qty_n * 18
+        - demand_gap_n * 16
+        - disposal_risk_n * 10   # 폐기 위험 높으면 보류 불리
+        - safety_stock_n * 8     # 재주문 위험 높으면 보류 불리
+        - eoq_n * 5              # EOQ 과잉 상태면 보류 불리
+        - (score / 100.0) * 12
     )
 
     reward = np.vstack([
