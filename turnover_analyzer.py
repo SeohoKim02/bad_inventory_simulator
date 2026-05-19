@@ -58,6 +58,9 @@ def _get_sales_30d(df: pd.DataFrame) -> pd.Series:
     for col in ["sales_30d", "state_source_sales_30d", "source_sales_30d"]:
         if col in df.columns:
             return _safe_numeric(df[col])
+    # avg_daily_sales 있으면 × 30 변환
+    if "avg_daily_sales" in df.columns:
+        return _safe_numeric(df["avg_daily_sales"]) * 30.0
     return pd.Series([0.0] * len(df), index=df.index)
 
 

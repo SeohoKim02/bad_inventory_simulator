@@ -3668,7 +3668,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
         )
 
     # ── 탭 구성 ──────────────────────────────────────────
-    tab_labels = ["🏅 ABC 분석", "🔄 재고 회전율", "⚠️ 폐기 위험도", "🔔 Safety Stock", "📦 EOQ 발주량"]
+    tab_labels = ["🏅 ABC 분석", "🔄 재고 회전율", "⚠️ 폐기 위험도", "🔔 Safety Stock", "📦 EOQ 발주량", "📈 수요 예측"]
     tabs = st.tabs(tab_labels)
 
     # ── 탭 1: ABC 분석 ──────────────────────────────────
@@ -3867,6 +3867,70 @@ def _show_algorithms_page(final_recommendations, inventory=None):
                     show_df = risk_df[[c for c in show_cols if c in risk_df.columns]]
                     show_df = show_df.sort_values("eoq_risk_score", ascending=False).reset_index(drop=True)
                     st.dataframe(show_df, width='stretch')
+
+    # ── 탭 6: 수요 예측 ─────────────────────────────────
+    with tabs[5]:
+        st.subheader("수요 예측 분석")
+        if "demand_trend" not in df.columns:
+            st.info("수요 예측 결과가 없습니다.")
+        else:
+            # 추세 요약
+            trend_cnt = df["demand_trend"].value_counts()
+            c1, c2, c3 = st.columns(3)
+            c1.metric("📈 수요 증가 (INCREASING)", f"{trend_cnt.get('INCREASING', 0)}개",
+                      help="최근 7일 일평균 > 과거 일평균 × 1.1")
+            c2.metric("➡️ 안정 (STABLE)", f"{trend_cnt.get('STABLE', 0)}개",
+                      help="수요 변동 ±10% 이내")
+            c3.metric("📉 수요 감소 (DECREASING)", f"{trend_cnt.get('DECREASING', 0)}개",
+                      help="최근 7일 일평균 < 과거 일평균 × 0.9")
+
+            if "demand_forecast_7d" in df.columns:
+                avg_fc = df["demand_forecast_7d"].dropna().mean()
+                st.caption(f"평균 7일 예측 판매량: **{avg_fc:.1f}개**")
+
+            # 소진 임박 위험 상품
+            with st.expander("🚨 재고 소진 임박 상품 (위험점수 70점+)", expanded=True):
+                if "demand_risk_score" in df.columns:
+                    risk_df = df[df["demand_risk_score"] >= 70].copy()
+                    if risk_df.empty:
+                        st.success("재고 소진 임박 상품이 없습니다.")
+                    else:
+                        show_cols = ["product_name", "source_store", "demand_trend",
+                                     "demand_forecast_7d", "demand_forecast_daily",
+                                     "demand_stockout_days", "demand_risk_score",
+                                     "demand_forecast_method"]
+                        show_df = risk_df[[c for c in show_cols if c in risk_df.columns]]
+                        show_df = show_df.sort_values("demand_risk_score", ascending=False).reset_index(drop=True)
+                        st.dataframe(show_df, width='stretch')
+
+            # 수요 증가 상품
+            with st.expander("📈 수요 증가 상품 보기", expanded=False):
+                inc_df = df[df["demand_trend"] == "INCREASING"].copy()
+                if inc_df.empty:
+                    st.info("수요 증가 상품이 없습니다.")
+                else:
+                    show_cols = ["product_name", "source_store",
+                                 "demand_forecast_7d", "demand_forecast_daily",
+                                 "demand_forecast_upper", "demand_stockout_days"]
+                    show_df = inc_df[[c for c in show_cols if c in inc_df.columns]]
+                    show_df = show_df.sort_values("demand_forecast_7d", ascending=False).reset_index(drop=True)
+                    st.dataframe(show_df, width='stretch')
+
+            # 예측 방법 분포
+            if "demand_forecast_method" in df.columns:
+                method_cnt = df["demand_forecast_method"].value_counts()
+                with st.expander("📐 예측 방법 분포", expanded=False):
+                    st.markdown(
+                        """
+                        | 방법 | 설명 |
+                        |------|------|
+                        | **WMA** | 가중이동평균 — 최근 7일 60% + 이력 40% |
+                        | **SMA** | 단순이동평균 — 최근 7일 평균 |
+                        | **NAIVE** | 일평균 판매 × 7 (기본 fallback) |
+                        """
+                    )
+                    for method, cnt in method_cnt.items():
+                        st.write(f"- {method}: {cnt}개")
 
 
 # =========================

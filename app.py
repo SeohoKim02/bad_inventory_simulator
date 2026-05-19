@@ -589,7 +589,7 @@ def format_money(value):
         return str(value)
 
 
-def apply_heuristic_and_greedy(final_recommendations):
+def apply_heuristic_and_greedy(final_recommendations, inventory=None):
     if final_recommendations is None or final_recommendations.empty:
         return pd.DataFrame(), None
 
@@ -613,7 +613,8 @@ def apply_heuristic_and_greedy(final_recommendations):
 
     # ── Varo 통합 점수 계산 (Phase 1: ABC + 회전율 + 폐기위험도) ──
     if run_all_algorithms is not None:
-        inventory_df = st.session_state.get("data", {}).get("inventory", None)
+        # inventory 인자 우선 사용, 없으면 session_state fallback
+        inventory_df = inventory if inventory is not None else st.session_state.get("data", {}).get("inventory", None)
         scored = run_all_algorithms(inventory_df, scored)
 
     greedy_best = select_greedy_best_candidate(scored)
@@ -1396,6 +1397,7 @@ def cached_excel_analysis(
 
     final_recommendations, greedy_best_candidate = apply_heuristic_and_greedy(
         final_recommendations,
+        inventory=analysis_inventory,
     )
 
     greedy_transfer_row = get_matching_transfer_row(

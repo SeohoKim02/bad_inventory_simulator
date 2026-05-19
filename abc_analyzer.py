@@ -102,9 +102,18 @@ def analyze_abc(inventory_df: pd.DataFrame) -> pd.DataFrame:
         df["_abc_product_total"] = df["abc_revenue_value"]
 
     # 3. 중복 제거된 상품 목록으로 누적 비율 계산
-    total_revenue = df["_abc_product_total"].sum()
+    # product_rank는 product_name별 1행 → 여기서 sum해야 분모가 올바름
+    # (df 전체로 sum하면 상품이 여러 점포에 중복 등장해 분모가 부풀려짐)
+    product_rank = (
+        df[["product_name", "_abc_product_total"]]
+        .drop_duplicates("product_name")
+        .sort_values("_abc_product_total", ascending=False)
+        .reset_index(drop=True)
+    )
 
-    if total_revenue == 0:
+    total_revenue = product_rank["_abc_product_total"].sum()
+
+    if total_revenue == 0 or pd.isna(total_revenue):
         df["abc_cumulative_pct"] = 0.0
         df["abc_grade"]          = "C"
         df["abc_priority"]       = 3
@@ -112,13 +121,6 @@ def analyze_abc(inventory_df: pd.DataFrame) -> pd.DataFrame:
         df.drop(columns=["_abc_product_total"], inplace=True)
         return df
 
-    # 상품 수준 누적 % 테이블
-    product_rank = (
-        df[["product_name", "_abc_product_total"]]
-        .drop_duplicates("product_name")
-        .sort_values("_abc_product_total", ascending=False)
-        .reset_index(drop=True)
-    )
     product_rank["_cumsum"]      = product_rank["_abc_product_total"].cumsum()
     product_rank["_cum_pct"]     = product_rank["_cumsum"] / total_revenue
     product_rank["abc_grade"]    = product_rank["_cum_pct"].apply(_assign_grade)
