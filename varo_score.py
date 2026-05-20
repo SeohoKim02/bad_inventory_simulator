@@ -265,12 +265,48 @@ def run_all_algorithms(
     df = analyze_safety_stock(df)
     df = analyze_eoq(df)
     df = analyze_demand_forecast(df)
-    df = analyze_store_product_matching(df)  # Phase 2 — 점포-상품 매칭
+    df = analyze_store_product_matching(df)
+
+    # ── 추가 10개 알고리즘 (11~20) ────────────────────────
+    try:
+        from trend_aging_analyzer import analyze_sales_trend, analyze_inventory_aging
+        df = analyze_sales_trend(df)
+        df = analyze_inventory_aging(df)
+    except Exception:
+        pass
+
+    try:
+        from risk_fit_analyzer import (
+            analyze_relocation_failure,
+            analyze_substitute_conflict,
+            analyze_category_balance,
+            analyze_store_capacity,
+        )
+        df = analyze_relocation_failure(df)
+        df = analyze_substitute_conflict(df, inventory_df)
+        df = analyze_category_balance(df, inventory_df)
+        df = analyze_store_capacity(df, inventory_df)
+    except Exception:
+        pass
+
+    try:
+        from decision_analyzer import (
+            analyze_discount_sensitivity,
+            analyze_disposal_avoidance,
+            analyze_newsvendor,
+            analyze_topsis,
+        )
+        df = analyze_discount_sensitivity(df)
+        df = analyze_disposal_avoidance(df)
+        df = analyze_newsvendor(df)
+        df = analyze_topsis(df)
+    except Exception:
+        pass
 
     # Varo 통합 점수 (기존 호환용)
     df = calculate_varo_score(df)
 
-    # VARO Hybrid Score — 상황 감지 + 가중치 자동조정 + 액션 추천
+    # VARO Hybrid Score — 상황 감지 + 5개 구성요소 + 액션 추천
     try:
         from varo_hybrid_score import calculate_varo_hybrid_score
         df = calculate_varo_hybrid_score(df)

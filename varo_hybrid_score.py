@@ -51,18 +51,38 @@ import pandas as pd
 # ═══════════════════════════════════════════════════════════
 #  기본 가중치
 # ═══════════════════════════════════════════════════════════
+# ── VHS 5개 구성요소 체계 ──────────────────────────────────
+# 재고위험(30%) + 판매가능성(25%) + 이동적합도(20%) + 비용부담(15%) + 실패위험(10%)
+# 실패위험은 감점(음수 방향)으로 작동
+
 _BASE_WEIGHTS = {
-    "disposal_risk_score":   0.22,   # A. 긴급도 — 폐기 위험 (가장 직접적 긴급 신호)
-    "turnover_score":        0.18,   # A. 긴급도 — 재고 회전율 (악성재고의 본질)
-    "demand_forecast_score": 0.14,   # A. 긴급도 — 수요 예측 (재고 소진 위험)
-    "heuristic_score":       0.12,   # C. 비용 효율 — 비용·거리·수량 종합
-    "safety_stock_score":    0.10,   # B. 이동 적합 — 목적지 재고 필요성
-    "match_score":           0.09,   # B. 이동 적합 — 점포-상품 매칭
-    "abc_score":             0.06,   # E. 상품 맥락 — 상품 가치 등급
-    "greedy_score":          0.05,   # D. 기존 연동 — 그리디 선택 보정
-    "eoq_score":             0.03,   # C. 비용 효율 — 발주량 효율성
-    "network_cost_score":    0.01,   # C. 비용 효율 — 최소비용 경로
-    # cluster_score 제거 — match_score에 사실상 흡수됨
+    # A. 재고 위험 (30%)
+    "disposal_risk_score":   0.10,   # 폐기위험도
+    "turnover_score":        0.08,   # 재고회전율
+    "abc_score":             0.06,   # ABC분석
+    "aging_score":           0.06,   # 재고 노후화 (신규 #12)
+    # B. 판매 가능성 (25%)
+    "demand_forecast_score": 0.09,   # 수요예측
+    "trend_score":           0.08,   # 판매 추세 변화율 (신규 #11)
+    "newsvendor_score":      0.08,   # Newsvendor (신규 #19)
+    # C. 이동 적합도 (20%)
+    "match_score":           0.09,   # 점포-상품 매칭
+    "category_balance_score":0.06,   # 카테고리 균형 (신규 #15)
+    "store_capacity_score":  0.05,   # 점포 처리 능력 (신규 #16)
+    # D. 비용 부담 (15%)
+    "heuristic_score":       0.07,   # 휴리스틱(비용/거리)
+    "disposal_avoidance_score": 0.05, # 폐기 회피 이익 (신규 #18)
+    "eoq_score":             0.03,   # EOQ
+    # E. 기존 연동 (10%)
+    "greedy_score":          0.04,   # 그리디 선택
+    "safety_stock_score":    0.04,   # 안전재고/ROP
+    "discount_sensitivity_score": 0.02, # 할인 민감도 (신규 #17)
+}
+
+# 실패 위험 점수 (VHS에서 차감 — 높을수록 감점)
+_PENALTY_WEIGHTS = {
+    "relocation_failure_score":  0.05,  # 재배치 실패 위험 (신규 #13)
+    "substitute_conflict_score": 0.03,  # 대체 상품 충돌 (신규 #14)
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -363,6 +383,19 @@ def calculate_varo_hybrid_score(df: pd.DataFrame) -> pd.DataFrame:
     # 4. 가중합 (컴포넌트 점수 × 가중치, 행별)
     raw_score = (comp_df * weight_df).sum(axis=1).clip(0, 100)
 
+    # 4b. 실패위험 패널티 차감
+    try:
+        penalty = pd.Series(0.0, index=out.index)
+        for col, w in _PENALTY_WEIGHTS.items():
+            vals = _safe(out[col], 50.0) if col in out.columns else 50.0
+            if isinstance(vals, pd.Series):
+                penalty += vals * w
+            else:
+                penalty += float(vals) * w
+        raw_score = (raw_score - penalty).clip(0, 100)
+    except Exception:
+        pass
+
     # 5. DQN 보정
     dqn_corr  = _dqn_correction(out, raw_score)
     vhs       = (raw_score + dqn_corr).clip(0, 100).round(1)
@@ -407,7 +440,15 @@ def calculate_varo_hybrid_score(df: pd.DataFrame) -> pd.DataFrame:
 
     # 10. 컴포넌트별 기여 점수 저장 (차트용)
     for comp in _BASE_WEIGHTS:
-        out[f"vhs_contrib_{comp}"] = (comp_df[comp] * weight_df[comp]).round(2)
+        if comp in comp_df.columns and comp in weight_df.columns:
+            out[f"vhs_contrib_{comp}"] = (comp_df[comp] * weight_df[comp]).round(2)
+    # 패널티 기여 (음수)
+    try:
+        for col, w in _PENALTY_WEIGHTS.items():
+            vals = _safe(out[col], 50.0) if col in out.columns else 50.0
+            out[f"vhs_penalty_{col}"] = -(vals * w).round(2) if isinstance(vals, pd.Series) else -(float(vals) * w)
+    except Exception:
+        pass
 
     # 11. 순위
     out = out.sort_values("vhs", ascending=False).reset_index(drop=True)
