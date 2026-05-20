@@ -303,6 +303,39 @@ def run_all_algorithms(
     except Exception:
         pass
 
+    # ── 추가 알고리즘 (#19,#20,#21,#22,#23,#25,#27,#29,#30,#31,#32) ──
+    try:
+        from advanced_inventory_analyzer import (
+            analyze_priority_queue,
+            analyze_service_level_inventory,
+            analyze_queuing_capacity,
+            analyze_bottleneck,
+            analyze_pareto,
+        )
+        df = analyze_priority_queue(df)
+        df = analyze_service_level_inventory(df)
+        df = analyze_queuing_capacity(df, inventory_df)
+        df = analyze_bottleneck(df, inventory_df)
+        df = analyze_pareto(df)
+    except Exception:
+        pass
+
+    try:
+        from optimization_analyzer import (
+            analyze_transportation_lp,
+            analyze_assignment,
+            analyze_multiobjective,
+            analyze_lp_allocation_score,
+            analyze_sensitivity_per_item,
+        )
+        df = analyze_transportation_lp(df, inventory_df)
+        df = analyze_assignment(df)
+        df = analyze_multiobjective(df)
+        df = analyze_lp_allocation_score(df)
+        df = analyze_sensitivity_per_item(df)
+    except Exception:
+        pass
+
     # Varo 통합 점수 (기존 호환용)
     df = calculate_varo_score(df)
 

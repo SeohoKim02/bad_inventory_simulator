@@ -51,39 +51,56 @@ import pandas as pd
 # ═══════════════════════════════════════════════════════════
 #  기본 가중치
 # ═══════════════════════════════════════════════════════════
-# ── VHS 5개 구성요소 체계 ──────────────────────────────────
-# 재고위험(30%) + 판매가능성(25%) + 이동적합도(20%) + 비용부담(15%) + 실패위험(10%)
-# 실패위험은 감점(음수 방향)으로 작동
+# ── VHS 32개 알고리즘 통합 가중치 ──────────────────────────
+# Varo Hybrid Decision Score
+# = 재고위험(22%) + 판매가능성(18%) + 점포적합도(18%)
+# + 재고균형(12%) + 폐기회피(8%) + 실행가능성(8%)
+# + 최적화(8%) + 기존연동(6%)
+# - 실패위험 패널티(차감)
 
 _BASE_WEIGHTS = {
-    # A. 재고 위험 (30%)
-    "disposal_risk_score":   0.10,   # 폐기위험도
-    "turnover_score":        0.08,   # 재고회전율
-    "abc_score":             0.06,   # ABC분석
-    "aging_score":           0.06,   # 재고 노후화 (신규 #12)
-    # B. 판매 가능성 (25%)
-    "demand_forecast_score": 0.09,   # 수요예측
-    "trend_score":           0.08,   # 판매 추세 변화율 (신규 #11)
-    "newsvendor_score":      0.08,   # Newsvendor (신규 #19)
-    # C. 이동 적합도 (20%)
-    "match_score":           0.09,   # 점포-상품 매칭
-    "category_balance_score":0.06,   # 카테고리 균형 (신규 #15)
-    "store_capacity_score":  0.05,   # 점포 처리 능력 (신규 #16)
-    # D. 비용 부담 (15%)
-    "heuristic_score":       0.07,   # 휴리스틱(비용/거리)
-    "disposal_avoidance_score": 0.05, # 폐기 회피 이익 (신규 #18)
-    "eoq_score":             0.03,   # EOQ
-    # E. 기존 연동 (10%)
-    "greedy_score":          0.04,   # 그리디 선택
-    "safety_stock_score":    0.04,   # 안전재고/ROP
-    "discount_sensitivity_score": 0.02, # 할인 민감도 (신규 #17)
+    # ── A. 재고 위험 (22%) ──
+    "disposal_risk_score":   0.09,   # #3 폐기위험도
+    "turnover_score":        0.06,   # #2 재고회전율
+    "abc_score":             0.04,   # #1 ABC분석
+    "aging_score":           0.03,   # #11 재고 노후화
+    # ── B. 판매 가능성 (18%) ──
+    "demand_forecast_score": 0.08,   # #6 수요예측
+    "trend_score":           0.05,   # #12 판매추세
+    "newsvendor_score":      0.05,   # #26 Newsvendor
+    # ── C. 점포 수요 적합도 (18%) ──
+    "match_score":           0.07,   # #8 점포-상품매칭
+    "service_level_score":   0.05,   # #25 서비스수준
+    "priority_queue_score":  0.03,   # #19 우선순위큐
+    "queue_capacity_score":  0.03,   # #27 대기행렬
+    # ── D. 재고 균형 개선 (12%) ──
+    "category_balance_score":0.05,   # #14 카테고리균형
+    "safety_stock_score":    0.04,   # #4 Safety Stock
+    "transport_lp_score":    0.03,   # #22 수송문제LP
+    # ── E. 폐기 회피 이익 (8%) ──
+    "disposal_avoidance_score":0.05, # #18 폐기회피이익
+    "discount_sensitivity_score":0.03,# #17 할인민감도
+    # ── F. 실행 가능성 (8%) ──
+    "bottleneck_score":      0.03,   # #30 병목분석
+    "store_capacity_score":  0.03,   # #15 점포처리능력
+    "lp_allocation_score":   0.02,   # #21 LP배분
+    # ── G. 최적화 모델 (8%) ──
+    "multiobjective_score":  0.03,   # #20/#32 다목적
+    "topsis_score":          0.02,   # #24 TOPSIS
+    "pareto_score":          0.02,   # #31 Pareto
+    "assignment_score":      0.01,   # #23 할당문제
+    # ── H. 기존 시스템 연동 (6%) ──
+    "heuristic_score":       0.03,   # 휴리스틱
+    "greedy_score":          0.02,   # 그리디
+    "eoq_score":             0.01,   # #5 EOQ
 }
 
-# 실패 위험 점수 (VHS에서 차감 — 높을수록 감점)
+# 실패 위험 패널티 (VHS에서 차감)
 _PENALTY_WEIGHTS = {
-    "relocation_failure_score":  0.05,  # 재배치 실패 위험 (신규 #13)
-    "substitute_conflict_score": 0.03,  # 대체 상품 충돌 (신규 #14)
+    "relocation_failure_score":  0.04,  # #16 재배치실패위험
+    "substitute_conflict_score": 0.02,  # #13 대체상품충돌
 }
+
 
 # ═══════════════════════════════════════════════════════════
 #  상황 감지 → 가중치 배율

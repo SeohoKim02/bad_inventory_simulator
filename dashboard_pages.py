@@ -4181,12 +4181,13 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     # ══════════════════════════════════════════════════════
     #  탭 구성
     # ══════════════════════════════════════════════════════
-    t1, t2, t3, t4, t5 = st.tabs([
+    t1, t2, t3, t4, t5, t6 = st.tabs([
         "🎯  VHS 추천 목록",
         "📊  알고리즘 vs VHS 비교",
-        "🏗️  5개 구성요소 분석",
-        "🔬  컴포넌트 기여 분석",
-        "⚖️  가중치 & 상황 감지",
+        "🏗️  8구성요소 분석",
+        "🔬  컴포넌트 기여",
+        "⚖️  가중치 & 상황",
+        "📋  32개 알고리즘 현황",
     ])
 
     # ══════════════════════════════════════════════════════
@@ -4351,10 +4352,61 @@ def _show_algorithms_page(final_recommendations, inventory=None):
             st.info("알고리즘 점수 컬럼이 없습니다.")
 
     # ══════════════════════════════════════════════════════
-    #  탭 3: 컴포넌트 기여 분석
-    # ══════════════════════════════════════════════════════
+    #  탭 3: 8구성요소 분석
     with t3:
-        st.subheader("VHS 컴포넌트 기여 분석")
+        st.subheader("🏗️ Varo Hybrid Score — 8개 구성요소 구조")
+        _G8 = {
+            "A. 재고 위험 (22%)":   (["disposal_risk_score","turnover_score","abc_score","aging_score"],"#ef5350"),
+            "B. 판매 가능성 (18%)": (["demand_forecast_score","trend_score","newsvendor_score"],"#ab47bc"),
+            "C. 점포 적합도 (18%)": (["match_score","service_level_score","priority_queue_score","queue_capacity_score"],"#42a5f5"),
+            "D. 재고 균형 (12%)":   (["category_balance_score","safety_stock_score","transport_lp_score"],"#26a69a"),
+            "E. 폐기 회피 (8%)":    (["disposal_avoidance_score","discount_sensitivity_score"],"#ffa726"),
+            "F. 실행 가능성 (8%)":  (["bottleneck_score","store_capacity_score","lp_allocation_score"],"#66bb6a"),
+            "G. 최적화 모델 (8%)":  (["multiobjective_score","topsis_score","pareto_score","assignment_score"],"#8d6e63"),
+            "H. 기존 연동 (6%)":    (["heuristic_score","greedy_score","eoq_score"],"#78909c"),
+        }
+        _PENALTY = ["relocation_failure_score","substitute_conflict_score"]
+
+        for grp, (cols, color) in _G8.items():
+            avail = [c for c in cols if c in df.columns]
+            avg   = sum(float(df[c].mean()) for c in avail) / max(len(avail),1) if avail else 50
+            chips = " ".join(
+                f'<span style="background:#f0f0f0;border-radius:5px;padding:2px 8px;'
+                f'font-size:11px;margin:2px;display:inline-block;">'
+                f'{c.replace("_score","")}: {float(df[c].mean()):.1f}</span>'
+                for c in avail
+            ) if avail else "<em>데이터 없음</em>"
+            st.markdown(
+                f'<div style="border-left:4px solid {color};padding:7px 14px;'
+                f'margin:4px 0;border-radius:0 10px 10px 0;background:#fafafa;">'
+                f'<strong style="font-size:13px;">{grp}</strong> 평균 {avg:.1f}점'
+                f'<div style="margin-top:3px;">{chips}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("**⛔ 실패 위험 패널티 (차감)**")
+        for pc in _PENALTY:
+            if pc in df.columns:
+                st.markdown(
+                    f'<div style="border-left:3px solid #b71c1c;padding:4px 12px;'
+                    f'margin:2px 0;border-radius:0 6px 6px 0;background:#fff3f3;font-size:12px;">'
+                    f'{pc.replace("_score","")} 평균 {float(df[pc].mean()):.1f}점 (차감)</div>',
+                    unsafe_allow_html=True,
+                )
+
+        new32 = [c for c in [
+            "trend_direction","aging_grade","priority_queue_rank",
+            "relocation_failure_grade","substitute_conflict_score",
+            "category_balance_score","store_capacity_score","queue_capacity_score",
+            "bottleneck_reason","discount_sensitivity_score","disposal_avoidance_profit",
+            "newsvendor_score","pareto_grade","topsis_rank",
+            "multiobjective_rank","assignment_action","sensitivity_score",
+            "dominant_factor","transport_lp_score","service_level_gap",
+        ] if c in df.columns]
+        if new32:
+            with st.expander(f"📋 전체 알고리즘 결과 상세 ({len(new32)}개 컬럼)", expanded=False):
+                base = [c for c in ["product_name","source_store","vhs","vhs_action"] if c in df.columns]
+                st.dataframe(df[base + new32].head(20), width="stretch")
 
         contrib_cols = {
             c.replace("vhs_contrib_","").replace("_score",""): c
@@ -4498,7 +4550,82 @@ def _show_algorithms_page(final_recommendations, inventory=None):
                         ])
                         st.dataframe(mod_df, hide_index=True, width="stretch")
 
+    # ── 탭 5: 컴포넌트 기여 ────────────────────────────────
+    with t5:
+        st.subheader("🔬 VHS 컴포넌트 기여 분석")
+        contrib_cols_t5 = {
+            c.replace("vhs_contrib_","").replace("_score",""): c
+            for c in df.columns if c.startswith("vhs_contrib_")
+        }
+        if contrib_cols_t5:
+            avg_c = {k: float(df[v].mean()) for k, v in contrib_cols_t5.items()}
+            total_c = sum(avg_c.values())
+            if total_c > 0:
+                st.markdown("**전체 평균 VHS 구성**")
+                bar_html = '<div style="display:flex;height:24px;border-radius:6px;overflow:hidden;margin-bottom:8px;">'
+                leg_html = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">'
+                _CC = ["#ef5350","#ab47bc","#42a5f5","#26a69a","#ffa726","#66bb6a","#8d6e63","#78909c","#b0bec5"]
+                for ci,(k,v) in enumerate(sorted(avg_c.items(), key=lambda x:-x[1])):
+                    pct = v/total_c*100
+                    if pct < 0.3: continue
+                    col = _CC[ci % len(_CC)]
+                    bar_html += f'<div style="width:{pct:.1f}%;background:{col};"></div>'
+                    leg_html += f'<span style="background:{col};color:#fff;border-radius:4px;padding:2px 7px;font-size:10px;">{k} {v:.1f}pt</span>'
+                st.markdown(bar_html+"</div>"+leg_html+"</div>", unsafe_allow_html=True)
 
+            base_c = [c for c in ["product_name","source_store","vhs","vhs_action"] if c in df.columns]
+            st.dataframe(df[base_c + list(contrib_cols_t5.values())].head(20).round(2), width="stretch")
+        else:
+            st.info("기여 점수 컬럼이 없습니다.")
+
+    # ── 탭 6: 32개 알고리즘 전체 현황 ───────────────────────
+    with t6:
+        st.subheader("📋 Varo 32개 알고리즘 전체 현황")
+        _ALL32 = [
+            ("#1",  "ABC 분석",           "abc_score",                   "✅"),
+            ("#2",  "재고 회전율",         "turnover_score",              "✅"),
+            ("#3",  "폐기 위험도",         "disposal_risk_score",         "✅"),
+            ("#4",  "Safety Stock/ROP",    "safety_stock_score",          "✅"),
+            ("#5",  "EOQ",                "eoq_score",                   "✅"),
+            ("#6",  "수요 예측",           "demand_forecast_score",       "✅"),
+            ("#7",  "점포 클러스터링",     "source_cluster",              "✅"),
+            ("#8",  "점포-상품 매칭",      "match_score",                 "✅"),
+            ("#9",  "최소비용 네트워크",   "network_cost_score",          "✅"),
+            ("#10", "What-if 시뮬레이션",  None,                          "✅"),
+            ("#11", "재고 노후화 지수",    "aging_score",                 "✅"),
+            ("#12", "판매 추세 변화율",    "trend_score",                 "✅"),
+            ("#13", "대체 상품 충돌",      "substitute_conflict_score",   "✅"),
+            ("#14", "카테고리 균형",       "category_balance_score",      "✅"),
+            ("#15", "점포 처리 능력",      "store_capacity_score",        "✅"),
+            ("#16", "재배치 실패 위험",    "relocation_failure_score",    "✅"),
+            ("#17", "할인 민감도",         "discount_sensitivity_score",  "✅"),
+            ("#18", "폐기 회피 이익",      "disposal_avoidance_score",    "✅"),
+            ("#19", "재고 이동 우선순위큐","priority_queue_score",        "✅"),
+            ("#20", "다목적 의사결정",     "multiobjective_score",        "✅"),
+            ("#21", "선형/정수계획법",     "lp_allocation_score",         "✅"),
+            ("#22", "수송 문제 LP",        "transport_lp_score",          "✅"),
+            ("#23", "할당 문제",           "assignment_score",            "✅"),
+            ("#24", "TOPSIS",             "topsis_score",                "✅"),
+            ("#25", "서비스 수준 재고관리","service_level_score",         "✅"),
+            ("#26", "Newsvendor Model",   "newsvendor_score",            "✅"),
+            ("#27", "대기행렬 이론",       "queue_capacity_score",        "✅"),
+            ("#28", "시뮬레이션 What-if",  None,                          "✅"),
+            ("#29", "민감도 분석",         "sensitivity_score",           "✅"),
+            ("#30", "병목 분석",           "bottleneck_score",            "✅"),
+            ("#31", "Pareto 분석",         "pareto_score",                "✅"),
+            ("#32", "Multi-objective",    "multiobjective_score",        "✅"),
+        ]
+
+        rows = []
+        for num, name, col, status in _ALL32:
+            avg_val = f"{float(df[col].mean()):.1f}점" if (col and col in df.columns) else "연동됨"
+            active  = "✅ 활성" if (col and col in df.columns) else "🔗 연동"
+            rows.append({"번호": num, "알고리즘": name, "평균값": avg_val, "상태": active})
+
+        status_df = pd.DataFrame(rows)
+        active_cnt = sum(1 for r in rows if "활성" in r["상태"])
+        st.caption(f"전체 {len(_ALL32)}개 · 데이터 연동 {active_cnt}개")
+        st.dataframe(status_df, width="stretch", hide_index=True)
 
 
 # =========================
