@@ -44,10 +44,11 @@ _WEIGHTS_PHASE1 = {
 
 # ─── Phase 2 추가 가중치 (컬럼 존재 시 자동 반영) ─────────
 _WEIGHTS_PHASE2 = {
-    "safety_stock_score":      0.08,
-    "eoq_score":               0.07,
-    "demand_forecast_score":   0.07,
-    "cluster_match_score":     0.08,
+    "safety_stock_score":    0.08,
+    "eoq_score":             0.07,
+    "demand_forecast_score": 0.07,
+    "cluster_match_score":   0.05,
+    "match_score":           0.05,  # 점포-상품 매칭 최적화
 }
 
 # Phase 2 추가 시 Phase 1 비중 조정 비율 (Phase 1 총합 = 1 - Phase 2 사용 비중)
@@ -167,6 +168,7 @@ def calculate_varo_score(df: pd.DataFrame) -> pd.DataFrame:
 def run_all_algorithms(
     inventory_df:          pd.DataFrame,
     final_recommendations: pd.DataFrame,
+    stores_df:             pd.DataFrame = None,
 ) -> pd.DataFrame:
     """
     모든 Phase 1 알고리즘을 순서대로 실행하고
@@ -186,11 +188,13 @@ def run_all_algorithms(
     pd.DataFrame
         Varo 통합 점수가 포함된 최종 추천 DataFrame.
     """
-    from abc_analyzer           import analyze_abc
-    from turnover_analyzer      import analyze_turnover
-    from disposal_risk_analyzer import analyze_disposal_risk
-    from safety_stock_analyzer  import analyze_safety_stock
-    from eoq_analyzer           import analyze_eoq
+    from abc_analyzer             import analyze_abc
+    from turnover_analyzer        import analyze_turnover
+    from disposal_risk_analyzer   import analyze_disposal_risk
+    from safety_stock_analyzer    import analyze_safety_stock
+    from eoq_analyzer             import analyze_eoq
+    from demand_forecast_analyzer import analyze_demand_forecast
+    from store_product_matcher    import analyze_store_product_matching
 
     if final_recommendations is None or final_recommendations.empty:
         return final_recommendations
@@ -258,10 +262,19 @@ def run_all_algorithms(
     df = analyze_abc(df)
     df = analyze_turnover(df)
     df = analyze_disposal_risk(df)
-    df = analyze_safety_stock(df)      # Phase 2 — Safety Stock / ROP
-    df = analyze_eoq(df)               # Phase 2 — EOQ 적정 발주량
+    df = analyze_safety_stock(df)
+    df = analyze_eoq(df)
+    df = analyze_demand_forecast(df)
+    df = analyze_store_product_matching(df)  # Phase 2 — 점포-상품 매칭
 
-    # Varo 통합 점수
+    # Varo 통합 점수 (기존 호환용)
     df = calculate_varo_score(df)
+
+    # VARO Hybrid Score — 상황 감지 + 가중치 자동조정 + 액션 추천
+    try:
+        from varo_hybrid_score import calculate_varo_hybrid_score
+        df = calculate_varo_hybrid_score(df)
+    except Exception:
+        pass
 
     return df

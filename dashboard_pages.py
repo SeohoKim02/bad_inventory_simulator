@@ -1223,8 +1223,17 @@ def _show_dashboard_home(
 
     # 산업공학 알고리즘 버튼 — 메인 메뉴에 별도 배치
     st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
-    if st.button("📊 산업공학 알고리즘 분석 결과", width="stretch", key="go_algorithms"):
-        _go("algorithms")
+    nav2_col1, nav2_col2 = st.columns(2)
+    with nav2_col1:
+        if st.button("📊 산업공학 알고리즘 분석 결과", width="stretch", key="go_algorithms"):
+            _go("algorithms")
+    with nav2_col2:
+        if st.button("🌐 최소비용 네트워크 분석", width="stretch", key="go_network"):
+            _go("network")
+
+    st.markdown("<div style='margin-top:6px;'></div>", unsafe_allow_html=True)
+    if st.button("🔮 What-if 시뮬레이션", width="stretch", key="go_whatif"):
+        _go("whatif")
 
     with st.expander("관리자용 메뉴", expanded=False):
         admin_col1, admin_col2, admin_col3 = st.columns(3)
@@ -3600,273 +3609,473 @@ def _show_truck_page(
 # =========================
 # 산업공학 알고리즘 페이지
 # =========================
-def _show_algorithms_page(final_recommendations, inventory=None):
-    """ABC 분석, 재고 회전율, 폐기 위험도, Safety Stock 결과를 탭으로 보여준다."""
-
+def _show_whatif_page(final_recommendations):
+    """What-if 시뮬레이션 페이지."""
     _back_to_dashboard()
-    st.header("📊 산업공학 알고리즘 분석 결과")
+    st.header("🔮 What-if 시뮬레이션")
 
-    if final_recommendations is None or final_recommendations.empty:
-        st.info("분석 결과가 없습니다. 먼저 엑셀 파일을 업로드해 주세요.")
+    if final_recommendations is None or (
+        isinstance(final_recommendations, pd.DataFrame) and final_recommendations.empty
+    ):
+        st.info("추천 결과가 없습니다. 먼저 분석을 실행해주세요.")
+        return
+
+    try:
+        from whatif_simulator import (
+            run_scenario, compare_scenarios, sensitivity_analysis,
+            PRESET_SCENARIOS, DEFAULT_PARAMS,
+        )
+    except ImportError:
+        st.error("whatif_simulator 모듈을 찾을 수 없습니다.")
+        return
+
+    df = final_recommendations
+
+    # ── 탭 구성 ──────────────────────────────────────────
+    tab1, tab2, tab3 = st.tabs(["🎛 파라미터 직접 조정", "📊 시나리오 비교", "📐 민감도 분석"])
+
+    # ── 탭 1: 파라미터 직접 조정 ─────────────────────────
+    with tab1:
+        st.subheader("파라미터 조정 후 점수 재계산")
+
+        preset_name = st.selectbox(
+            "프리셋 시나리오 선택 (또는 아래에서 직접 조정)",
+            ["직접 조정"] + list(PRESET_SCENARIOS.keys()),
+            key="whatif_preset",
+        )
+
+        if preset_name != "직접 조정":
+            preset_p = PRESET_SCENARIOS[preset_name]
+        else:
+            preset_p = DEFAULT_PARAMS
+
+        c1, c2 = st.columns(2)
+        with c1:
+            discount_rate = st.slider(
+                "💸 할인율 (%)", 0, 50,
+                int(preset_p["discount_rate"] * 100), 5,
+                help="폐기 대신 할인 판매 시 단가 손실 비율",
+                key="whatif_discount",
+            ) / 100.0
+            demand_change = st.slider(
+                "📦 수요 변동 (%)", -30, 30,
+                int(preset_p["demand_change_pct"]), 5,
+                help="수요가 기준 대비 얼마나 변했는가",
+                key="whatif_demand",
+            )
+        with c2:
+            cost_mult = st.slider(
+                "🚚 이동비용 배율 (×)", 0.5, 2.0,
+                float(preset_p["cost_multiplier"]), 0.1,
+                help="운송비 변동 배율 (1.0 = 현재 기준)",
+                key="whatif_cost",
+            )
+            lead_change = st.slider(
+                "⏱ 리드타임 변동 (일)", -2, 5,
+                int(preset_p["lead_time_change"]), 1,
+                help="발주~입고 리드타임 변동",
+                key="whatif_lead",
+            )
+
+        sl_val = st.selectbox(
+            "🎯 서비스 수준 (Safety Stock Z계수)",
+            [0.90, 0.95, 0.99],
+            index=[0.90, 0.95, 0.99].index(preset_p.get("service_level", 0.95)),
+            format_func=lambda x: f"{x:.0%} (Z={[1.28,1.65,2.33][[0.90,0.95,0.99].index(x)]})",
+            key="whatif_sl",
+        )
+
+        params = {
+            "discount_rate":     discount_rate,
+            "cost_multiplier":   cost_mult,
+            "demand_change_pct": float(demand_change),
+            "service_level":     sl_val,
+            "lead_time_change":  lead_change,
+        }
+
+        sim_df = run_scenario(df, params)
+
+        # 결과 요약
+        base_avg  = pd.to_numeric(df.get("heuristic_score", 50), errors="coerce").mean()
+        sim_avg   = sim_df["heuristic_score_sim"].mean()
+        delta     = sim_avg - base_avg
+
+        st.markdown("---")
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1.metric("현재 평균 점수",    f"{base_avg:.1f}점")
+        mc2.metric("시뮬레이션 점수",   f"{sim_avg:.1f}점",  f"{delta:+.1f}점")
+        mc3.metric("점수 상승 상품",
+                   f"{(sim_df['score_delta'] > 0).sum()}개",
+                   help="시뮬레이션 후 점수가 오른 추천 건수")
+        mc4.metric("점수 하락 상품",
+                   f"{(sim_df['score_delta'] < 0).sum()}개",
+                   help="시뮬레이션 후 점수가 내린 추천 건수")
+
+        with st.expander("상위/하위 변화 상품 보기", expanded=True):
+            show_cols = ["product_name", "source_store", "target_store",
+                         "heuristic_score", "heuristic_score_sim", "score_delta"]
+            show_df = sim_df[[c for c in show_cols if c in sim_df.columns]].copy()
+            show_df = show_df.sort_values("score_delta", ascending=False).head(20).reset_index(drop=True)
+            st.dataframe(show_df, width="stretch")
+
+    # ── 탭 2: 시나리오 비교 ──────────────────────────────
+    with tab2:
+        st.subheader("5개 프리셋 시나리오 비교")
+        cmp_df = compare_scenarios(df, PRESET_SCENARIOS)
+        if not cmp_df.empty:
+            st.dataframe(cmp_df, width="stretch")
+
+            # 최적 시나리오 강조
+            best_idx = cmp_df["평균점수"].idxmax()
+            best_name = cmp_df.loc[best_idx, "시나리오"]
+            st.success(f"🏆 최고 점수 시나리오: **{best_name}** ({cmp_df.loc[best_idx,'평균점수']}점)")
+
+    # ── 탭 3: 민감도 분석 ────────────────────────────────
+    with tab3:
+        st.subheader("파라미터 민감도 분석")
+        st.caption("각 파라미터를 단위 변경했을 때 평균 추천 점수의 변화량")
+        sens_df = sensitivity_analysis(df)
+        if not sens_df.empty:
+            st.dataframe(sens_df, width="stretch")
+
+            # 가장 민감한 파라미터
+            max_abs = sens_df["평균점수 변화"].abs().idxmax()
+            most_sensitive = sens_df.loc[max_abs, "파라미터 변경"]
+            st.info(f"📌 가장 민감한 파라미터: **{most_sensitive}** — 점수 변화 {sens_df.loc[max_abs,'평균점수 변화']:+.2f}점")
+
+            st.markdown(
+                """
+                **해석 방법**
+                - **▲ 유리**: 이 파라미터 변화가 추천 점수를 높임
+                - **▼ 불리**: 이 파라미터 변화가 추천 점수를 낮춤
+                - 절댓값이 클수록 해당 파라미터에 민감한 시스템
+                """
+            )
+
+
+def _show_network_page():
+    """최소비용 네트워크 분석 결과 페이지."""
+    _back_to_dashboard()
+    st.header("🌐 최소비용 네트워크 분석")
+
+    flow_df   = st.session_state.get("_network_flow_df",  None)
+    node_df   = st.session_state.get("_network_node_df",  None)
+    summary   = st.session_state.get("_network_summary",  {})
+
+    if flow_df is None or (isinstance(flow_df, pd.DataFrame) and flow_df.empty):
+        st.info("네트워크 분석 결과가 없습니다. routes 데이터를 확인하거나 앱을 재시작해주세요.")
+        return
+
+    # 요약 카드
+    total_cost     = summary.get("total_cost", 0)
+    solved_rate    = summary.get("solved_rate", 0)
+    total_flow     = summary.get("total_flow_qty", 0)
+    n_flows        = summary.get("n_flows", 0)
+    avg_path       = summary.get("avg_path_len", 0)
+
+    st.markdown(
+        f"""
+        <div style="background:linear-gradient(135deg,#e8f5e9,#f1f8e9);
+                    border:1px solid #a5d6a7;border-radius:16px;
+                    padding:18px 24px;margin-bottom:20px;">
+            <div style="font-size:13px;color:#555;font-weight:700;margin-bottom:8px;">
+                네트워크 최적화 요약
+            </div>
+            <div style="display:flex;gap:28px;flex-wrap:wrap;">
+                <div><div style="font-size:26px;font-weight:900;color:#2e7d32;">
+                    {solved_rate:.1f}%</div>
+                    <div style="font-size:12px;color:#888;">수요 해소율</div></div>
+                <div><div style="font-size:26px;font-weight:900;color:#333;">
+                    {int(total_cost):,}원</div>
+                    <div style="font-size:12px;color:#888;">최소 총 이동비용</div></div>
+                <div><div style="font-size:26px;font-weight:900;color:#1565c0;">
+                    {int(total_flow):,}개</div>
+                    <div style="font-size:12px;color:#888;">총 이동 수량</div></div>
+                <div><div style="font-size:22px;font-weight:800;color:#6a1b9a;">
+                    {n_flows}건</div>
+                    <div style="font-size:12px;color:#888;">최적 이동 경로 수</div></div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    tab1, tab2, tab3 = st.tabs(["📦 최적 이동 경로", "🏪 점포별 공급/수요", "💡 알고리즘 설명"])
+
+    with tab1:
+        st.subheader("최소비용 최적 이동 경로")
+        if isinstance(flow_df, pd.DataFrame) and not flow_df.empty:
+            show_df = flow_df.sort_values("total_cost").reset_index(drop=True)
+            st.dataframe(show_df, width="stretch")
+            st.caption(f"평균 경로 길이: {avg_path:.1f}홉")
+        else:
+            st.info("이동 경로가 없습니다.")
+
+    with tab2:
+        st.subheader("점포별 공급/수요 현황")
+        if isinstance(node_df, pd.DataFrame) and not node_df.empty:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("📤 공급 점포", f"{(node_df['role']=='SUPPLY').sum()}개")
+            c2.metric("📥 수요 점포", f"{(node_df['role']=='DEMAND').sum()}개")
+            c3.metric("⚖️ 균형 점포", f"{(node_df['role']=='BALANCED').sum()}개")
+
+            with st.expander("공급 과잉 점포 (상위 15)", expanded=True):
+                sup = node_df[node_df["role"]=="SUPPLY"].nlargest(15,"excess")
+                st.dataframe(sup[["store_name","total_stock","supply_30d","excess"]].reset_index(drop=True), width="stretch")
+            with st.expander("재고 부족 점포 (상위 15)", expanded=False):
+                dem = node_df[node_df["role"]=="DEMAND"].nsmallest(15,"excess")
+                st.dataframe(dem[["store_name","total_stock","supply_30d","excess"]].reset_index(drop=True), width="stretch")
+
+    with tab3:
+        st.markdown(
+            """
+            ### 최소비용 네트워크 알고리즘 (SSP)
+
+            | 항목 | 내용 |
+            |------|------|
+            | 알고리즘 | Successive Shortest Path (SSP) |
+            | 최단경로 | Dijkstra (heapq 기반) |
+            | 비용 기준 | routes 시트의 `transport_cost` |
+            | 공급 기준 | 30일 수요 대비 재고 과잉량 |
+            | 수요 기준 | 30일 수요 대비 재고 부족량 |
+            | DC 역할 | 중간 허브 (비용 없이 경유) |
+
+            **수요 해소율** = 최적 흐름으로 처리된 수요 ÷ 전체 수요 × 100%
+            """
+        )
+
+
+def _show_algorithms_page(final_recommendations, inventory=None):
+    """VARO Hybrid Score 통합 대시보드 — 상황 감지·액션 추천 포함."""
+    _back_to_dashboard()
+
+    if final_recommendations is None or (
+        isinstance(final_recommendations, pd.DataFrame) and final_recommendations.empty
+    ):
+        st.info("분석 결과가 없습니다.")
         return
 
     df = final_recommendations.copy()
+    has_vhs = "vhs" in df.columns
 
-    # ── Varo 통합 점수 요약 카드 ──────────────────────────
-    if "varo_score" in df.columns:
-        avg_varo   = df["varo_score"].dropna().mean()
-        top_product = df.sort_values("varo_score", ascending=False).iloc[0]
-        critical_count = (
-            (df.get("reorder_status", pd.Series()) == "CRITICAL").sum()
-            if "reorder_status" in df.columns else 0
-        )
-        high_disposal = (
-            (df.get("disposal_risk_grade", pd.Series()) == "CRITICAL").sum()
-            if "disposal_risk_grade" in df.columns else 0
-        )
+    # ── VHS 없으면 즉석 계산 ──────────────────────────────
+    if not has_vhs:
+        try:
+            from varo_hybrid_score import calculate_varo_hybrid_score
+            df = calculate_varo_hybrid_score(df)
+            has_vhs = "vhs" in df.columns
+        except Exception:
+            pass
+
+    try:
+        from varo_hybrid_score import get_vhs_summary, _ACTION_ICONS
+        summary = get_vhs_summary(df) if has_vhs else {}
+    except Exception:
+        summary = {}
+        _ACTION_ICONS = {}
+
+    # ═══════════════════════════════════════════════════════
+    #  상단: VARO Hybrid Score 헤더 카드
+    # ═══════════════════════════════════════════════════════
+    st.markdown("## 🧠 VARO Hybrid Score")
+    st.caption("10개 산업공학 알고리즘 × 상황 감지 × DQN 보정 통합 의사결정")
+
+    if has_vhs and summary:
+        avg_vhs   = summary.get("avg_vhs", 0)
+        top_prod  = summary.get("top_product", "-")
+        top_vhs   = summary.get("top_vhs", 0)
+        top_action= summary.get("top_action", "-")
+        top_icon  = _ACTION_ICONS.get(top_action, "")
+        action_cnt= summary.get("action_counts", {})
+        sit_cnt   = summary.get("situation_counts", {})
+
+        # 최우선 상품 강조 카드
+        action_color = {
+            "재배치 이동": "#1565c0",
+            "할인 판매":   "#e65100",
+            "폐기":        "#b71c1c",
+            "보류":        "#2e7d32",
+        }.get(top_action, "#555")
 
         st.markdown(
             f"""
-            <div style="
-                background: linear-gradient(135deg,#fff3bf 0%,#fff9db 60%,#ffffff 100%);
-                border:1px solid #f6e58d; border-radius:18px;
-                padding:20px 24px; margin-bottom:20px;
-                box-shadow: 0 4px 14px rgba(0,0,0,0.06);
-            ">
-                <div style="font-size:13px; color:#888; font-weight:700; margin-bottom:6px;">
-                    Varo 통합 점수 요약
+            <div style="background:linear-gradient(135deg,#fff8e1,#fffde7,#fff);
+                        border-left:6px solid {action_color};
+                        border-radius:16px;padding:20px 24px;margin-bottom:16px;
+                        box-shadow:0 4px 16px rgba(0,0,0,0.07);">
+              <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+                <div>
+                  <div style="font-size:11px;color:#888;font-weight:700;letter-spacing:1px;">
+                    AVERAGE VHS
+                  </div>
+                  <div style="font-size:42px;font-weight:900;color:#333;line-height:1.1;">
+                    {avg_vhs}
+                    <span style="font-size:20px;color:#888;">점</span>
+                  </div>
                 </div>
-                <div style="display:flex; gap:32px; flex-wrap:wrap;">
-                    <div>
-                        <div style="font-size:28px; font-weight:900; color:#333;">
-                            {avg_varo:.1f}점
-                        </div>
-                        <div style="font-size:12px; color:#888;">평균 Varo 점수</div>
-                    </div>
-                    <div>
-                        <div style="font-size:28px; font-weight:900; color:#e74c3c;">
-                            {critical_count}건
-                        </div>
-                        <div style="font-size:12px; color:#888;">재주문 즉각 필요</div>
-                    </div>
-                    <div>
-                        <div style="font-size:28px; font-weight:900; color:#e67e22;">
-                            {high_disposal}건
-                        </div>
-                        <div style="font-size:12px; color:#888;">폐기 위험 CRITICAL</div>
-                    </div>
-                    <div>
-                        <div style="font-size:20px; font-weight:800; color:#27ae60;">
-                            {top_product.get('product_name', '-')}
-                        </div>
-                        <div style="font-size:12px; color:#888;">최우선 처리 상품</div>
-                    </div>
+                <div style="border-left:2px solid #eee;padding-left:24px;">
+                  <div style="font-size:11px;color:#888;font-weight:700;">최우선 처리 상품</div>
+                  <div style="font-size:20px;font-weight:800;color:#333;">{top_prod}</div>
+                  <div style="margin-top:4px;">
+                    <span style="background:{action_color};color:#fff;
+                                 padding:3px 12px;border-radius:20px;font-size:13px;font-weight:700;">
+                      {top_icon} {top_action}
+                    </span>
+                    <span style="margin-left:8px;font-size:14px;color:#888;">
+                      VHS {top_vhs:.1f}점
+                    </span>
+                  </div>
                 </div>
+                <div style="border-left:2px solid #eee;padding-left:24px;flex:1;min-width:200px;">
+                  <div style="font-size:11px;color:#888;font-weight:700;margin-bottom:6px;">
+                    액션 분포
+                  </div>
+                  <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    {"".join(
+                        f'<span style="background:#f5f5f5;border-radius:8px;padding:4px 10px;'
+                        f'font-size:13px;font-weight:600;">'
+                        f'{_ACTION_ICONS.get(k,"")}{k} {v}건</span>'
+                        for k, v in action_cnt.items()
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    # ── 탭 구성 ──────────────────────────────────────────
-    tab_labels = ["🏅 ABC 분석", "🔄 재고 회전율", "⚠️ 폐기 위험도", "🔔 Safety Stock", "📦 EOQ 발주량"]
-    tabs = st.tabs(tab_labels)
+        # 상황 감지 뱃지
+        active_sits = {k: v for k, v in sit_cnt.items() if v > 0}
+        if active_sits:
+            badges = " ".join(
+                f'<span style="background:#fff3e0;border:1px solid #ffcc02;'
+                f'border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;color:#e65100;">'
+                f'⚡ {k} {v}건</span>'
+                for k, v in active_sits.items()
+            )
+            st.markdown(
+                f'<div style="margin-bottom:16px;">{badges}</div>',
+                unsafe_allow_html=True,
+            )
 
-    # ── 탭 1: ABC 분석 ──────────────────────────────────
-    with tabs[0]:
-        st.subheader("ABC 분석 — 상품 매출 등급")
-        if "abc_grade" not in df.columns:
-            st.info("ABC 분석 결과가 없습니다. (abc_grade 컬럼 없음)")
+    # ═══════════════════════════════════════════════════════
+    #  탭 구성
+    # ═══════════════════════════════════════════════════════
+    tab_main, tab_detail, tab_components, tab_situation = st.tabs([
+        "🎯 VHS 추천 목록",
+        "📋 컴포넌트 상세",
+        "⚖️ 가중치 구성",
+        "🌡 상황 감지 현황",
+    ])
+
+    # ── 탭 1: VHS 추천 목록 ──────────────────────────────
+    with tab_main:
+        if has_vhs:
+            # 액션 필터
+            all_actions = df["vhs_action"].unique().tolist() if "vhs_action" in df.columns else []
+            selected = st.multiselect(
+                "액션 필터", all_actions,
+                default=all_actions, key="vhs_action_filter",
+            )
+            show_df = df[df["vhs_action"].isin(selected)].copy() if selected else df.copy()
+
+            show_cols = ["vhs_rank","product_name","source_store","target_store",
+                         "vhs","vhs_grade","vhs_action","vhs_dominant_situation"]
+            disp = show_df[[c for c in show_cols if c in show_df.columns]].head(50)
+            disp.columns = [
+                {"vhs_rank":"순위","vhs":"VHS점수","vhs_grade":"등급",
+                 "vhs_action":"추천액션","vhs_dominant_situation":"감지 상황",
+                 "product_name":"상품명","source_store":"출발점포","target_store":"도착점포"
+                }.get(c, c) for c in disp.columns
+            ]
+            st.dataframe(disp, width="stretch")
         else:
-            # 요약 지표
-            grade_counts = df["abc_grade"].value_counts()
-            c1, c2, c3 = st.columns(3)
-            c1.metric("🥇 A등급 (핵심 상품)", f"{grade_counts.get('A', 0)}개",
-                      help="누적 매출 상위 80% — 최우선 처리 대상")
-            c2.metric("🥈 B등급 (중요 상품)", f"{grade_counts.get('B', 0)}개",
-                      help="누적 매출 80~95%")
-            c3.metric("🥉 C등급 (저가치 상품)", f"{grade_counts.get('C', 0)}개",
-                      help="누적 매출 하위 5%")
+            st.info("VHS 계산 결과가 없습니다.")
 
-            # 등급별 매출 구성
-            if "abc_revenue_value" in df.columns:
-                summary = (
-                    df.groupby("abc_grade")["abc_revenue_value"]
-                    .sum()
-                    .reindex(["A", "B", "C"])
-                    .reset_index()
-                )
-                summary.columns = ["등급", "총 매출가치"]
-                total = summary["총 매출가치"].sum()
-                summary["매출 비율"] = (summary["총 매출가치"] / total * 100).round(1).astype(str) + "%"
-                summary["총 매출가치"] = summary["총 매출가치"].apply(lambda x: f"{x:,.0f}원")
-                st.dataframe(summary, width='stretch', hide_index=True)
+    # ── 탭 2: 컴포넌트 상세 ─────────────────────────────
+    with tab_detail:
+        from varo_hybrid_score import _BASE_WEIGHTS
+        comp_cols = [f"vhs_contrib_{c}" for c in _BASE_WEIGHTS if f"vhs_contrib_{c}" in df.columns]
+        base_cols = ["product_name","source_store","vhs","vhs_action"]
+        all_cols  = [c for c in base_cols if c in df.columns] + comp_cols
 
-            # 상세 테이블
-            with st.expander("상세 데이터 보기", expanded=False):
-                show_cols = ["product_name", "source_store", "abc_grade", "abc_score"]
-                if "abc_revenue_value" in df.columns:
-                    show_cols.append("abc_revenue_value")
-                show_df = df[[c for c in show_cols if c in df.columns]].copy()
-                show_df = show_df.sort_values("abc_grade").reset_index(drop=True)
-                st.dataframe(show_df, width='stretch')
-
-    # ── 탭 2: 재고 회전율 ───────────────────────────────
-    with tabs[1]:
-        st.subheader("재고 회전율 분석")
-        if "turnover_grade" not in df.columns:
-            st.info("재고 회전율 결과가 없습니다.")
+        if comp_cols:
+            detail_df = df[all_cols].head(30).copy()
+            rename_map = {f"vhs_contrib_{c}": c.replace("_score","").replace("_"," ") for c in _BASE_WEIGHTS}
+            detail_df = detail_df.rename(columns=rename_map)
+            st.caption("각 컴포넌트가 VHS에 기여하는 점수 (가중치 × 컴포넌트 점수)")
+            st.dataframe(detail_df, width="stretch")
         else:
-            grade_map = {"FAST": "빠름", "NORMAL": "정상", "SLOW": "느림(주의)", "DEAD": "악성재고"}
-            cnt = df["turnover_grade"].value_counts()
+            st.info("컴포넌트 기여 점수 컬럼이 없습니다.")
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("⚡ FAST (빠름)", f"{cnt.get('FAST', 0)}개",
-                      help="소진일수 30일 이내")
-            c2.metric("✅ NORMAL (정상)", f"{cnt.get('NORMAL', 0)}개",
-                      help="소진일수 30~60일")
-            c3.metric("🔶 SLOW (주의)", f"{cnt.get('SLOW', 0)}개",
-                      help="소진일수 60~90일")
-            c4.metric("🔴 DEAD (악성재고)", f"{cnt.get('DEAD', 0)}개",
-                      help="소진일수 90일 초과")
+    # ── 탭 3: 가중치 구성 ────────────────────────────────
+    with tab_components:
+        try:
+            from varo_hybrid_score import _BASE_WEIGHTS, _SITUATION_MODS
+            st.subheader("기본 가중치 (Base Weights)")
+            w_df = pd.DataFrame([
+                {"컴포넌트": k.replace("_score","").replace("_"," "),
+                 "기본가중치": f"{v*100:.0f}%",
+                 "역할": {
+                    "heuristic_score":       "비용·거리·수량 종합 점수 (기존 휴리스틱)",
+                    "greedy_score":          "그리디 선택 여부 + 순위 (1위=100점, 선택=+40점 보너스)",
+                    "disposal_risk_score":   "폐기 위험도 — 유통기한·판매속도 복합 점수 ★핵심",
+                    "demand_forecast_score": "수요 예측 위험 — 재고 소진 임박 점수",
+                    "turnover_score":        "재고 회전율 — 악성재고 정도 ★핵심",
+                    "abc_score":             "상품 가치 등급 (A=100/B=60/C=20) — 맥락 정보",
+                    "safety_stock_score":    "안전재고·재주문점 위험 — 목적지 필요성",
+                    "match_score":           "점포-상품 매칭 적합도 (클러스터 보너스 포함)",
+                    "eoq_score":             "발주량 과잉·과소 위험 — 보조 지표",
+                    "network_cost_score":    "최소비용 경로 적합성 — 보조 지표",
+                    "disposal_risk_score":   "폐기 위험도 (유통기한·판매속도)",
+                    "demand_forecast_score": "수요 예측 위험 (소진 임박)",
+                    "turnover_score":        "재고 회전율 (악성재고 정도)",
+                    "abc_score":             "상품 가치 등급 (A/B/C)",
+                    "safety_stock_score":    "안전재고·재주문점 위험",
+                    "match_score":           "점포-상품 매칭 적합도",
+                    "eoq_score":             "발주량 과잉·과소 위험",
+                    "network_cost_score":    "최소비용 경로 적합성",
+                    "cluster_score":         "점포 클러스터 친화도",
+                 }.get(k, "-")}
+                for k, v in _BASE_WEIGHTS.items()
+            ])
+            st.dataframe(w_df, width="stretch")
 
-            if "turnover_days" in df.columns:
-                avg_days = df["turnover_days"].replace(999, None).dropna().mean()
-                st.caption(f"평균 재고 소진일수: **{avg_days:.1f}일**")
+            st.subheader("상황별 가중치 조정 (Situation Modifiers)")
+            for sit, mods in _SITUATION_MODS.items():
+                with st.expander(f"⚡ {sit}", expanded=False):
+                    mod_rows = [{"컴포넌트": k.replace("_score",""), "배율": f"×{v}"} for k, v in mods.items()]
+                    st.dataframe(pd.DataFrame(mod_rows), width="stretch")
+        except Exception as e:
+            st.error(f"가중치 로드 실패: {e}")
 
-            with st.expander("악성재고 위험 상품 보기", expanded=True):
-                risk_df = df[df["turnover_grade"].isin(["SLOW", "DEAD"])].copy()
-                if risk_df.empty:
-                    st.success("악성재고 위험 상품이 없습니다.")
-                else:
-                    show_cols = ["product_name", "source_store", "turnover_grade",
-                                 "turnover_days", "turnover_score"]
-                    show_df = risk_df[[c for c in show_cols if c in risk_df.columns]]
-                    show_df = show_df.sort_values("turnover_days", ascending=False).reset_index(drop=True)
-                    st.dataframe(show_df, width='stretch')
+    # ── 탭 4: 상황 감지 현황 ─────────────────────────────
+    with tab_situation:
+        sit_cols = {
+            "sit_EXPIRY_URGENT":  "⏰ 유통기한 임박 (5일 이내)",
+            "sit_FROZEN_EXCESS":  "❄️ 냉동·냉장 과잉",
+            "sit_HIGH_COST":      "💸 이동비용 높음 (상위 20%)",
+            "sit_DEMAND_SURGE":   "📈 수요 급증 추세",
+            "sit_DEAD_STOCK":     "💀 악성재고 (회전율 DEAD)",
+            "sit_REORDER_CRISIS": "🚨 재주문 위기 (CRITICAL)",
+        }
+        st.subheader("상황 감지 현황")
+        for col, label in sit_cols.items():
+            cnt = int(df[col].sum()) if col in df.columns else 0
+            pct = cnt / max(len(df), 1) * 100
+            st.markdown(
+                f"**{label}**: {cnt}건 ({pct:.1f}%) "
+                + ("🔴" if pct > 30 else ("🟡" if pct > 10 else "🟢"))
+            )
+            if cnt > 0 and col in df.columns:
+                with st.expander(f"해당 상품 보기 ({cnt}건)", expanded=False):
+                    sit_df = df[df[col] == True].copy()
+                    show_c = ["product_name","source_store","vhs","vhs_action"]
+                    show_c = [c for c in show_c if c in sit_df.columns]
+                    st.dataframe(sit_df[show_c].head(20).reset_index(drop=True), width="stretch")
 
-    # ── 탭 3: 폐기 위험도 ───────────────────────────────
-    with tabs[2]:
-        st.subheader("폐기 위험도 분석")
-        if "disposal_risk_grade" not in df.columns:
-            st.info("폐기 위험도 결과가 없습니다.")
-        else:
-            cnt = df["disposal_risk_grade"].value_counts()
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("🔴 CRITICAL", f"{cnt.get('CRITICAL', 0)}개",
-                      help="위험도 80점 이상 — 즉시 조치 필요")
-            c2.metric("🟠 HIGH", f"{cnt.get('HIGH', 0)}개",
-                      help="위험도 60~79점")
-            c3.metric("🟡 MEDIUM", f"{cnt.get('MEDIUM', 0)}개",
-                      help="위험도 40~59점")
-            c4.metric("🟢 LOW", f"{cnt.get('LOW', 0)}개",
-                      help="위험도 39점 이하")
-
-            with st.expander("CRITICAL / HIGH 위험 상품 보기", expanded=True):
-                risk_df = df[df["disposal_risk_grade"].isin(["CRITICAL", "HIGH"])].copy()
-                if risk_df.empty:
-                    st.success("폐기 위험 상품이 없습니다.")
-                else:
-                    show_cols = ["product_name", "source_store", "disposal_risk_grade",
-                                 "disposal_risk_score", "disposal_risk_reason"]
-                    show_df = risk_df[[c for c in show_cols if c in risk_df.columns]]
-                    show_df = show_df.sort_values("disposal_risk_score", ascending=False).reset_index(drop=True)
-                    st.dataframe(show_df, width='stretch')
-
-    # ── 탭 4: Safety Stock / ROP ────────────────────────
-    with tabs[3]:
-        st.subheader("Safety Stock / Reorder Point")
-        if "reorder_status" not in df.columns:
-            st.info("Safety Stock 결과가 없습니다.")
-        else:
-            cnt = df["reorder_status"].value_counts()
-
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("🚨 CRITICAL", f"{cnt.get('CRITICAL', 0)}개",
-                      help="재고 ≤ 안전재고 — 즉각 발주 필요")
-            c2.metric("⚠️ WARNING", f"{cnt.get('WARNING', 0)}개",
-                      help="재고 ≤ 재주문점 — 발주 권장")
-            c3.metric("👁 MONITOR", f"{cnt.get('MONITOR', 0)}개",
-                      help="재주문점 접근 중")
-            c4.metric("✅ SAFE", f"{cnt.get('SAFE', 0)}개",
-                      help="재고 여유 있음")
-
-            # 공식 설명
-            with st.expander("📐 계산 공식 보기", expanded=False):
-                st.markdown(
-                    """
-                    | 항목 | 공식 |
-                    |------|------|
-                    | 안전재고 (SS) | `Z × σ_d × √(리드타임)` |
-                    | 재주문점 (ROP) | `(일평균판매 × 리드타임) + SS` |
-                    | 서비스 수준 | Z = 1.65 (95%) |
-
-                    - **σ_d**: 일 판매량 표준편차 (`demand_std`)
-                    - **리드타임**: 발주 후 입고까지 일수 (`lead_time_days`)
-                    """
-                )
-
-            with st.expander("발주 필요 상품 보기 (CRITICAL / WARNING)", expanded=True):
-                risk_df = df[df["reorder_status"].isin(["CRITICAL", "WARNING"])].copy()
-                if risk_df.empty:
-                    st.success("발주 필요 상품이 없습니다.")
-                else:
-                    show_cols = ["product_name", "source_store", "reorder_status",
-                                 "safety_stock", "reorder_point", "reorder_risk_score",
-                                 "reorder_advice"]
-                    show_df = risk_df[[c for c in show_cols if c in risk_df.columns]]
-                    show_df = show_df.sort_values("reorder_risk_score", ascending=False).reset_index(drop=True)
-                    st.dataframe(show_df, width='stretch')
-
-    # ── 탭 5: EOQ ───────────────────────────────────────
-    with tabs[4]:
-        st.subheader("EOQ 적정 발주량 분석")
-        if "eoq_status" not in df.columns:
-            st.info("EOQ 결과가 없습니다.")
-        else:
-            cnt = df["eoq_status"].value_counts()
-
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("🔴 OVER (과잉 발주)", f"{cnt.get('OVER', 0)}개",
-                      help="현재 발주량 > EOQ 1.5배 — 발주량 축소 권장")
-            c2.metric("✅ OPTIMAL (적정)", f"{cnt.get('OPTIMAL', 0)}개",
-                      help="EOQ ±50% 범위 내")
-            c3.metric("🔵 UNDER (과소 발주)", f"{cnt.get('UNDER', 0)}개",
-                      help="현재 발주량 < EOQ 0.6배 — 발주량 증가 검토")
-            c4.metric("⚪ NO_DATA", f"{cnt.get('NO_DATA', 0)}개",
-                      help="발주 이력 부족으로 계산 불가")
-
-            if "eoq_qty" in df.columns:
-                avg_eoq = df["eoq_qty"].replace(0, None).dropna().mean()
-                st.caption(f"평균 EOQ: **{avg_eoq:.1f}개**")
-
-            with st.expander("📐 EOQ 계산 공식 보기", expanded=False):
-                st.markdown(
-                    """
-                    | 항목 | 공식 |
-                    |------|------|
-                    | EOQ | `√(2 × D × S / H)` |
-                    | 발주 주기 | `EOQ ÷ 일평균판매량` |
-                    | 연간 총비용 | `(D/EOQ)×S + (EOQ/2)×H` |
-
-                    - **D**: 연간 수요량 (일평균판매 × 365)
-                    - **S**: 1회 주문비용 (`order_cost`)
-                    - **H**: 단위당 연간 보관비용 (`unit_cost × 보관비율`)
-                    - 보관비율: 신선/유제품 35%, 냉동 30%, 일반 20%
-                    """
-                )
-
-            with st.expander("과잉/과소 발주 위험 상품 보기", expanded=True):
-                risk_df = df[df["eoq_status"].isin(["OVER", "UNDER"])].copy()
-                if risk_df.empty:
-                    st.success("과잉/과소 발주 위험 상품이 없습니다.")
-                else:
-                    show_cols = ["product_name", "source_store", "eoq_status",
-                                 "eoq_qty", "eoq_order_cycle", "eoq_risk_score",
-                                 "eoq_advice"]
-                    show_df = risk_df[[c for c in show_cols if c in risk_df.columns]]
-                    show_df = show_df.sort_values("eoq_risk_score", ascending=False).reset_index(drop=True)
-                    st.dataframe(show_df, width='stretch')
 
 
 # =========================
@@ -3974,6 +4183,12 @@ def show_dashboard_router(
             final_recommendations=final_recommendations,
             inventory=inventory,
         )
+
+    elif page == "network":
+        _show_network_page()
+
+    elif page == "whatif":
+        _show_whatif_page(final_recommendations)
 
     elif page == "explain":
         _show_explain_page()

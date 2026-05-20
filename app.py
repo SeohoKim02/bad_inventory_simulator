@@ -589,7 +589,7 @@ def format_money(value):
         return str(value)
 
 
-def apply_heuristic_and_greedy(final_recommendations, inventory=None):
+def apply_heuristic_and_greedy(final_recommendations, inventory=None, stores=None):
     if final_recommendations is None or final_recommendations.empty:
         return pd.DataFrame(), None
 
@@ -611,11 +611,32 @@ def apply_heuristic_and_greedy(final_recommendations, inventory=None):
 
     scored = add_heuristic_scores(final_recommendations)
 
-    # ── Varo 통합 점수 계산 (Phase 1: ABC + 회전율 + 폐기위험도) ──
     if run_all_algorithms is not None:
-        # inventory 인자 우선 사용, 없으면 session_state fallback
         inventory_df = inventory if inventory is not None else st.session_state.get("data", {}).get("inventory", None)
         scored = run_all_algorithms(inventory_df, scored)
+
+    # ── 점포 클러스터링 — source/target_cluster 컬럼 추가 ──
+    try:
+        from store_clustering import analyze_store_clustering, add_cluster_to_recommendations
+        if stores is not None and inventory is not None:
+            _, _, cluster_map = analyze_store_clustering(stores, inventory)
+            scored = add_cluster_to_recommendations(scored, cluster_map)
+            st.session_state["_cluster_map"] = cluster_map
+    except Exception:
+        pass
+
+    # ── 최소비용 네트워크 분석 — 최적 경로 점수 추가 ──
+    try:
+        from min_cost_network import analyze_min_cost_network, add_network_score_to_recommendations
+        routes = st.session_state.get("_routes", None)
+        if stores is not None and inventory is not None and routes is not None:
+            flow_df, node_df, net_summary = analyze_min_cost_network(inventory, stores, routes)
+            scored = add_network_score_to_recommendations(scored, flow_df)
+            st.session_state["_network_flow_df"]  = flow_df
+            st.session_state["_network_node_df"]  = node_df
+            st.session_state["_network_summary"]  = net_summary
+    except Exception:
+        pass
 
     greedy_best = select_greedy_best_candidate(scored)
 
@@ -1395,9 +1416,13 @@ def cached_excel_analysis(
         network_path_result,
     )
 
+    # routes를 session_state에 저장 (min_cost_network에서 사용)
+    st.session_state["_routes"] = analysis_routes
+
     final_recommendations, greedy_best_candidate = apply_heuristic_and_greedy(
         final_recommendations,
         inventory=analysis_inventory,
+        stores=analysis_stores,
     )
 
     greedy_transfer_row = get_matching_transfer_row(
