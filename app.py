@@ -81,7 +81,12 @@ from network_path_analyzer import analyze_multi_store_network_paths
 from final_summary import build_final_recommendations
 from dashboard_pages import show_dashboard_router
 
-from kakao_map_viewer import show_kakao_map, show_kakao_map_with_highlights, show_store_matching_map
+try:
+    from kakao_map_viewer import show_kakao_map, show_kakao_map_with_highlights, show_store_matching_map
+except ImportError:
+    show_kakao_map = None
+    show_kakao_map_with_highlights = None
+    show_store_matching_map = None
 
 try:
     from kakao_map_viewer import show_kakao_map_with_truck
@@ -119,6 +124,31 @@ st.set_page_config(
 # 전역 스타일
 # =========================
 def apply_global_style():
+    # 구글 번역 차단 + 다크모드 강제 고정
+    st.markdown(
+        """
+        <meta name="google" content="notranslate">
+        <meta http-equiv="Content-Language" content="ko">
+        <style>
+            /* 다크모드 완전 차단 */
+            :root { color-scheme: light only !important; }
+            @media (prefers-color-scheme: dark) {
+                :root { color-scheme: light only !important; }
+                html, body, [data-testid="stApp"],
+                [data-testid="stAppViewContainer"], .main {
+                    background-color: #ffffff !important;
+                    color: #2b2d36 !important;
+                }
+            }
+            /* 구글 번역 UI 제거 */
+            .goog-te-banner-frame, .goog-te-balloon-frame,
+            #goog-gt-tt, .goog-tooltip, .goog-tooltip-container,
+            .skiptranslate { display: none !important; }
+            body { top: 0 !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     st.markdown(
         """
         <style>
@@ -589,7 +619,7 @@ def format_money(value):
         return str(value)
 
 
-def apply_heuristic_and_greedy(final_recommendations, inventory=None, stores=None):
+def apply_heuristic_and_greedy(final_recommendations, inventory=None, stores=None, routes=None):
     if final_recommendations is None or final_recommendations.empty:
         return pd.DataFrame(), None
 
@@ -612,35 +642,45 @@ def apply_heuristic_and_greedy(final_recommendations, inventory=None, stores=Non
     scored = add_heuristic_scores(final_recommendations)
 
     if run_all_algorithms is not None:
-        inventory_df = inventory if inventory is not None else st.session_state.get("data", {}).get("inventory", None)
+        inventory_df = inventory
         scored = run_all_algorithms(inventory_df, scored)
 
-    # ── 점포 클러스터링 — source/target_cluster 컬럼 추가 ──
+    # ── 점포 클러스터링 ──────────────────────────────────
     try:
         from store_clustering import analyze_store_clustering, add_cluster_to_recommendations
         if stores is not None and inventory is not None:
-            _, _, cluster_map = analyze_store_clustering(stores, inventory)
+            _, _, cluster_map = _cached_clustering(stores, inventory)
             scored = add_cluster_to_recommendations(scored, cluster_map)
-            st.session_state["_cluster_map"] = cluster_map
     except Exception:
         pass
 
-    # ── 최소비용 네트워크 분석 — 최적 경로 점수 추가 ──
+    # ── 최소비용 네트워크 분석 ────────────────────────────
     try:
         from min_cost_network import analyze_min_cost_network, add_network_score_to_recommendations
-        routes = st.session_state.get("_routes", None)
         if stores is not None and inventory is not None and routes is not None:
-            flow_df, node_df, net_summary = analyze_min_cost_network(inventory, stores, routes)
+            flow_df, node_df, net_summary = _cached_network(inventory, stores, routes)
             scored = add_network_score_to_recommendations(scored, flow_df)
-            st.session_state["_network_flow_df"]  = flow_df
-            st.session_state["_network_node_df"]  = node_df
-            st.session_state["_network_summary"]  = net_summary
+            # session_state 저장은 캐시 밖(호출 측)에서 처리
     except Exception:
         pass
 
     greedy_best = select_greedy_best_candidate(scored)
 
     return scored, greedy_best
+
+
+@st.cache_data(show_spinner=False)
+def _cached_clustering(_stores, _inventory):
+    """클러스터링 결과 캐시 — 데이터 변경 시 자동 갱신."""
+    from store_clustering import analyze_store_clustering
+    return analyze_store_clustering(_stores, _inventory)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_network(_inventory, _stores, _routes):
+    """최소비용 네트워크 캐시 — 데이터 변경 시 자동 갱신."""
+    from min_cost_network import analyze_min_cost_network
+    return analyze_min_cost_network(_inventory, _stores, _routes)
 
 
 def render_best_recommendation(greedy_best_candidate):
@@ -1416,13 +1456,11 @@ def cached_excel_analysis(
         network_path_result,
     )
 
-    # routes를 session_state에 저장 (min_cost_network에서 사용)
-    st.session_state["_routes"] = analysis_routes
-
     final_recommendations, greedy_best_candidate = apply_heuristic_and_greedy(
         final_recommendations,
         inventory=analysis_inventory,
         stores=analysis_stores,
+        routes=analysis_routes,
     )
 
     greedy_transfer_row = get_matching_transfer_row(
@@ -1651,6 +1689,26 @@ def show_excel_optimizer():
     final_rec_summary = analysis_result["final_rec_summary"]
     greedy_best_candidate = analysis_result["greedy_best_candidate"]
     greedy_transfer_row = analysis_result["greedy_transfer_row"]
+
+    # ── 캐시 밖에서 session_state 복원 ─────────────────
+    st.session_state["_routes"] = analysis_routes
+    try:
+        from min_cost_network import analyze_min_cost_network
+        if analysis_inventory is not None and analysis_stores is not None and analysis_routes is not None:
+            flow_df, node_df, net_summary = _cached_network(
+                analysis_inventory, analysis_stores, analysis_routes
+            )
+            st.session_state["_network_flow_df"] = flow_df
+            st.session_state["_network_node_df"] = node_df
+            st.session_state["_network_summary"] = net_summary
+    except Exception:
+        pass
+    try:
+        from store_clustering import add_cluster_to_recommendations
+        _, _, cluster_map = _cached_clustering(analysis_stores, analysis_inventory)
+        st.session_state["_cluster_map"] = cluster_map
+    except Exception:
+        pass
 
     if fast_mode:
         st.sidebar.success(

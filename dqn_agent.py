@@ -163,19 +163,31 @@ def _make_state_features(df):
 
     feature_frame = pd.DataFrame(index=df.index)
 
-    # ── 기존 8개 피처 ──────────────────────────────────────
-    feature_frame["score_norm"] = pd.to_numeric(df["heuristic_score"], errors="coerce").fillna(0) / 100.0
-    feature_frame["qty_norm"] = _normalize_series(df["suggested_qty"])
-    feature_frame["cost_norm"] = _normalize_series(df["estimated_cost"])
-    feature_frame["direct_cost_norm"] = _normalize_series(df["direct_cost"])
-    feature_frame["via_cost_norm"] = _normalize_series(df["via_cost"])
-    feature_frame["distance_norm"] = _normalize_series(
-        df[["direct_distance_km", "via_distance_km", "recommended_distance_km"]].max(axis=1)
-    )
-    feature_frame["time_norm"] = _normalize_series(df["recommended_time_min"])
+    def _col(df, *names, default=0.0):
+        for n in names:
+            if n in df.columns:
+                return pd.to_numeric(df[n], errors='coerce').fillna(default)
+        return pd.Series([default]*len(df), index=df.index)
+
+    # ── 기존 8개 피처 (컬럼 없으면 0으로 fallback) ──────────
+    feature_frame["score_norm"]       = _col(df, "heuristic_score") / 100.0
+    feature_frame["qty_norm"]         = _normalize_series(_col(df, "suggested_qty"))
+    feature_frame["cost_norm"]        = _normalize_series(_col(df, "estimated_cost"))
+    feature_frame["direct_cost_norm"] = _normalize_series(_col(df, "direct_cost", "estimated_cost"))
+    feature_frame["via_cost_norm"]    = _normalize_series(_col(df, "via_cost", "estimated_cost"))
+    # 거리 컬럼 fallback
+    dist_cols = [c for c in ["direct_distance_km","via_distance_km","recommended_distance_km","state_distance_km"]
+                 if c in df.columns]
+    if dist_cols:
+        dist_s = pd.to_numeric(df[dist_cols[0]], errors='coerce').fillna(0)
+        if len(dist_cols) > 1:
+            dist_s = df[dist_cols].apply(pd.to_numeric, errors='coerce').fillna(0).max(axis=1)
+    else:
+        dist_s = pd.Series([0.0]*len(df), index=df.index)
+    feature_frame["distance_norm"] = _normalize_series(dist_s)
+    feature_frame["time_norm"]     = _normalize_series(_col(df, "recommended_time_min"))
     feature_frame["demand_gap_norm"] = _normalize_series(
-        pd.to_numeric(df["source_dead_stock_qty"], errors="coerce").fillna(0)
-        + pd.to_numeric(df["target_shortage_qty"], errors="coerce").fillna(0)
+        _col(df, "source_dead_stock_qty") + _col(df, "target_shortage_qty")
     )
 
     # ── Phase 1 알고리즘 추가 3개 피처 ───────────────────
@@ -220,6 +232,22 @@ def _make_state_features(df):
     else:
         feature_frame["eoq_norm"] = 0.5
 
+    # 수요 예측 위험도: 재고 소진 임박 → 이동(보충) 행동 선호
+    if "demand_forecast_score" in df.columns:
+        feature_frame["demand_forecast_norm"] = (
+            pd.to_numeric(df["demand_forecast_score"], errors="coerce").fillna(50) / 100.0
+        )
+    else:
+        feature_frame["demand_forecast_norm"] = 0.5
+
+    # 클러스터 이동 시너지: 과잉→부족 클러스터 이동 시 높은 점수
+    if "store_cluster_score" in df.columns:
+        feature_frame["cluster_norm"] = (
+            pd.to_numeric(df["store_cluster_score"], errors="coerce").fillna(50) / 100.0
+        )
+    else:
+        feature_frame["cluster_norm"] = 0.5
+
     X = feature_frame.fillna(0).clip(0, 1).values.astype(np.float64)
     return X, list(feature_frame.columns)
 
@@ -238,14 +266,22 @@ def _build_reward_matrix(df):
         return np.empty((0, len(ACTION_LABELS)), dtype=np.float64)
 
     score = pd.to_numeric(df["heuristic_score"], errors="coerce").fillna(50).clip(0, 100)
-    qty_n = _normalize_series(df["suggested_qty"]).clip(0, 1)
-    cost_n = _normalize_series(df["estimated_cost"]).clip(0, 1)
-    dist_n = _normalize_series(
-        df[["direct_distance_km", "via_distance_km", "recommended_distance_km"]].max(axis=1)
-    ).clip(0, 1)
+    qty_n = _normalize_series(pd.to_numeric(df.get("suggested_qty", 0), errors="coerce").fillna(0)).clip(0, 1)
+    cost_n = _normalize_series(pd.to_numeric(df.get("estimated_cost", 0), errors="coerce").fillna(0)).clip(0, 1)
+    # 거리 컬럼 fallback
+    _dist_cols = [c for c in ["direct_distance_km","via_distance_km","recommended_distance_km","state_distance_km"] if c in df.columns]
+    if _dist_cols:
+        _dist_raw = df[[_dist_cols[0]]].apply(pd.to_numeric, errors='coerce').fillna(0)
+        if len(_dist_cols) > 1:
+            _dist_raw = df[_dist_cols].apply(pd.to_numeric, errors='coerce').fillna(0).max(axis=1)
+        else:
+            _dist_raw = _dist_raw.iloc[:,0]
+    else:
+        _dist_raw = pd.Series([0.0]*len(df), index=df.index)
+    dist_n = _normalize_series(_dist_raw).clip(0, 1)
     demand_gap_n = _normalize_series(
-        pd.to_numeric(df["source_dead_stock_qty"], errors="coerce").fillna(0)
-        + pd.to_numeric(df["target_shortage_qty"], errors="coerce").fillna(0)
+        pd.to_numeric(df.get("source_dead_stock_qty", pd.Series([0]*len(df), index=df.index)), errors="coerce").fillna(0)
+        + pd.to_numeric(df.get("target_shortage_qty", pd.Series([0]*len(df), index=df.index)), errors="coerce").fillna(0)
     ).clip(0, 1)
 
     # ── Phase 1 알고리즘 피처 ─────────────────────────────
@@ -281,53 +317,73 @@ def _build_reward_matrix(df):
         else pd.Series([0.5] * len(df), index=df.index)
     )
 
+    # 수요 예측 위험: 재고 소진 임박 → 이동(보충) 행동 선호, 폐기 불리
+    demand_n = (
+        pd.to_numeric(df["demand_forecast_score"], errors="coerce").fillna(50).clip(0, 100) / 100.0
+        if "demand_forecast_score" in df.columns
+        else pd.Series([0.5] * len(df), index=df.index)
+    )
+
+    # 클러스터 시너지: 과잉 클러스터 → 부족 클러스터 이동이 높은 점수
+    cluster_n = (
+        pd.to_numeric(df["store_cluster_score"], errors="coerce").fillna(50).clip(0, 100) / 100.0
+        if "store_cluster_score" in df.columns
+        else pd.Series([0.5] * len(df), index=df.index)
+    )
+
     base = score
 
-    # 재고 이동: A등급 + 수요 격차 + 재주문 위험 높으면 이동으로 보충 유리
+    # 재고 이동: 클러스터 시너지 + 수요/안전재고 위험 반영
     move_reward = (
-        base * 0.48
-        + qty_n * 18
-        + demand_gap_n * 15
-        + abc_n * 10           # A등급이면 이동 우선
-        + safety_stock_n * 10  # 재주문 위험 높으면 이동으로 보충 우선
-        + eoq_n * 5            # 과잉 발주면 이동으로 소진 유리
-        - cost_n * 18
-        - dist_n * 10
+        base * 0.43
+        + qty_n * 16
+        + demand_gap_n * 13
+        + abc_n * 8
+        + safety_stock_n * 8
+        + demand_n * 7
+        + cluster_n * 7        # 클러스터 간 시너지 높을수록 이동 유리
+        + eoq_n * 4
+        - cost_n * 16
+        - dist_n * 8
         + 10
     )
 
-    # 할인: 폐기 위험 높거나 회전율 낮으면 유리
+    # 할인: 폐기 위험 + 회전율 낮음
     discount_reward = (
-        base * 0.36
-        + qty_n * 13
-        + disposal_risk_n * 14   # 폐기 위험 높으면 할인 우선
-        + (1 - turnover_n) * 10  # 회전율 낮으면 할인 우선
-        + eoq_n * 5              # 과잉 발주 상태면 할인으로 소진 유리
-        + demand_gap_n * 6
-        - cost_n * 6
+        base * 0.32
+        + qty_n * 11
+        + disposal_risk_n * 13
+        + (1 - turnover_n) * 9
+        + eoq_n * 4
+        + demand_gap_n * 5
+        - cost_n * 5
         + 8
     )
 
-    # 폐기: 폐기 위험 매우 높거나 ABC C등급인 저가치 상품일 때 유리
+    # 폐기: 폐기 위험 높고 수요/클러스터 시너지 낮을 때 유리
     disposal_reward = (
         28
-        + disposal_risk_n * 18   # 폐기 위험 높으면 폐기 보상 상승
-        + (1 - abc_n) * 8        # C등급(저가치) 상품일수록 폐기 유리
-        + qty_n * 8
+        + disposal_risk_n * 18
+        + (1 - abc_n) * 8
+        + qty_n * 7
         - base * 0.18
         - demand_gap_n * 5
-        - safety_stock_n * 5     # 재고 부족 상황이면 폐기 보상 감소
+        - safety_stock_n * 5
+        - demand_n * 6
+        - cluster_n * 4        # 클러스터 이동 시너지 있으면 폐기보다 이동
         - cost_n * 2
     )
 
-    # 보류: 위험 낮고 A등급 안정 상품 + 재고 여유 있을 때 유리
+    # 보류: 모든 위험 낮고 클러스터 시너지도 없을 때
     hold_reward = (
         50
-        - qty_n * 18
-        - demand_gap_n * 16
-        - disposal_risk_n * 10   # 폐기 위험 높으면 보류 불리
-        - safety_stock_n * 8     # 재주문 위험 높으면 보류 불리
-        - eoq_n * 5              # EOQ 과잉 상태면 보류 불리
+        - qty_n * 16
+        - demand_gap_n * 14
+        - disposal_risk_n * 8
+        - safety_stock_n * 7
+        - demand_n * 6
+        - cluster_n * 5        # 클러스터 시너지 있으면 보류 불리
+        - eoq_n * 4
         - (score / 100.0) * 12
     )
 

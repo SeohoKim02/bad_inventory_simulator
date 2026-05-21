@@ -346,4 +346,13 @@ def run_all_algorithms(
     except Exception:
         pass
 
+    # ── VHS v2 — 7구성요소 + 상황반응형 가중치 + 정규화 ──
+    try:
+        from varo_score_v2 import calculate_vhs_v2
+        from vhs_confidence import add_confidence
+        df = calculate_vhs_v2(df, inventory_df=inventory_df)
+        df = add_confidence(df)
+    except Exception:
+        pass
+
     return df

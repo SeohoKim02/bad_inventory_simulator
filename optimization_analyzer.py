@@ -157,16 +157,20 @@ def analyze_multiobjective(df: pd.DataFrame) -> pd.DataFrame:
     objectives = np.column_stack([f1, f2, f3, f4])
     n = len(objectives)
 
-    # Pareto dominance 계산
-    pareto_rank = np.ones(n, dtype=int)
-    for i in range(n):
-        for j in range(n):
-            if i == j:
-                continue
-            # j가 i를 지배: 모든 목표에서 j ≥ i, 하나 이상에서 j > i
-            if (objectives[j] >= objectives[i]).all() and (objectives[j] > objectives[i]).any():
-                pareto_rank[i] += 1
-                break
+    # Pareto 지배 벡터 연산 (O(n²) → numpy 브로드캐스팅으로 가속)
+    # obj[i] ≥ obj[j] 모든 차원, 하나 이상 > → j가 i를 지배
+    obj = objectives  # shape (n, 4)
+    # dominated[i] = True if any j dominates i
+    dominated = np.zeros(n, dtype=bool)
+    for j in range(n):
+        # j가 i들을 지배하는지 벡터 연산
+        ge_all = np.all(obj[j] >= obj, axis=1)   # (n,)
+        gt_any = np.any(obj[j] >  obj, axis=1)   # (n,)
+        dominates_i = ge_all & gt_any
+        dominates_i[j] = False                    # 자기 자신 제외
+        dominated |= dominates_i
+
+    pareto_rank = dominated.astype(int) + 1  # 1=Pareto front, 2=dominated
 
     # Rank 1 = Pareto front, rank > 1 = dominated
     mo_score = ((n - pareto_rank) / max(n - 1, 1) * 100).clip(0, 100).round(1)

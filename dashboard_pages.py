@@ -5,7 +5,12 @@ import html as html_lib
 import pandas as pd
 import streamlit as st
 
-from kakao_map_viewer import show_kakao_map, show_kakao_map_with_highlights, show_store_matching_map
+try:
+    from kakao_map_viewer import show_kakao_map, show_kakao_map_with_highlights, show_store_matching_map
+except ImportError:
+    show_kakao_map = None
+    show_kakao_map_with_highlights = None
+    show_store_matching_map = None
 
 try:
     from kakao_map_viewer import show_kakao_map_with_multi_trucks
@@ -747,8 +752,9 @@ def _go(page_name):
 
 
 def _back_to_dashboard():
-    if st.button("← 대시보드로 돌아가기", width="stretch"):
+    if st.button("← 대시보드", key=None, help="메인 대시보드로 돌아가기"):
         _go("dashboard")
+    st.markdown("<div style='margin-bottom:6px;'></div>", unsafe_allow_html=True)
 
 
 # ── VHS 공통 상수 (모듈 레벨) ─────────────────────────────
@@ -769,9 +775,74 @@ def _vhs_color(score):
 
 
 def _apply_page_style():
+    # ── 구글 번역 차단 (JS + 메타태그) ──────────────────────
+    st.markdown(
+        """<script>
+        document.documentElement.setAttribute('translate','no');
+        document.documentElement.setAttribute('lang','ko');
+        if(typeof MutationObserver!='undefined'){
+            var obs=new MutationObserver(function(m){
+                m.forEach(function(mu){
+                    if(mu.addedNodes) mu.addedNodes.forEach(function(n){
+                        if(n.nodeType===1) n.setAttribute('translate','no');
+                    });
+                });
+            });
+            obs.observe(document.body,{childList:true,subtree:true});
+        }
+        </script>""",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+        <meta name="google" content="notranslate">
+        <meta http-equiv="Content-Language" content="ko">
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.markdown(
         """
         <style>
+            /* ── 다크모드 강제 차단 ───────────────────────── */
+            :root {
+                color-scheme: light only !important;
+            }
+            html, body,
+            [data-testid="stApp"],
+            [data-testid="stAppViewContainer"],
+            [data-testid="stMain"],
+            [data-testid="stSidebar"],
+            section[data-testid="stMain"] > div,
+            .main .block-container {
+                background-color: #ffffff !important;
+                color:            #2b2d36 !important;
+            }
+            /* Streamlit 기본 텍스트 강제 */
+            p, span, div, label, li, td, th, h1, h2, h3, h4 {
+                color: inherit;
+            }
+            /* 다크모드 미디어쿼리 차단 */
+            @media (prefers-color-scheme: dark) {
+                :root { color-scheme: light only !important; }
+                html, body,
+                [data-testid="stApp"],
+                [data-testid="stAppViewContainer"],
+                .main { background-color: #ffffff !important; color: #2b2d36 !important; }
+            }
+
+            /* ── 구글 번역 UI 숨기기 ────────────────────── */
+            .goog-te-banner-frame,
+            .goog-te-balloon-frame,
+            #goog-gt-tt,
+            .goog-tooltip,
+            .goog-tooltip-container {
+                display: none !important;
+            }
+            body { top: 0 !important; }
+            .skiptranslate { display: none !important; }
+
+            /* ── 기존 대시보드 스타일 ────────────────────── */
             .dash-hero {
                 padding: 22px 28px;
                 border-radius: 24px;
@@ -1045,7 +1116,7 @@ def _show_dashboard_home(
 
     st.markdown(
         f"""
-        <div class="dash-hero">
+        <div class="dash-hero" translate="no">
             <div class="dash-small-title">AI 추천 결과</div>
             <div class="dash-main-title">{product_name}</div>
             <div style="font-size: 18px; font-weight: 800; color:#333; margin-top:-2px; margin-bottom:12px;">
@@ -1071,10 +1142,16 @@ def _show_dashboard_home(
         except (TypeError, ValueError):
             return None
 
-    vhs_val    = _sf(best.get("vhs"))        if best is not None else None
+    # vhs2 우선, 없으면 vhs fallback
+    vhs_val    = _sf(best.get("vhs2"))   if best is not None and _sf(best.get("vhs2")) is not None \
+                 else (_sf(best.get("vhs")) if best is not None else None)
     varo_val   = _sf(best.get("varo_score")) if best is not None else None
-    vhs_action = str(best.get("vhs_action", "-")) if best is not None else "-"
-    vhs_grade  = str(best.get("vhs_grade",  "-")) if best is not None else "-"
+    vhs_action = str(best.get("vhs2_action") or best.get("vhs_action", "-")) \
+                 if best is not None else "-"
+    vhs_grade  = str(best.get("vhs2_grade")  or best.get("vhs_grade", "-")) \
+                 if best is not None else "-"
+    vhs_confidence = str(best.get("vhs2_confidence_label", "")) \
+                     if best is not None else ""
     act_col    = _ACT_COLOR.get(vhs_action, "#555")
     act_icon   = _ACT_ICON.get(vhs_action, "")
 
@@ -1092,6 +1169,7 @@ def _show_dashboard_home(
             f'</div></div>'
             f'<div style="font-size:11px;color:{act_col};font-weight:700;">'
             f'{act_icon} {vhs_action}</div>'
+            f'<div style="font-size:10px;color:#888;margin-top:2px;">{vhs_confidence}</div>'
             f'</div>'
         )
     elif varo_val is not None:
@@ -1179,16 +1257,16 @@ def _show_dashboard_home(
         qty=suggested_qty,
     )
 
-    with st.expander("추천 근거", expanded=False):
-        r1, r2, r3, r4 = st.columns(4)
-        r1.metric("수익 회수 가능성", f"{dashboard_ratios['수익 회수 가능성']}%")
-        r2.metric("폐기 위험 감소 효과", f"{dashboard_ratios['폐기 위험 감소 효과']}%")
-        r3.metric("비용 부담률", f"{dashboard_ratios['비용 부담률']}%")
-        r4.metric("이동수단 비용", _format_money(dashboard_transport_cost))
+    with st.expander("📋 추천 근거 & 지표", expanded=False):
+        rc1, rc2, rc3, rc4 = st.columns(4)
+        rc1.metric("수익 회수", f"{dashboard_ratios['수익 회수 가능성']}%")
+        rc2.metric("폐기위험 감소", f"{dashboard_ratios['폐기 위험 감소 효과']}%")
+        rc3.metric("비용 부담률", f"{dashboard_ratios['비용 부담률']}%")
+        rc4.metric("이동 비용", _format_money(dashboard_transport_cost))
+        if dashboard_reason and str(dashboard_reason) not in ("-", ""):
+            st.caption(str(dashboard_reason)[:200])
 
-        st.write(dashboard_reason)
-
-    with st.expander("📈 추천 후보 더보기", expanded=False):
+    with st.expander("📈 다른 추천 후보", expanded=False):
         top_candidates = _filter_positive_qty_recommendations(final_recommendations).copy()
 
         # 원본 index를 보관해야 후보를 눌렀을 때 대시보드 메인 카드가 같은 후보로 바뀜
@@ -1246,72 +1324,106 @@ def _show_dashboard_home(
 
                 grade_color = _grade_color(c_grade)
 
-                # 순위는 작게, 후보 정보는 크게 보여줌
+                # VHS 점수가 있으면 우선 사용
+                c_vhs = candidate.get("vhs", None)
+                try:
+                    c_vhs_val = float(c_vhs) if c_vhs is not None else None
+                except (TypeError, ValueError):
+                    c_vhs_val = None
+                c_vhs_action = str(candidate.get("vhs_action", "")) if c_vhs_val else ""
+
+                # 카드 색상 — 순위별 뚜렷한 색
+                _CARD_BG = ["#1a237e","#1b5e20","#4a148c","#b71c1c","#e65100"]
+                card_bg = _CARD_BG[candidate_position % len(_CARD_BG)]
+
+                score_disp = f"{c_vhs_val:.0f}" if c_vhs_val else str(c_score)
+                grade_disp = c_vhs_action if c_vhs_action else c_grade
+
                 st.markdown(
                     f"""
-                    <div style="
-                        margin-top: 10px;
-                        margin-bottom: 3px;
-                        font-size: 12px;
-                        color: #888;
-                        font-weight: 800;
-                    ">
-                        후보 <span style="color:{grade_color};">#{rank_text}</span>
+                    <div style="background:{card_bg};border-radius:12px;
+                                padding:13px 16px;margin:6px 0;">
+                      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                        <div style="flex:1;">
+                          <div style="color:#fff;font-size:15px;font-weight:900;line-height:1.3;">
+                            #{rank_text} {c_product}
+                          </div>
+                          <div style="color:rgba(255,255,255,0.80);font-size:12px;margin-top:3px;">
+                            {c_source} → {c_target}
+                          </div>
+                        </div>
+                        <div style="text-align:right;min-width:64px;">
+                          <div style="color:#fff;font-size:22px;font-weight:900;line-height:1;">
+                            {score_disp}점
+                          </div>
+                          <div style="color:rgba(255,255,255,0.75);font-size:11px;margin-top:2px;">
+                            {grade_disp}
+                          </div>
+                        </div>
+                      </div>
+                      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+                        <span style="background:rgba(255,255,255,0.20);color:#fff;
+                                     padding:2px 9px;border-radius:8px;font-size:11px;font-weight:600;">
+                          {c_qty}개
+                        </span>
+                        <span style="background:rgba(255,255,255,0.20);color:#fff;
+                                     padding:2px 9px;border-radius:8px;font-size:11px;font-weight:600;">
+                          {c_cost}
+                        </span>
+                        <span style="background:rgba(255,255,255,0.20);color:#fff;
+                                     padding:2px 9px;border-radius:8px;font-size:11px;font-weight:600;">
+                          {c_strategy}
+                        </span>
+                      </div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
-
-                # 별도의 '이 후보 보기' 버튼을 없애고,
-                # 후보 항목 자체가 선택 버튼 역할을 하게 함.
-                button_label = (
-                    f"{c_product}  ·  {c_source} → {c_target}\n\n"
-                    f"{c_score}점 · {c_grade}  |  {c_qty}개  |  {c_cost}  |  {c_strategy}"
-                )
-
                 if st.button(
-                    button_label,
-                    width="stretch",
+                    "✓ 이 후보로 변경",
                     key=f"candidate_row_select_{candidate_position}_{original_index}",
                 ):
                     st.session_state["dashboard_selected_candidate_index"] = original_index
                     st.rerun()
 
-    # ── 메인 네비게이션 버튼 ──────────────────────────────
-    r1c1, r1c2 = st.columns(2)
-    with r1c1:
-        if st.button("🧠 AI 추천 결과",   width="stretch", key="go_score"):    _go("score")
-    with r1c2:
-        if st.button("🗺 재고 이동 지도", width="stretch", key="go_movement"): _go("movement")
+    # ── 네비게이션 ───────────────────────────────────────
+    st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
-    st.markdown("<div style='margin-top:6px;'></div>", unsafe_allow_html=True)
+    n1, n2 = st.columns(2)
+    with n1:
+        if st.button("🧠 AI 추천 결과",   width="stretch", key="go_score"):      _go("score")
+    with n2:
+        if st.button("🗺 재고 이동 지도", width="stretch", key="go_movement"):   _go("movement")
 
-    r2c1, r2c2 = st.columns(2)
-    with r2c1:
+    st.markdown("<div style='margin-top:5px;'></div>", unsafe_allow_html=True)
+
+    n3, n4 = st.columns(2)
+    with n3:
         if st.button("📊 VARO 상세 분석", width="stretch", key="go_algorithms"): _go("algorithms")
-    with r2c2:
-        if st.button("🌐 최소비용 경로",  width="stretch", key="go_network"):   _go("network")
+    with n4:
+        if st.button("🌐 최소비용 경로",  width="stretch", key="go_network"):    _go("network")
 
-    st.markdown("<div style='margin-top:6px;'></div>", unsafe_allow_html=True)
-    if st.button("📚 Varo 가이드 & 설명", width="stretch", key="go_guide"):    _go("guide")
+    st.markdown("<div style='margin-top:5px;'></div>", unsafe_allow_html=True)
+    n5, n6 = st.columns(2)
+    with n5:
+        if st.button("📦 처리 배치 최적화", width="stretch", key="go_batch"):     _go("batch")
+    with n6:
+        if st.button("📊 Before/After 효과", width="stretch", key="go_effect"):   _go("effect")
 
-    # ── 관리자 메뉴 ─────────────────────────────────────
+    st.markdown("<div style='margin-top:5px;'></div>", unsafe_allow_html=True)
+    if st.button("📚 Varo 가이드 & 설명", width="stretch", key="go_guide"):      _go("guide")
+
     with st.expander("⚙️ 관리자 메뉴", expanded=False):
-        ac1, ac2 = st.columns(2)
-        with ac1:
-            if st.button("🤖 강화학습 비교",    width="stretch", key="go_rl_a"):      _go("rl")
-        with ac2:
-            if st.button("🔮 What-if 시뮬",     width="stretch", key="go_whatif_a"):  _go("whatif")
-
-        ac3, ac4 = st.columns(2)
-        with ac3:
-            if st.button("📈 그래프 보기",       width="stretch", key="go_graph_a"):  _go("graph")
-        with ac4:
-            if st.button("🧾 상세 데이터",       width="stretch", key="go_data_a"):   _go("data")
-
-        if st.button("📍 지도 매칭",             width="stretch", key="go_map_a"):    _go("map")
-
-
+        a1, a2 = st.columns(2)
+        with a1:
+            if st.button("🤖 이력 보정 비교", width="stretch", key="go_rl_a"):    _go("rl")
+        with a2:
+            if st.button("🔮 What-if 시뮬",  width="stretch", key="go_whatif_a"):_go("whatif")
+        a3, a4 = st.columns(2)
+        with a3:
+            if st.button("📈 그래프 보기",   width="stretch", key="go_graph_a"): _go("graph")
+        with a4:
+            if st.button("🧾 상세 데이터",   width="stretch", key="go_data_a"):  _go("data")
 
 
 
@@ -2801,7 +2913,7 @@ def _show_explain_page():
 
         - **AI 추천 결과**: 상품별 추천 후보, 총점, 추천 등급을 확인합니다.
         - **재고 이동 지도**: 선택한 추천 경로를 지도에서 확인합니다.
-        - **강화학습 비교**: Greedy 추천과 DQN 기반 추천을 비교합니다.
+        - **이력 보정 비교**: Greedy 추천과 DQN 기반 추천을 비교합니다.
         - **📊 산업공학 알고리즘 분석 결과**: ABC 분석, 재고 회전율, 폐기 위험도, Safety Stock 결과를 확인합니다.
         - **관리자용 메뉴**: 계산 방식, 비용 기준, 이동수단 기준, 상세 데이터를 확인합니다.
 
@@ -2935,7 +3047,7 @@ def _show_data_page(
 def _show_rl_page(stores, products, inventory, final_recommendations, transfer_path_result, promotion_result):
     _back_to_dashboard()
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("🤖 강화학습 비교 페이지")
+    st.header("🤖 이력 보정 비교 페이지")
 
 
     # =========================
@@ -3656,6 +3768,105 @@ def _show_truck_page(
 # =========================
 # 산업공학 알고리즘 페이지
 # =========================
+def _show_batch_page(final_recommendations):
+    """처리 배치 최적화 페이지."""
+    _back_to_dashboard()
+    st.header("📦 처리 배치 최적화")
+    st.caption("오늘 처리할 상품들을 어떤 순서로 진행하면 비용·폐기 손실을 최소화할 수 있는지 보여줍니다.")
+
+    if final_recommendations is None or (
+        isinstance(final_recommendations, pd.DataFrame) and final_recommendations.empty
+    ):
+        st.info("분석 결과가 없습니다.")
+        return
+
+    try:
+        from action_batch_optimizer import optimize_action_batch, batch_summary
+    except ImportError:
+        st.error("action_batch_optimizer 모듈을 찾을 수 없습니다.")
+        return
+
+    # 제약 조건 입력
+    with st.expander("⚙️ 처리 제약 조건 (선택)", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        budget       = c1.number_input("예산 (원, 0=무제한)", min_value=0, value=0, step=10000, key="batch_budget")
+        vehicle_lim  = c2.number_input("차량 수 (0=무제한)",  min_value=0, value=0, step=1,     key="batch_vehicle")
+        budget_val   = float(budget)   if budget > 0   else None
+        vehicle_val  = int(vehicle_lim) if vehicle_lim > 0 else None
+
+    batch_df = optimize_action_batch(
+        final_recommendations,
+        budget=budget_val,
+        vehicle_limit=vehicle_val,
+    )
+
+    if batch_df.empty:
+        st.info("처리 순서를 계산할 수 없습니다.")
+        return
+
+    summ = batch_summary(batch_df)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("처리 대상",    f"{summ.get('total_items',0)}건")
+    m2.metric("총 예상 비용", f"{summ.get('total_cost',0):,}원")
+    m3.metric("폐기 회피 이익",f"{int(summ.get('total_avoidance',0)):,}원")
+    m4.metric("예산 내 처리", f"{summ.get('within_budget',0)}건")
+
+    st.markdown("---")
+    st.subheader("🏆 오늘의 최적 처리 순서")
+    st.dataframe(batch_df, width="stretch", hide_index=True)
+
+
+def _show_effect_page(final_recommendations):
+    """Before/After 효과 지표 페이지."""
+    _back_to_dashboard()
+    st.header("📊 Varo 도입 전/후 효과 분석")
+    st.caption("Varo 추천 적용 시 예상 폐기비용 절감 및 재고 균형 개선 효과를 추정합니다.")
+
+    if final_recommendations is None or (
+        isinstance(final_recommendations, pd.DataFrame) and final_recommendations.empty
+    ):
+        st.info("분석 결과가 없습니다.")
+        return
+
+    try:
+        from effect_calculator import calc_effects
+    except ImportError:
+        st.error("effect_calculator 모듈을 찾을 수 없습니다.")
+        return
+
+    eff = calc_effects(final_recommendations)
+    if not eff:
+        st.info("효과 계산에 필요한 데이터가 부족합니다.")
+        return
+
+    # 핵심 카드
+    st.markdown("### 💡 핵심 효과 요약")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("기존 방식 예상 폐기비용", f"{int(eff.get('before_disposal_cost',0)):,}원")
+    c2.metric("Varo 적용 후 예상 폐기비용", f"{int(eff.get('after_disposal_cost',0)):,}원",
+              delta=f"-{int(eff.get('saving_amount',0)):,}원")
+    c3.metric("폐기비용 절감률",  f"{eff.get('saving_rate_pct',0):.1f}%")
+    c4.metric("위험 감소 상품 수", f"{eff.get('n_risk_reduced',0)}개")
+
+    st.markdown("---")
+    c5, c6, c7 = st.columns(3)
+    c5.metric("처리 가능 재고 수량", f"{int(eff.get('processable_qty',0)):,}개")
+    c6.metric("재고 불균형 개선률",  f"{eff.get('rebalance_rate_pct',0):.1f}%")
+    c7.metric("운송비 부담률",       f"{eff.get('transport_burden_rate_pct',0):.2f}%")
+
+    with st.expander("📐 계산식 보기", expanded=False):
+        st.markdown(f"""
+        | 항목 | 계산식 |
+        |------|--------|
+        | 기존 폐기비용 | {eff.get('_formula_before','-')} |
+        | Varo 적용 폐기비용 | {eff.get('_formula_after','-')} |
+        | 절감액 | 기존 폐기비용 − Varo 적용 폐기비용 |
+        | 절감률 | 절감액 ÷ 기존 폐기비용 × 100% |
+        | 재고 불균형 개선률 | 재배치 이동 건수 ÷ 전체 추천 수 × 100% |
+        """)
+    st.caption("※ 추정치입니다. 실제 결과는 점포 운영 조건에 따라 달라질 수 있습니다.")
+
+
 def _show_guide_page(final_recommendations=None):
     """Varo 가이드 & 설명 — 기존 설명 페이지들을 탭으로 통합."""
     _back_to_dashboard()
@@ -3697,7 +3908,7 @@ def _show_guide_page(final_recommendations=None):
             |------|------|
             | 🧠 AI 추천 결과 | 상품별 추천 후보, 점수, 등급 |
             | 🗺 재고 이동 지도 | 추천 경로를 지도에서 확인 |
-            | 🤖 강화학습 비교 | Greedy vs DQN 비교 |
+            | 🤖 이력 보정 비교 | Greedy vs DQN 비교 |
             | 📊 VARO 상세 분석 | VHS 전체 분석, 알고리즘 비교 |
             | 🔮 What-if 시뮬 | 파라미터 변경 시나리오 비교 |
             | 🌐 최소비용 경로 | 네트워크 최적화 분석 |
@@ -3710,7 +3921,7 @@ def _show_guide_page(final_recommendations=None):
             """
             ## VARO Hybrid Score (VHS)
 
-            10개 산업공학 알고리즘 결과를 **상황 감지 → 가중치 조정 → DQN 보정** 과정을
+            10개 산업공학 알고리즘 결과를 **상황 감지 → 가중치 조정 → 이력 보정** 과정을
             거쳐 0~100점 단일 점수로 통합합니다.
 
             ### 컴포넌트 가중치
@@ -3737,7 +3948,7 @@ def _show_guide_page(final_recommendations=None):
             | 💀 악성재고 | turnover_grade=DEAD | 회전율 ×1.8, 폐기위험 ×1.4 |
             | 🚨 재주문 위기 | reorder_status=CRITICAL | 안전재고 ×2.0, 수요예측 ×1.5 |
 
-            ### DQN 보정
+            ### 이력 보정
             강화학습 reward 신호를 학습 데이터로 활용해 VHS를 ±8점 범위 내에서 보정합니다.
             상황별 경험이 쌓일수록 보정 정확도가 높아집니다.
             """
@@ -4100,7 +4311,6 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     act_color = {"재배치 이동":"#1565c0","할인 판매":"#e65100",
                  "폐기":"#b71c1c","보류":"#2e7d32"}.get(top_action, "#555")
 
-    # VHS 점수 게이지 색상
     def _gauge_color(s):
         if s >= 80: return "#c62828"
         if s >= 65: return "#e65100"
@@ -4108,57 +4318,48 @@ def _show_algorithms_page(final_recommendations, inventory=None):
         return "#43a047"
 
     grade_bar = "".join(
-        f'<div style="display:inline-block;background:{["#c62828","#e65100","#f9a825","#66bb6a","#aaa"][i]};'
-        f'color:#fff;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:700;margin:2px;">'
-        f'{g} {grade_cnt.get(g,0)}건</div>'
+        f'<span style="display:inline-block;background:{["#c62828","#e65100","#f9a825","#66bb6a","#aaa"][i]};'
+        f'color:#fff !important;padding:3px 10px;border-radius:4px;'
+        f'font-size:12px;font-weight:700;margin:2px;">'
+        f'{g} {grade_cnt.get(g,0)}건</span>'
         for i, g in enumerate(["최우선 처리","우선 처리","검토 필요","모니터링","후순위"])
+    )
+
+    act_chips = "".join(
+        f'<span style="display:inline-block;padding:4px 12px;border-radius:12px;'
+        f'font-size:13px;font-weight:700;margin:3px;'
+        f'background:{["#1565c0","#e65100","#b71c1c","#2e7d32"][i]};color:#fff !important;">'
+        f'{["🚚","🏷️","🗑️","⏸️"][i]} {a} {action_cnt.get(a,0)}건</span>'
+        for i,a in enumerate(["재배치 이동","할인 판매","폐기","보류"])
     )
 
     st.markdown(
         f"""
-        <style>
-        .vhs-header {{
-            background: linear-gradient(135deg, #0d1b2a 0%, #1b2838 60%, #162032 100%);
-            border-radius: 20px; padding: 24px 28px; margin-bottom: 18px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.18);
-        }}
-        .vhs-title {{ font-size:11px; color:#7ec8e3; font-weight:800;
-                     letter-spacing:2px; margin-bottom:4px; }}
-        .vhs-score {{ font-size:56px; font-weight:900; color:#fff; line-height:1;
-                     text-shadow: 0 2px 8px rgba(0,0,0,0.4); }}
-        .vhs-sub   {{ font-size:13px; color:#aaa; margin-top:4px; }}
-        .vhs-divider {{ border-left:1px solid rgba(255,255,255,0.12);
-                        padding-left:24px; margin-left:8px; }}
-        .vhs-action-badge {{
-            background:{act_color}; color:#fff;
-            padding:5px 14px; border-radius:20px;
-            font-size:14px; font-weight:800; display:inline-block; margin-top:6px;
-        }}
-        .act-chip {{
-            display:inline-block; padding:4px 12px; border-radius:12px;
-            font-size:13px; font-weight:700; margin:3px;
-        }}
-        </style>
-        <div class="vhs-header">
-            <div style="display:flex; gap:32px; flex-wrap:wrap; align-items:center;">
+        <div style="background:linear-gradient(135deg,#0d1b2a 0%,#1b2838 60%,#162032 100%);
+                    border-radius:20px;padding:24px 28px;margin-bottom:18px;
+                    box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+            <div style="display:flex;gap:32px;flex-wrap:wrap;align-items:center;">
                 <div>
-                    <div class="vhs-title">VARO HYBRID SCORE</div>
-                    <div class="vhs-score">{avg_vhs}<span style="font-size:24px;color:#888;"> 점</span></div>
-                    <div class="vhs-sub">전체 {summary.get("n_total",0)}건 평균</div>
+                    <div style="font-size:10px;color:#7ec8e3 !important;font-weight:900;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;opacity:1;">VARO HYBRID SCORE</div>
+                    <div style="font-size:48px;font-weight:900;color:#ffffff;line-height:1;text-shadow:0 2px 12px rgba(0,0,0,0.8);-webkit-text-fill-color:#fff;">
+                        {avg_vhs}
+                        <span style="font-size:18px;color:#aaa;"> 점</span>
+                    </div>
+                    <div style="font-size:12px;color:#bbb;margin-top:4px;">전체 {summary.get("n_total",0)}건 평균
+                    </div>
                 </div>
-                <div class="vhs-divider">
-                    <div style="font-size:11px;color:#7ec8e3;font-weight:800;margin-bottom:6px;">최우선 처리 상품</div>
-                    <div style="font-size:18px;font-weight:800;color:#fff;">{top_prod}</div>
-                    <div class="vhs-action-badge">{top_icon} {top_action}</div>
-                    <div style="font-size:13px;color:#aaa;margin-top:4px;">VHS {top_vhs:.1f}점</div>
+                <div style="border-left:1px solid rgba(255,255,255,0.15);padding-left:24px;">
+                    <div style="font-size:10px;color:#7ec8e3;font-weight:900;letter-spacing:1px;margin-bottom:6px;">최우선 처리 상품</div>
+                    <div style="font-size:16px;font-weight:900;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.5);">{top_prod}</div>
+                    <div style="display:inline-block;background:{act_color};color:#fff !important;
+                                padding:5px 14px;border-radius:20px;font-size:14px;font-weight:800;margin-top:6px;">
+                        {top_icon} {top_action}
+                    </div>
+                    <div style="font-size:12px;color:#ccc;margin-top:4px;">VHS {top_vhs:.1f}점</div>
                 </div>
-                <div class="vhs-divider" style="flex:1;">
-                    <div style="font-size:11px;color:#7ec8e3;font-weight:800;margin-bottom:8px;">처리 액션 분포</div>
-                    {"".join(
-                        f'<span class="act-chip" style="background:{["#1565c0","#e65100","#b71c1c","#2e7d32"][i]};color:#fff;">'
-                        f'{["🚚","🏷️","🗑️","⏸️"][i]} {a} {action_cnt.get(a,0)}건</span>'
-                        for i,a in enumerate(["재배치 이동","할인 판매","폐기","보류"])
-                    )}
+                <div style="border-left:1px solid rgba(255,255,255,0.15);padding-left:24px;flex:1;">
+                    <div style="font-size:10px;color:#7ec8e3;font-weight:900;letter-spacing:1px;margin-bottom:8px;">처리 액션 분포</div>
+                    {act_chips}
                     <div style="margin-top:10px;">{grade_bar}</div>
                 </div>
             </div>
@@ -4182,12 +4383,12 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     #  탭 구성
     # ══════════════════════════════════════════════════════
     t1, t2, t3, t4, t5, t6 = st.tabs([
-        "🎯  VHS 추천 목록",
-        "📊  알고리즘 vs VHS 비교",
-        "🏗️  8구성요소 분석",
-        "🔬  컴포넌트 기여",
-        "⚖️  가중치 & 상황",
-        "📋  32개 알고리즘 현황",
+        "🎯 VHS 추천 목록",
+        "📊 알고리즘 vs VHS 비교",
+        "🏗️ 8구성요소 분석",
+        "⚖️ 가중치 & 상황 감지",
+        "🔬 컴포넌트 기여 분석",
+        "📋 32개 알고리즘 현황",
     ])
 
     # ══════════════════════════════════════════════════════
@@ -4198,19 +4399,19 @@ def _show_algorithms_page(final_recommendations, inventory=None):
             st.info("VHS 결과 없음")
         else:
             # 액션 필터
-            all_actions = sorted(df["vhs_action"].dropna().unique().tolist())
+            all_actions = sorted((df["vhs2_action"] if "vhs2_action" in df.columns else df["vhs_action"]).dropna().unique().tolist())
             selected_acts = st.multiselect(
                 "액션 필터", all_actions, default=all_actions, key="vhs_act_filter",
             )
-            show_df = df[df["vhs_action"].isin(selected_acts)].copy() if selected_acts else df.copy()
+            show_df = df[(df["vhs2_action"] if "vhs2_action" in df.columns else df["vhs_action"]).isin(selected_acts)].copy() if selected_acts else df.copy()
 
             # 상위 5개 시각 카드
             st.markdown("**🏆 VHS 상위 5개 추천**")
             top5 = show_df.head(5)
             cols5 = st.columns(min(len(top5), 5))
             for i, (_, row) in enumerate(top5.iterrows()):
-                vhs_v  = float(row.get("vhs", 0))
-                action = str(row.get("vhs_action", "-"))
+                vhs_v  = float(row.get("vhs2") or row.get("vhs", 0))
+                action = str(row.get("vhs2_action") or row.get("vhs_action", "-"))
                 ac     = {"재배치 이동":"#1565c0","할인 판매":"#e65100",
                           "폐기":"#b71c1c","보류":"#2e7d32"}.get(action, "#555")
                 gauge  = _gauge_color(vhs_v)
@@ -4249,15 +4450,16 @@ def _show_algorithms_page(final_recommendations, inventory=None):
             st.markdown("**전체 목록**")
             disp = show_df[[
                 c for c in ["vhs_rank","product_name","source_store","target_store",
-                            "vhs","vhs_grade","vhs_action","vhs_dominant_situation",
-                            "vhs_dqn_correction"]
+                            "vhs2","vhs2_grade","vhs2_action","vhs2_scenario_labels","vhs2_confidence_label",
+                            "vhs2_history_correction"]
                 if c in show_df.columns
             ]].copy()
             disp.columns = [
-                {"vhs_rank":"순위","vhs":"VHS","vhs_grade":"등급",
-                 "vhs_action":"추천액션","vhs_dominant_situation":"감지상황",
+                {"vhs_rank":"순위","vhs2":"VHS","vhs":"VHS(구)","vhs2_grade":"등급",
+                 "vhs2_action":"추천액션","vhs2_scenario_labels":"감지상황",
+                 "vhs2_confidence_label":"신뢰도",
                  "product_name":"상품명","source_store":"출발","target_store":"도착",
-                 "vhs_dqn_correction":"DQN보정"}.get(c, c)
+                 "vhs2_history_correction":"이력보정"}.get(c, c)
                 for c in disp.columns
             ]
             st.dataframe(disp, width="stretch")
@@ -4266,93 +4468,214 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     #  탭 2: 알고리즘 vs VHS 비교
     # ══════════════════════════════════════════════════════
     with t2:
-        st.subheader("알고리즘 원점수 vs VHS 기여도 비교")
-        st.caption("각 알고리즘의 원본 점수와 VHS에 실제 기여한 가중치 점수를 비교합니다.")
+        st.subheader("📊 알고리즘 vs VHS 효율 비교")
+        st.caption("개별 알고리즘 점수와 VHS를 직접 비교해 통합 점수의 효율을 확인합니다.")
 
-        # 알고리즘 원점수 컬럼 목록
-        algo_raw = {
-            "disposal_risk": "disposal_risk_score",
-            "turnover":      "turnover_score",
-            "demand":        "demand_forecast_score",
-            "heuristic":     "heuristic_score",
-            "safety_stock":  "safety_stock_score",
-            "match":         "match_score",
-            "abc":           "abc_score",
-            "greedy":        "greedy_score",
-            "eoq":           "eoq_score",
-        }
-        algo_contrib = {k: f"vhs_contrib_{v}" for k, v in algo_raw.items()}
-
-        avail_raw    = {k: v for k, v in algo_raw.items()    if v in df.columns}
-        avail_contrib= {k: v for k, v in algo_contrib.items() if v in df.columns}
-
-        if avail_raw:
-            # 전체 평균 비교 바 차트
-            avg_raw    = {k: float(df[v].mean()) for k, v in avail_raw.items()}
-            avg_contrib= {k: float(df[v].mean()) for k, v in avail_contrib.items() if v in df.columns}
-
-            compare_df = pd.DataFrame({
-                "알고리즘":   list(avg_raw.keys()),
-                "원점수 평균 (0~100)": list(avg_raw.values()),
-                "VHS 기여 평균 (가중치 반영)": [avg_contrib.get(k, 0) for k in avg_raw],
-            })
-
-            st.markdown("**📈 전체 평균: 원점수 vs VHS 기여도**")
-            chart_df = compare_df.set_index("알고리즘")
-            st.bar_chart(chart_df, height=320)
-
-            st.markdown("---")
-            st.markdown("**🔍 상품별 알고리즘 프로파일 (상위 10개)**")
-
-            top10 = df.head(10)
-            if avail_raw:
-                profile_data = {}
-                for _, row in top10.iterrows():
-                    name = str(row.get("product_name","?"))[:12]
-                    store = str(row.get("source_store",""))[:5]
-                    key = f"{name}|{store}"
-                    profile_data[key] = {
-                        algo: float(row.get(col, 50)) for algo, col in avail_raw.items()
-                    }
-
-                profile_df = pd.DataFrame(profile_data).T
-                profile_df.index.name = "상품|점포"
-                st.dataframe(profile_df.round(1), width="stretch")
-
-            st.markdown("---")
-            st.markdown("**⚠️ 알고리즘 간 충돌 탐지** (낮은 점수 지표가 있는 상품)")
-            st.caption("한 알고리즘은 높은데 다른 알고리즘이 낮으면 판단이 엇갈리는 상황")
-
-            conflict_rows = []
-            for _, row in df.iterrows():
-                scores = {k: float(row.get(v, 50)) for k, v in avail_raw.items()}
-                s_vals = list(scores.values())
-                spread = max(s_vals) - min(s_vals)
-                if spread > 40:
-                    conflict_rows.append({
-                        "상품명":   row.get("product_name", "-"),
-                        "출발점포": row.get("source_store", "-"),
-                        "VHS":      row.get("vhs", 0),
-                        "점수범위": f"{min(s_vals):.0f}~{max(s_vals):.0f}",
-                        "최고지표": max(scores, key=scores.get),
-                        "최저지표": min(scores, key=scores.get),
-                        "추천액션": row.get("vhs_action", "-"),
-                    })
-
-            if conflict_rows:
-                st.dataframe(
-                    pd.DataFrame(conflict_rows).sort_values("점수범위", ascending=False)
-                    .head(15).reset_index(drop=True),
-                    width="stretch",
-                )
-            else:
-                st.success("알고리즘 간 큰 충돌이 없습니다.")
-
+        if not has_vhs or "vhs" not in df.columns:
+            st.info("VHS 결과가 없습니다.")
         else:
-            st.info("알고리즘 점수 컬럼이 없습니다.")
+            from scipy.stats import spearmanr
 
-    # ══════════════════════════════════════════════════════
-    #  탭 3: 8구성요소 분석
+            # ── 선택 가능한 알고리즘 목록 ─────────────────
+            _ALGO_META = {
+                "disposal_risk_score":       "#3  폐기 위험도",
+                "turnover_score":            "#2  재고 회전율",
+                "abc_score":                 "#1  ABC 분석",
+                "demand_forecast_score":     "#6  수요 예측",
+                "safety_stock_score":        "#4  Safety Stock",
+                "eoq_score":                 "#5  EOQ",
+                "match_score":               "#8  점포-상품 매칭",
+                "heuristic_score":           "휴리스틱 (기존)",
+                "aging_score":               "#11 재고 노후화",
+                "trend_score":               "#12 판매 추세",
+                "relocation_failure_score":  "#16 재배치 실패위험",
+                "substitute_conflict_score": "#13 대체상품 충돌",
+                "category_balance_score":    "#14 카테고리 균형",
+                "store_capacity_score":      "#15 점포 처리 능력",
+                "discount_sensitivity_score":"#17 할인 민감도",
+                "disposal_avoidance_score":  "#18 폐기 회피 이익",
+                "priority_queue_score":      "#19 우선순위 큐",
+                "newsvendor_score":          "#26 Newsvendor",
+                "topsis_score":              "#24 TOPSIS",
+                "pareto_score":              "#31 Pareto 분석",
+                "multiobjective_score":      "#20 다목적 의사결정",
+                "service_level_score":       "#25 서비스 수준",
+                "queue_capacity_score":      "#27 대기행렬",
+                "bottleneck_score":          "#30 병목 분석",
+                "sensitivity_score":         "#29 민감도 분석",
+                "transport_lp_score":        "#22 수송 문제 LP",
+                "lp_allocation_score":       "#21 선형계획법",
+                "assignment_score":          "#23 할당 문제",
+            }
+            avail_algos = {k: v for k, v in _ALGO_META.items() if k in df.columns}
+
+            if not avail_algos:
+                st.info("비교 가능한 알고리즘 점수 컬럼이 없습니다.")
+            else:
+                # 알고리즘 선택 (기본: 주요 5개)
+                default_sel = [k for k in [
+                    "disposal_risk_score","turnover_score","heuristic_score",
+                    "demand_forecast_score","match_score"
+                ] if k in avail_algos][:5]
+
+                selected_keys = st.multiselect(
+                    "비교할 알고리즘 선택",
+                    options=list(avail_algos.keys()),
+                    default=default_sel,
+                    format_func=lambda k: avail_algos.get(k, k),
+                    key="algo_compare_select",
+                )
+
+                # 8개 초과 선택 시 안내
+                if len(selected_keys) > 8:
+                    st.warning("8개 이하로 선택하면 더 읽기 쉽습니다.")
+                    selected_keys = selected_keys[:8]
+
+                if not selected_keys:
+                    st.info("알고리즘을 선택해주세요.")
+                else:
+                    vhs_s = pd.to_numeric(df["vhs"], errors="coerce").fillna(50)
+                    vhs_action = df.get("vhs_action", pd.Series(["보류"]*len(df)))
+
+                    # ── 요약 지표 카드 ───────────────────────
+                    st.markdown("---")
+                    st.markdown("**📐 순위 상관관계 & 액션 일치율**")
+                    st.caption("Spearman ρ가 높을수록 VHS 순위와 유사 · 일치율이 낮을수록 VHS가 추가 정보를 활용")
+
+                    metrics = []
+                    for k in selected_keys:
+                        algo_s = pd.to_numeric(df[k], errors="coerce").fillna(50)
+                        # Spearman 상관
+                        rho, pval = spearmanr(algo_s, vhs_s)
+                        rho = round(float(rho), 3) if not pd.isna(rho) else 0.0
+
+                        # 액션 일치율: 단일 알고리즘으로 액션 추론 vs VHS 액션
+                        def _infer_action(score):
+                            if score >= 75: return "재배치 이동"
+                            if score >= 55: return "할인 판매"
+                            if score <= 30: return "폐기"
+                            return "보류"
+
+                        algo_action = algo_s.apply(_infer_action)
+                        agree_rate  = round((algo_action == vhs_action).mean() * 100, 1)
+
+                        # 평균 점수 차이 (VHS - algo)
+                        avg_gap = round(float(vhs_s.mean() - algo_s.mean()), 1)
+
+                        # 효율 향상률: VHS 분산 / algo 분산 비율
+                        algo_std = float(algo_s.std())
+                        vhs_std  = float(vhs_s.std())
+                        spread_ratio = round(vhs_std / max(algo_std, 0.1), 2)
+
+                        metrics.append({
+                            "알고리즘":        avail_algos[k],
+                            "평균점수":        round(float(algo_s.mean()), 1),
+                            "VHS 평균":        round(float(vhs_s.mean()), 1),
+                            "점수 갭(VHS−알고)": avg_gap,
+                            "순위상관(ρ)":     rho,
+                            "액션 일치율":     f"{agree_rate}%",
+                            "분산 비율(VHS/알고)": spread_ratio,
+                            "_key":            k,
+                            "_rho":            rho,
+                            "_agree":          agree_rate,
+                        })
+
+                    metrics_df = pd.DataFrame(metrics)
+
+                    # 색상 카드로 핵심 지표 표시
+                    cols = st.columns(len(selected_keys))
+                    for ci, row in metrics_df.iterrows():
+                        rho_v    = row["_rho"]
+                        agree_v  = row["_agree"]
+                        rho_color = "#1565c0" if rho_v >= 0.7 else ("#f9a825" if rho_v >= 0.4 else "#ef5350")
+                        ag_color  = "#2e7d32" if agree_v >= 70 else ("#f9a825" if agree_v >= 50 else "#c62828")
+                        with cols[ci % len(cols)]:
+                            st.markdown(
+                                f'''<div style="border:1.5px solid #ddd;border-radius:10px;
+                                            padding:10px 12px;margin:3px 0;background:#fafafa;">
+                                  <div style="font-size:11px;font-weight:800;color:#555;margin-bottom:6px;
+                                              white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                    {row["알고리즘"]}
+                                  </div>
+                                  <div style="display:flex;justify-content:space-between;margin:3px 0;">
+                                    <span style="font-size:11px;color:#777;">순위상관 ρ</span>
+                                    <span style="font-size:14px;font-weight:900;color:{rho_color};">{rho_v:.2f}</span>
+                                  </div>
+                                  <div style="display:flex;justify-content:space-between;margin:3px 0;">
+                                    <span style="font-size:11px;color:#777;">액션 일치</span>
+                                    <span style="font-size:14px;font-weight:900;color:{ag_color};">{agree_v:.0f}%</span>
+                                  </div>
+                                  <div style="display:flex;justify-content:space-between;margin:3px 0;">
+                                    <span style="font-size:11px;color:#777;">평균점수</span>
+                                    <span style="font-size:13px;font-weight:700;color:#333;">{row["평균점수"]}점</span>
+                                  </div>
+                                </div>''',
+                                unsafe_allow_html=True,
+                            )
+
+                    # ── 점수 분포 비교 막대 차트 ─────────────
+                    st.markdown("---")
+                    st.markdown("**📈 평균 점수 비교 (알고리즘 vs VHS)**")
+                    chart_data = pd.DataFrame({
+                        "알고리즘 점수": [r["평균점수"] for r in metrics],
+                        "VHS 점수":      [r["VHS 평균"] for r in metrics],
+                    }, index=[avail_algos[k].split(" ",1)[-1] for k in selected_keys])
+                    st.bar_chart(chart_data, height=260)
+
+                    # ── Spearman ρ 시각화 ────────────────────
+                    st.markdown("**🔗 순위 상관관계 (ρ 높을수록 VHS와 유사)**")
+                    for row in metrics:
+                        rho_v = row["_rho"]
+                        pct   = max(0, min(100, (rho_v + 1) / 2 * 100))
+                        color = "#1565c0" if rho_v >= 0.7 else ("#f9a825" if rho_v >= 0.4 else "#ef5350")
+                        label = avail_algos[row["_key"]].split(" ",1)[-1]
+                        st.markdown(
+                            f'''<div style="display:flex;align-items:center;gap:8px;margin:4px 0;">
+                              <div style="width:160px;font-size:12px;font-weight:600;color:#444;
+                                          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{label}</div>
+                              <div style="flex:1;background:#eee;border-radius:4px;height:14px;">
+                                <div style="width:{pct:.1f}%;background:{color};height:100%;border-radius:4px;"></div>
+                              </div>
+                              <div style="width:44px;text-align:right;font-size:13px;
+                                          font-weight:900;color:{color};">{rho_v:.2f}</div>
+                            </div>''',
+                            unsafe_allow_html=True,
+                        )
+
+                    # ── 상품별 점수 비교 테이블 ──────────────
+                    st.markdown("---")
+                    st.markdown("**🔍 상품별 점수 비교 (상위 20개)**")
+                    cmp_base = [c for c in ["product_name","source_store","vhs","vhs_action"] if c in df.columns]
+                    cmp_cols = [k for k in selected_keys if k in df.columns]
+                    cmp_df   = df[cmp_base + cmp_cols].head(20).copy()
+                    rename_m = {k: avail_algos[k].split(" ",1)[-1][:12] for k in cmp_cols}
+                    cmp_df   = cmp_df.rename(columns=rename_m)
+
+                    # VHS 대비 갭 하이라이트
+                    if "vhs" in cmp_df.columns:
+                        for k in selected_keys:
+                            short = avail_algos[k].split(" ",1)[-1][:12]
+                            if short in cmp_df.columns:
+                                gap_col = f"갭({short[:6]})"
+                                cmp_df[gap_col] = (
+                                    pd.to_numeric(cmp_df["vhs"], errors="coerce") -
+                                    pd.to_numeric(cmp_df[short], errors="coerce")
+                                ).round(1)
+
+                    st.dataframe(cmp_df.round(1), width="stretch")
+
+                    # ── 해석 가이드 ──────────────────────────
+                    with st.expander("📖 지표 해석 방법", expanded=False):
+                        st.markdown("""
+| 지표 | 해석 |
+|------|------|
+| **순위 상관 ρ** | 1에 가까울수록 해당 알고리즘 순위 = VHS 순위. 낮으면 VHS가 다른 정보 반영 |
+| **액션 일치율** | 개별 알고리즘 기준 추천 액션이 VHS와 얼마나 같은지 (낮으면 VHS가 더 정교) |
+| **평균점수 갭** | VHS − 알고리즘. 양수면 VHS가 더 높게 평가 (통합 효과) |
+| **분산 비율** | VHS 분산 / 알고 분산. 1보다 크면 VHS가 더 넓은 분포 (변별력 ↑) |
+                        """)
+
+    #  탭 3: 8구성요소 분석    #  탭 3: 8구성요소 분석
     with t3:
         st.subheader("🏗️ Varo Hybrid Score — 8개 구성요소 구조")
         _G8 = {
@@ -4469,86 +4792,121 @@ def _show_algorithms_page(final_recommendations, inventory=None):
 
     # ══════════════════════════════════════════════════════
     #  탭 4: 가중치 & 상황 감지
-    # ══════════════════════════════════════════════════════
     with t4:
+        # 가중치 및 상황 감지 — 독립 import로 실패 방지
+        try:
+            from varo_hybrid_score import _BASE_WEIGHTS as _BW, _SITUATION_MODS as _SM
+        except Exception:
+            _BW  = {}
+            _SM  = {}
+
+        # 26개 컴포넌트 역할·색상 매핑
+        _RC = {
+            "disposal_risk_score":          ("#ef5350", "A.재고위험"),
+            "turnover_score":               ("#ec407a", "A.재고위험"),
+            "abc_score":                    ("#f06292", "A.재고위험"),
+            "aging_score":                  ("#ce93d8", "A.재고위험"),
+            "demand_forecast_score":        ("#ab47bc", "B.판매가능"),
+            "trend_score":                  ("#7e57c2", "B.판매가능"),
+            "newsvendor_score":             ("#5c6bc0", "B.판매가능"),
+            "match_score":                  ("#42a5f5", "C.점포적합"),
+            "service_level_score":          ("#26c6da", "C.점포적합"),
+            "priority_queue_score":         ("#26a69a", "C.점포적합"),
+            "queue_capacity_score":         ("#66bb6a", "C.점포적합"),
+            "category_balance_score":       ("#9ccc65", "D.재고균형"),
+            "safety_stock_score":           ("#d4e157", "D.재고균형"),
+            "transport_lp_score":           ("#ffca28", "D.재고균형"),
+            "disposal_avoidance_score":     ("#ffa726", "E.폐기회피"),
+            "discount_sensitivity_score":   ("#ff7043", "E.폐기회피"),
+            "bottleneck_score":             ("#8d6e63", "F.실행가능"),
+            "store_capacity_score":         ("#78909c", "F.실행가능"),
+            "lp_allocation_score":          ("#90a4ae", "F.실행가능"),
+            "multiobjective_score":         ("#546e7a", "G.최적화"),
+            "topsis_score":                 ("#607d8b", "G.최적화"),
+            "pareto_score":                 ("#455a64", "G.최적화"),
+            "assignment_score":             ("#37474f", "G.최적화"),
+            "heuristic_score":              ("#b0bec5", "H.기존연동"),
+            "greedy_score":                 ("#cfd8dc", "H.기존연동"),
+            "eoq_score":                    ("#eceff1", "H.기존연동"),
+        }
+
         col_w, col_s = st.columns([1, 1])
 
         with col_w:
-            st.subheader("⚖️ 가중치 구성")
-            if _BASE_WEIGHTS:
-                role_color = {
-                    "disposal_risk_score":   ("#ef5350","A. 긴급도"),
-                    "turnover_score":        ("#ec407a","A. 긴급도"),
-                    "demand_forecast_score": ("#ab47bc","A. 긴급도"),
-                    "heuristic_score":       ("#42a5f5","C. 비용효율"),
-                    "safety_stock_score":    ("#26a69a","B. 이동적합"),
-                    "match_score":           ("#66bb6a","B. 이동적합"),
-                    "abc_score":             ("#ffa726","E. 맥락"),
-                    "greedy_score":          ("#8d6e63","D. 연동"),
-                    "eoq_score":             ("#78909c","C. 비용효율"),
-                    "network_cost_score":    ("#b0bec5","C. 비용효율"),
-                }
-                w_df = pd.DataFrame([{
-                    "컴포넌트": k.replace("_score",""),
-                    "역할": role_color.get(k,("#aaa","?"))[1],
-                    "가중치": f"{v*100:.0f}%",
-                    "최대기여(100점시)": f"{v*100:.1f}점",
-                } for k, v in _BASE_WEIGHTS.items()])
-                st.dataframe(w_df, width="stretch", hide_index=True)
+            st.subheader("⚖️ VHS 가중치 구성")
+            if _BW:
+                rows = []
+                for k, v in _BW.items():
+                    color, role = _RC.get(k, ("#aaa", "기타"))
+                    rows.append({
+                        "컴포넌트": k.replace("_score",""),
+                        "역할": role,
+                        "가중치": f"{v*100:.0f}%",
+                        "최대기여": f"{v*100:.1f}점",
+                    })
+                st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
-                # 역할별 합계 시각화
                 st.markdown("**역할별 비중**")
-                from collections import defaultdict as _dd
-                role_sum = _dd(float)
-                for k, v in _BASE_WEIGHTS.items():
-                    role_sum[role_color.get(k,("#","?"))[1]] += v
-                for role, pct in sorted(role_sum.items()):
+                from collections import defaultdict as _dd2
+                _rs = _dd2(float)
+                for k, v in _BW.items():
+                    _rs[_RC.get(k, ("#","기타"))[1]] += v
+                _role_colors = {
+                    "A.재고위험":"#ef5350","B.판매가능":"#ab47bc",
+                    "C.점포적합":"#42a5f5","D.재고균형":"#26a69a",
+                    "E.폐기회피":"#ffa726","F.실행가능":"#8d6e63",
+                    "G.최적화":"#546e7a","H.기존연동":"#b0bec5",
+                }
+                for role, pct in sorted(_rs.items()):
+                    rc = _role_colors.get(role, "#aaa")
                     st.markdown(
-                        f'<div style="margin:4px 0;">'
-                        f'<span style="font-size:13px;font-weight:700;">{role}</span> '
-                        f'<span style="font-size:13px;color:#555;">{pct*100:.0f}%</span>'
-                        f'<div style="background:#eee;border-radius:4px;height:8px;margin-top:3px;">'
-                        f'<div style="background:#1976d2;width:{pct*100:.1f}%;height:100%;border-radius:4px;"></div>'
+                        f'<div style="margin:3px 0;">'
+                        f'<span style="font-size:12px;font-weight:700;">{role}</span> '
+                        f'<span style="font-size:12px;color:#666;">{pct*100:.0f}%</span>'
+                        f'<div style="background:#eee;border-radius:3px;height:7px;margin-top:2px;">'
+                        f'<div style="background:{rc};width:{pct*100:.1f}%;height:100%;border-radius:3px;"></div>'
                         f'</div></div>',
                         unsafe_allow_html=True,
                     )
+            else:
+                st.info("가중치 데이터를 불러오는 중입니다...")
 
         with col_s:
             st.subheader("🌡 상황 감지 현황")
-            sit_labels = {
-                "sit_EXPIRY_URGENT":  ("⏰", "유통기한 임박", "#ef5350"),
+            _sit_map = {
+                "sit_EXPIRY_URGENT":  ("⏰", "유통기한 임박",  "#ef5350"),
                 "sit_FROZEN_EXCESS":  ("❄️", "냉동·냉장 과잉", "#42a5f5"),
-                "sit_HIGH_COST":      ("💸", "이동비용 높음", "#ff7043"),
-                "sit_DEMAND_SURGE":   ("📈", "수요 급증", "#66bb6a"),
-                "sit_DEAD_STOCK":     ("💀", "악성재고", "#ec407a"),
-                "sit_REORDER_CRISIS": ("🚨", "재주문 위기", "#ab47bc"),
+                "sit_HIGH_COST":      ("💸", "이동비용 높음",  "#ff7043"),
+                "sit_DEMAND_SURGE":   ("📈", "수요 급증",      "#66bb6a"),
+                "sit_DEAD_STOCK":     ("💀", "악성재고",       "#ec407a"),
+                "sit_REORDER_CRISIS": ("🚨", "재주문 위기",    "#ab47bc"),
             }
-            for col_key, (icon, label, color) in sit_labels.items():
+            for col_key, (icon, label, color) in _sit_map.items():
                 cnt = int(df[col_key].sum()) if col_key in df.columns else 0
                 pct = cnt / max(len(df), 1) * 100
                 st.markdown(
-                    f'<div style="border-left:4px solid {color};padding:8px 12px;'
-                    f'margin:6px 0;border-radius:0 8px 8px 0;background:#fafafa;">'
-                    f'<div style="display:flex;justify-content:space-between;">'
-                    f'<span style="font-weight:700;">{icon} {label}</span>'
-                    f'<span style="color:{color};font-weight:800;">{cnt}건 ({pct:.0f}%)</span>'
+                    f'<div style="border-left:4px solid {color};padding:7px 12px;'
+                    f'margin:5px 0;border-radius:0 8px 8px 0;background:#fafafa;">'
+                    f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                    f'<span style="font-weight:700;font-size:13px;">{icon} {label}</span>'
+                    f'<span style="color:{color};font-weight:800;font-size:13px;">{cnt}건 ({pct:.0f}%)</span>'
                     f'</div>'
-                    f'<div style="background:#eee;border-radius:4px;height:6px;margin-top:6px;">'
-                    f'<div style="background:{color};width:{min(pct,100):.1f}%;height:100%;border-radius:4px;"></div>'
+                    f'<div style="background:#eee;border-radius:3px;height:5px;margin-top:5px;">'
+                    f'<div style="background:{color};width:{min(pct,100):.1f}%;height:100%;border-radius:3px;"></div>'
                     f'</div></div>',
                     unsafe_allow_html=True,
                 )
 
-            if _SITUATION_MODS:
+            if _SM:
                 st.markdown("---")
-                st.markdown("**상황 감지 시 가중치 배율**")
-                for sit, mods in _SITUATION_MODS.items():
+                st.markdown("**상황 감지 가중치 배율**")
+                for sit, mods in _SM.items():
                     with st.expander(f"⚡ {sit}", expanded=False):
-                        mod_df = pd.DataFrame([
+                        md = pd.DataFrame([
                             {"컴포넌트": k.replace("_score",""), "배율": f"×{v:.1f}"}
                             for k, v in mods.items()
                         ])
-                        st.dataframe(mod_df, hide_index=True, width="stretch")
+                        st.dataframe(md, hide_index=True, width="stretch")
 
     # ── 탭 5: 컴포넌트 기여 ────────────────────────────────
     with t5:
@@ -4736,6 +5094,12 @@ def show_dashboard_router(
 
     elif page == "network":
         _show_network_page()
+
+    elif page == "batch":
+        _show_batch_page(final_recommendations)
+
+    elif page == "effect":
+        _show_effect_page(final_recommendations)
 
     elif page == "guide":
         _show_guide_page(final_recommendations)
