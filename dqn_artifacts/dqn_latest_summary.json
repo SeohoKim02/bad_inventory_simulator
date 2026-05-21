@@ -1,5 +1,5 @@
 {
-  "created_at": "20260515_202130",
+  "created_at": "20260522_052421",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -15,23 +15,24 @@
     "distance_norm",
     "time_norm",
     "demand_gap_norm",
-    "abc_class_norm",
+    "abc_norm",
     "turnover_norm",
-    "days_inventory_norm",
-    "expiry_risk_norm",
-    "dead_stock_norm",
-    "overstock_norm"
+    "disposal_risk_norm",
+    "safety_stock_norm",
+    "eoq_norm",
+    "demand_forecast_norm",
+    "cluster_norm"
   ],
   "summary": {
-    "training_samples": 503,
-    "transition_count": 2012,
-    "final_loss": 79.85794131127079,
+    "training_samples": 300,
+    "transition_count": 1200,
+    "final_loss": 25.30993764133014,
     "dqn_top_action": "재고 이동",
-    "dqn_top_product": "서울우유 흰우유",
-    "dqn_top_route": "종로점 → 성수3점",
+    "dqn_top_product": "오뚜기 진라면컵",
+    "dqn_top_route": "종로점 → 청량리점",
     "greedy_top_action": "재고 이동",
-    "match_count": 474,
-    "match_rate": 94.23459244532803,
+    "match_count": 300,
+    "match_rate": 100.0,
     "feature_names": [
       "score_norm",
       "qty_norm",
@@ -41,12 +42,13 @@
       "distance_norm",
       "time_norm",
       "demand_gap_norm",
-      "abc_class_norm",
+      "abc_norm",
       "turnover_norm",
-      "days_inventory_norm",
-      "expiry_risk_norm",
-      "dead_stock_norm",
-      "overstock_norm"
+      "disposal_risk_norm",
+      "safety_stock_norm",
+      "eoq_norm",
+      "demand_forecast_norm",
+      "cluster_norm"
     ],
     "action_labels": [
       "재고 이동",
