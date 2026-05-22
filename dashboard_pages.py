@@ -842,6 +842,36 @@ def _apply_page_style():
             body { top: 0 !important; }
             .skiptranslate { display: none !important; }
 
+            /* 액션 필터 태그 잘림 방지 */
+            [data-baseweb="tag"] {
+                max-width: none !important;
+                white-space: nowrap !important;
+                overflow: visible !important;
+            }
+            [data-baseweb="tag"] span:first-child {
+                overflow: visible !important;
+                text-overflow: initial !important;
+                white-space: nowrap !important;
+                max-width: none !important;
+            }
+            [data-baseweb="tag"] span[title] {
+                overflow: visible !important;
+                text-overflow: initial !important;
+                white-space: nowrap !important;
+                max-width: none !important;
+            }
+            .stMultiSelect [data-baseweb="select"] > div {
+                flex-wrap: wrap !important;
+            }
+            [data-baseweb="multi-value"] {
+                max-width: none !important;
+            }
+            /* st.metric 숫자 크기 축소 → 잘림 방지 */
+            [data-testid="stMetricValue"] {
+                font-size: 1.4rem !important;
+                white-space: nowrap !important;
+            }
+
             /* ── 기존 대시보드 스타일 ────────────────────── */
             .dash-hero {
                 padding: 22px 28px;
@@ -1333,7 +1363,7 @@ def _show_dashboard_home(
                 c_vhs_action = str(candidate.get("vhs_action", "")) if c_vhs_val else ""
 
                 # 카드 색상 — 순위별 뚜렷한 색
-                _CARD_BG = ["#1a237e","#1b5e20","#4a148c","#b71c1c","#e65100"]
+                _CARD_BG = ["#1e88e5","#43a047","#8e24aa","#e53935","#fb8c00"]
                 card_bg = _CARD_BG[candidate_position % len(_CARD_BG)]
 
                 score_disp = f"{c_vhs_val:.0f}" if c_vhs_val else str(c_score)
@@ -3805,11 +3835,24 @@ def _show_batch_page(final_recommendations):
         return
 
     summ = batch_summary(batch_df)
+    def _num(v, suffix=""): return f"{int(v):,}{suffix}"
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("처리 대상",    f"{summ.get('total_items',0)}건")
-    m2.metric("총 예상 비용", f"{summ.get('total_cost',0):,}원")
-    m3.metric("폐기 회피 이익",f"{int(summ.get('total_avoidance',0)):,}원")
-    m4.metric("예산 내 처리", f"{summ.get('within_budget',0)}건")
+    with m1:
+        st.markdown(f'''<div style="border:1px solid #eee;border-radius:10px;padding:16px;text-align:center;">
+            <div style="font-size:12px;color:#888;margin-bottom:4px;">처리 대상</div>
+            <div style="font-size:22px;font-weight:800;">{_num(summ.get("total_items",0),"건")}</div></div>''', unsafe_allow_html=True)
+    with m2:
+        st.markdown(f'''<div style="border:1px solid #eee;border-radius:10px;padding:16px;text-align:center;">
+            <div style="font-size:12px;color:#888;margin-bottom:4px;">총 예상 비용</div>
+            <div style="font-size:20px;font-weight:800;">{_num(summ.get("total_cost",0),"원")}</div></div>''', unsafe_allow_html=True)
+    with m3:
+        st.markdown(f'''<div style="border:1px solid #eee;border-radius:10px;padding:16px;text-align:center;">
+            <div style="font-size:12px;color:#888;margin-bottom:4px;">폐기 회피 이익</div>
+            <div style="font-size:20px;font-weight:800;">{_num(summ.get("total_avoidance",0),"원")}</div></div>''', unsafe_allow_html=True)
+    with m4:
+        st.markdown(f'''<div style="border:1px solid #eee;border-radius:10px;padding:16px;text-align:center;">
+            <div style="font-size:12px;color:#888;margin-bottom:4px;">예산 내 처리</div>
+            <div style="font-size:22px;font-weight:800;">{_num(summ.get("within_budget",0),"건")}</div></div>''', unsafe_allow_html=True)
 
     st.markdown("---")
     st.subheader("🏆 오늘의 최적 처리 순서")
@@ -3841,18 +3884,22 @@ def _show_effect_page(final_recommendations):
 
     # 핵심 카드
     st.markdown("### 💡 핵심 효과 요약")
+    def _mc(label, value, delta=None, color="#333"):
+        delta_html = f'<div style="font-size:11px;color:#ef5350;margin-top:2px;">{delta}</div>' if delta else ""
+        return f'''<div style="border:1px solid #eee;border-radius:10px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:#888;margin-bottom:4px;">{label}</div>
+            <div style="font-size:18px;font-weight:800;color:{color};">{value}</div>{delta_html}</div>'''
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("기존 방식 예상 폐기비용", f"{int(eff.get('before_disposal_cost',0)):,}원")
-    c2.metric("Varo 적용 후 예상 폐기비용", f"{int(eff.get('after_disposal_cost',0)):,}원",
-              delta=f"-{int(eff.get('saving_amount',0)):,}원")
-    c3.metric("폐기비용 절감률",  f"{eff.get('saving_rate_pct',0):.1f}%")
-    c4.metric("위험 감소 상품 수", f"{eff.get('n_risk_reduced',0)}개")
+    with c1: st.markdown(_mc("기존 방식 예상 폐기비용", f'{int(eff.get("before_disposal_cost",0)):,}원'), unsafe_allow_html=True)
+    with c2: st.markdown(_mc("Varo 적용 후 예상 폐기비용", f'{int(eff.get("after_disposal_cost",0)):,}원', delta=f'-{int(eff.get("saving_amount",0)):,}원'), unsafe_allow_html=True)
+    with c3: st.markdown(_mc("폐기비용 절감률", f'{eff.get("saving_rate_pct",0):.1f}%', color="#2e7d32"), unsafe_allow_html=True)
+    with c4: st.markdown(_mc("위험 감소 상품 수", f'{eff.get("n_risk_reduced",0)}개'), unsafe_allow_html=True)
 
     st.markdown("---")
     c5, c6, c7 = st.columns(3)
-    c5.metric("처리 가능 재고 수량", f"{int(eff.get('processable_qty',0)):,}개")
-    c6.metric("재고 불균형 개선률",  f"{eff.get('rebalance_rate_pct',0):.1f}%")
-    c7.metric("운송비 부담률",       f"{eff.get('transport_burden_rate_pct',0):.2f}%")
+    with c5: st.markdown(_mc("처리 가능 재고 수량", f'{int(eff.get("processable_qty",0)):,}개'), unsafe_allow_html=True)
+    with c6: st.markdown(_mc("재고 불균형 개선률",  f'{eff.get("rebalance_rate_pct",0):.1f}%'), unsafe_allow_html=True)
+    with c7: st.markdown(_mc("운송비 부담률",       f'{eff.get("transport_burden_rate_pct",0):.2f}%'), unsafe_allow_html=True)
 
     with st.expander("📐 계산식 보기", expanded=False):
         st.markdown(f"""
@@ -4067,10 +4114,20 @@ def _show_whatif_page(final_recommendations):
             key="whatif_preset",
         )
 
+
+        # ── 프리셋 변경 시 슬라이더 자동 업데이트 ──────────────
         if preset_name != "직접 조정":
             preset_p = PRESET_SCENARIOS[preset_name]
+            if preset_name != st.session_state.get("_whatif_prev_preset", "직접 조정"):
+                st.session_state["whatif_discount"] = int(preset_p["discount_rate"] * 100)
+                st.session_state["whatif_demand"]   = int(preset_p["demand_change_pct"])
+                st.session_state["whatif_cost"]     = float(preset_p["cost_multiplier"])
+                st.session_state["whatif_lead"]     = int(preset_p["lead_time_change"])
+                st.session_state["_whatif_prev_preset"] = preset_name
+                st.rerun()
         else:
             preset_p = DEFAULT_PARAMS
+            st.session_state["_whatif_prev_preset"] = "직접 조정"
 
         c1, c2 = st.columns(2)
         with c1:
@@ -4335,30 +4392,30 @@ def _show_algorithms_page(final_recommendations, inventory=None):
 
     st.markdown(
         f"""
-        <div style="background:linear-gradient(135deg,#0d1b2a 0%,#1b2838 60%,#162032 100%);
+        <div style="background:linear-gradient(135deg,#2563eb 0%,#3b82f6 60%,#1d6ae5 100%);
                     border-radius:20px;padding:24px 28px;margin-bottom:18px;
-                    box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+                    box-shadow:0 4px 18px rgba(37,99,235,0.25);">
             <div style="display:flex;gap:32px;flex-wrap:wrap;align-items:center;">
                 <div>
-                    <div style="font-size:10px;color:#7ec8e3 !important;font-weight:900;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;opacity:1;">VARO HYBRID SCORE</div>
-                    <div style="font-size:48px;font-weight:900;color:#ffffff;line-height:1;text-shadow:0 2px 12px rgba(0,0,0,0.8);-webkit-text-fill-color:#fff;">
+                    <div style="font-size:10px;color:#bfdbfe !important;font-weight:900;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;opacity:1;">VARO HYBRID SCORE</div>
+                    <div style="font-size:48px;font-weight:900;color:#ffffff;line-height:1;text-shadow:0 2px 8px rgba(0,0,0,0.4);-webkit-text-fill-color:#fff;">
                         {avg_vhs}
-                        <span style="font-size:18px;color:#aaa;"> 점</span>
+                        <span style="font-size:18px;color:#dbeafe;"> 점</span>
                     </div>
-                    <div style="font-size:12px;color:#bbb;margin-top:4px;">전체 {summary.get("n_total",0)}건 평균
+                    <div style="font-size:12px;color:#dbeafe;margin-top:4px;">전체 {summary.get("n_total",0)}건 평균
                     </div>
                 </div>
-                <div style="border-left:1px solid rgba(255,255,255,0.15);padding-left:24px;">
-                    <div style="font-size:10px;color:#7ec8e3;font-weight:900;letter-spacing:1px;margin-bottom:6px;">최우선 처리 상품</div>
-                    <div style="font-size:16px;font-weight:900;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.5);">{top_prod}</div>
+                <div style="border-left:1px solid rgba(255,255,255,0.25);padding-left:24px;">
+                    <div style="font-size:10px;color:#bfdbfe;font-weight:900;letter-spacing:1px;margin-bottom:6px;">최우선 처리 상품</div>
+                    <div style="font-size:16px;font-weight:900;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.3);">{top_prod}</div>
                     <div style="display:inline-block;background:{act_color};color:#fff !important;
                                 padding:5px 14px;border-radius:20px;font-size:14px;font-weight:800;margin-top:6px;">
                         {top_icon} {top_action}
                     </div>
-                    <div style="font-size:12px;color:#ccc;margin-top:4px;">VHS {top_vhs:.1f}점</div>
+                    <div style="font-size:12px;color:#dbeafe;margin-top:4px;">VHS {top_vhs:.1f}점</div>
                 </div>
-                <div style="border-left:1px solid rgba(255,255,255,0.15);padding-left:24px;flex:1;">
-                    <div style="font-size:10px;color:#7ec8e3;font-weight:900;letter-spacing:1px;margin-bottom:8px;">처리 액션 분포</div>
+                <div style="border-left:1px solid rgba(255,255,255,0.25);padding-left:24px;flex:1;">
+                    <div style="font-size:10px;color:#bfdbfe;font-weight:900;letter-spacing:1px;margin-bottom:8px;">처리 액션 분포</div>
                     {act_chips}
                     <div style="margin-top:10px;">{grade_bar}</div>
                 </div>

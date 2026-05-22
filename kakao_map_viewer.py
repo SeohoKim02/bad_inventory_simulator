@@ -1100,7 +1100,7 @@ def show_store_matching_map(
     rec_data = final_recommendations.copy() if final_recommendations is not None else None
 
     if stores_data.empty:
-        st.iframe("<p>지도에 표시할 위치 데이터가 없습니다.</p>", height=200)
+        st.info("지도에 표시할 위치 데이터가 없습니다.")
         return
 
     kakao_js_key = str(kakao_js_key).strip()
@@ -1761,4 +1761,4 @@ def show_store_matching_map(
     html = html.replace("__ROUTES_JSON__", routes_json)
     html = html.replace("__STATUS_JSON__", status_json)
 
-    st.iframe(html, height=1180)
+    st.components.v1.html(html, height=1180, scrolling=True)

@@ -266,8 +266,14 @@ def _build_reward_matrix(df):
         return np.empty((0, len(ACTION_LABELS)), dtype=np.float64)
 
     score = pd.to_numeric(df["heuristic_score"], errors="coerce").fillna(50).clip(0, 100)
-    qty_n = _normalize_series(pd.to_numeric(df.get("suggested_qty", 0), errors="coerce").fillna(0)).clip(0, 1)
-    cost_n = _normalize_series(pd.to_numeric(df.get("estimated_cost", 0), errors="coerce").fillna(0)).clip(0, 1)
+
+    def _safe_col(df, col, default=0.0):
+        if col in df.columns:
+            return pd.to_numeric(df[col], errors='coerce').fillna(default)
+        return pd.Series([default]*len(df), index=df.index)
+
+    qty_n  = _normalize_series(_safe_col(df, "suggested_qty")).clip(0, 1)
+    cost_n = _normalize_series(_safe_col(df, "estimated_cost")).clip(0, 1)
     # 거리 컬럼 fallback
     _dist_cols = [c for c in ["direct_distance_km","via_distance_km","recommended_distance_km","state_distance_km"] if c in df.columns]
     if _dist_cols:
@@ -280,8 +286,7 @@ def _build_reward_matrix(df):
         _dist_raw = pd.Series([0.0]*len(df), index=df.index)
     dist_n = _normalize_series(_dist_raw).clip(0, 1)
     demand_gap_n = _normalize_series(
-        pd.to_numeric(df.get("source_dead_stock_qty", pd.Series([0]*len(df), index=df.index)), errors="coerce").fillna(0)
-        + pd.to_numeric(df.get("target_shortage_qty", pd.Series([0]*len(df), index=df.index)), errors="coerce").fillna(0)
+        _safe_col(df, "source_dead_stock_qty") + _safe_col(df, "target_shortage_qty")
     ).clip(0, 1)
 
     # ── Phase 1 알고리즘 피처 ─────────────────────────────
@@ -395,7 +400,22 @@ def _build_reward_matrix(df):
     ]).T
 
     # Greedy가 선택한 action에는 실제 휴리스틱 추천을 반영하는 보정값을 준다.
+    # greedy_action이 없으면 vhs2_action → vhs_action → 보류 순서로 fallback
+    if "greedy_action" not in df.columns:
+        if "vhs2_action" in df.columns:
+            df = df.copy()
+            df["greedy_action"] = df["vhs2_action"].fillna("보류")
+        elif "vhs_action" in df.columns:
+            df = df.copy()
+            df["greedy_action"] = df["vhs_action"].fillna("보류")
+        else:
+            df = df.copy()
+            df["greedy_action"] = "보류"
+
     for row_idx, action in enumerate(df["greedy_action"].tolist()):
+        if action in ACTION_LABELS:
+            action_idx = ACTION_LABELS.index(action)
+            reward[row_idx, action_idx] += 8
         if action in ACTION_LABELS:
             action_idx = ACTION_LABELS.index(action)
             reward[row_idx, action_idx] += 8
