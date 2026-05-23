@@ -1,11 +1,11 @@
 {
-  "created_at": "20260523_205147",
-  "sample_no": "sample01",
+  "created_at": "20260523_205212",
+  "sample_no": "sample03",
   "scenario_name": "",
   "learning_rate": 0.01,
   "episodes": 500,
   "candidate_count": 500,
-  "named_prefix": "dqn_sample01_default_lr0100_500x500",
+  "named_prefix": "dqn_sample03_default_lr0100_500x500",
   "action_labels": [
     "재고 이동",
     "할인",
