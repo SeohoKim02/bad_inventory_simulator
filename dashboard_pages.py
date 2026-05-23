@@ -3284,18 +3284,43 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
                 if dqn_summary.get("model_saved"):
                     saved_paths = dqn_summary.get("saved_paths", {})
 
-                    # ── 저장 파일 안내 ────────────────────────────────
-                    named = saved_paths.get("named_prefix", "")
-                    comp  = saved_paths.get("comparison_file", "")
-                    st.success(f"✅ 학습 결과 저장 완료")
-                    if named:
-                        st.code(
-                            f"보관 파일: {named}_model.npz\n"
-                            f"          {named}_recommendations.csv\n"
-                            f"          {named}_history.csv\n"
-                            f"          {named}_summary.json\n"
-                            f"누적 기록: dqn_training_comparison.csv",
-                            language=None,
+                    # ── 저장 결과 3종 표시 ────────────────────────────
+                    named   = saved_paths.get("named_prefix", "")
+                    comp    = saved_paths.get("comparison_file", "")
+                    ts_pre  = saved_paths.get("timestamp_model_file","").replace("_model.npz","")
+
+                    st.success("✅ DQN 학습 결과 저장 완료")
+
+                    r1, r2, r3 = st.columns(3)
+                    with r1:
+                        st.markdown(
+                            '<div style="background:#e8f5e9;padding:10px;border-radius:8px;font-size:12px;">'
+                            '<b>✅ latest 저장 완료</b><br>'
+                            'dqn_latest_model.npz<br>'
+                            'dqn_latest_recommendations.csv<br>'
+                            'dqn_latest_history.csv<br>'
+                            'dqn_latest_summary.json</div>',
+                            unsafe_allow_html=True,
+                        )
+                    with r2:
+                        st.markdown(
+                            f'<div style="background:#e3f2fd;padding:10px;border-radius:8px;font-size:12px;">'
+                            f'<b>✅ sample 보관 파일 저장 완료</b><br>'
+                            f'{named}_model.npz<br>'
+                            f'{named}_recommendations.csv<br>'
+                            f'{named}_history.csv<br>'
+                            f'{named}_summary.json</div>' if named else
+                            '<div style="background:#fff3e0;padding:10px;border-radius:8px;font-size:12px;">'
+                            '⚠️ sample_no 미입력<br>sample00_default_* 로 저장됨</div>',
+                            unsafe_allow_html=True,
+                        )
+                    with r3:
+                        comp_ok = bool(comp)
+                        st.markdown(
+                            f'<div style="background:{"#e8f5e9" if comp_ok else "#fce4ec"};padding:10px;border-radius:8px;font-size:12px;">'
+                            f'<b>{"✅" if comp_ok else "❌"} dqn_training_comparison.csv<br>누적 기록 완료</b><br>'
+                            f'{"위치: dqn_artifacts/" if comp_ok else "저장 실패"}</div>',
+                            unsafe_allow_html=True,
                         )
 
                     github_upload = dqn_summary.get("github_upload", {})

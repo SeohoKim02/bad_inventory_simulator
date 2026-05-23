@@ -1,0 +1,67 @@
+{
+  "created_at": "20260523_210757",
+  "sample_no": "sample14",
+  "scenario_name": "dc_route",
+  "learning_rate": 0.003,
+  "episodes": 500,
+  "candidate_count": 500,
+  "named_prefix": "dqn_sample14_dc_route_lr0030_500x500",
+  "action_labels": [
+    "재고 이동",
+    "할인",
+    "폐기",
+    "보류"
+  ],
+  "feature_names": [
+    "score_norm",
+    "qty_norm",
+    "cost_norm",
+    "direct_cost_norm",
+    "via_cost_norm",
+    "distance_norm",
+    "time_norm",
+    "demand_gap_norm",
+    "abc_norm",
+    "turnover_norm",
+    "disposal_risk_norm",
+    "safety_stock_norm",
+    "eoq_norm",
+    "demand_forecast_norm",
+    "cluster_norm"
+  ],
+  "summary": {
+    "training_samples": 500,
+    "transition_count": 2000,
+    "final_loss": 24.858028545188,
+    "dqn_top_action": "재고 이동",
+    "dqn_top_product": "농심 육개장사발면",
+    "dqn_top_route": "교대점 → 선릉점",
+    "greedy_top_action": "재고 이동",
+    "match_count": 496,
+    "match_rate": 99.2,
+    "feature_names": [
+      "score_norm",
+      "qty_norm",
+      "cost_norm",
+      "direct_cost_norm",
+      "via_cost_norm",
+      "distance_norm",
+      "time_norm",
+      "demand_gap_norm",
+      "abc_norm",
+      "turnover_norm",
+      "disposal_risk_norm",
+      "safety_stock_norm",
+      "eoq_norm",
+      "demand_forecast_norm",
+      "cluster_norm"
+    ],
+    "action_labels": [
+      "재고 이동",
+      "할인",
+      "폐기",
+      "보류"
+    ],
+    "model_saved": false
+  }
+}
