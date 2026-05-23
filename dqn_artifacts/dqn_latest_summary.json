@@ -1,5 +1,5 @@
 {
-  "created_at": "20260523_195709",
+  "created_at": "20260523_195720",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -26,7 +26,7 @@
   "summary": {
     "training_samples": 109,
     "transition_count": 436,
-    "final_loss": 30.789450126148857,
+    "final_loss": 28.11865936977511,
     "dqn_top_action": "재고 이동",
     "dqn_top_product": "빵002",
     "dqn_top_route": "왕십리점 → 잠실2점",
