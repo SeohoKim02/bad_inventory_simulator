@@ -1,0 +1,113 @@
+{
+  "created_at": "20260523_201736",
+  "action_labels": [
+    "재고 이동",
+    "할인",
+    "폐기",
+    "보류"
+  ],
+  "feature_names": [
+    "score_norm",
+    "qty_norm",
+    "cost_norm",
+    "direct_cost_norm",
+    "via_cost_norm",
+    "distance_norm",
+    "time_norm",
+    "demand_gap_norm",
+    "abc_norm",
+    "turnover_norm",
+    "disposal_risk_norm",
+    "safety_stock_norm",
+    "eoq_norm",
+    "demand_forecast_norm",
+    "cluster_norm"
+  ],
+  "summary": {
+    "training_samples": 500,
+    "transition_count": 2000,
+    "final_loss": 48.241228144739495,
+    "dqn_top_action": "재고 이동",
+    "dqn_top_product": "도시락074",
+    "dqn_top_route": "합정점 → 신촌점",
+    "greedy_top_action": "재고 이동",
+    "match_count": 477,
+    "match_rate": 95.39999999999999,
+    "feature_names": [
+      "score_norm",
+      "qty_norm",
+      "cost_norm",
+      "direct_cost_norm",
+      "via_cost_norm",
+      "distance_norm",
+      "time_norm",
+      "demand_gap_norm",
+      "abc_norm",
+      "turnover_norm",
+      "disposal_risk_norm",
+      "safety_stock_norm",
+      "eoq_norm",
+      "demand_forecast_norm",
+      "cluster_norm"
+    ],
+    "action_labels": [
+      "재고 이동",
+      "할인",
+      "폐기",
+      "보류"
+    ],
+    "model_saved": true,
+    "saved_paths": {
+      "output_dir": "dqn_artifacts",
+      "model_file": "dqn_artifacts\\dqn_latest_model.npz",
+      "compare_file": "dqn_artifacts\\dqn_latest_recommendations.csv",
+      "history_file": "dqn_artifacts\\dqn_latest_history.csv",
+      "summary_file": "dqn_artifacts\\dqn_latest_summary.json",
+      "timestamp_model_file": "dqn_artifacts\\dqn_20260523_201736_model.npz",
+      "timestamp_compare_file": "dqn_artifacts\\dqn_20260523_201736_recommendations.csv",
+      "timestamp_history_file": "dqn_artifacts\\dqn_20260523_201736_history.csv",
+      "timestamp_summary_file": "dqn_artifacts\\dqn_20260523_201736_summary.json",
+      "created_at": "20260523_201736"
+    },
+    "github_upload": {
+      "configured": true,
+      "github_dir": "dqn_artifacts",
+      "ok_count": 4,
+      "fail_count": 0,
+      "results": [
+        {
+          "ok": true,
+          "file": "dqn_artifacts\\dqn_latest_model.npz",
+          "github_path": "dqn_artifacts/dqn_latest_model.npz",
+          "sha": "7592c62beb896783d180380ef34569ae41f4a0fc",
+          "html_url": "https://github.com/SeohoKim02/bad_inventory_simulator/blob/main/dqn_artifacts/dqn_latest_model.npz",
+          "message": "uploaded"
+        },
+        {
+          "ok": true,
+          "file": "dqn_artifacts\\dqn_latest_recommendations.csv",
+          "github_path": "dqn_artifacts/dqn_latest_recommendations.csv",
+          "sha": "45538bd25d9ee32da6ae2b77a732d4a2feeaa6e6",
+          "html_url": "https://github.com/SeohoKim02/bad_inventory_simulator/blob/main/dqn_artifacts/dqn_latest_recommendations.csv",
+          "message": "uploaded"
+        },
+        {
+          "ok": true,
+          "file": "dqn_artifacts\\dqn_latest_history.csv",
+          "github_path": "dqn_artifacts/dqn_latest_history.csv",
+          "sha": "0eb6bb5de093b8fd3b20fa1c7c6c0b682b73464e",
+          "html_url": "https://github.com/SeohoKim02/bad_inventory_simulator/blob/main/dqn_artifacts/dqn_latest_history.csv",
+          "message": "uploaded"
+        },
+        {
+          "ok": true,
+          "file": "dqn_artifacts\\dqn_latest_summary.json",
+          "github_path": "dqn_artifacts/dqn_latest_summary.json",
+          "sha": "cbd8f3c16fbc269eb8660adfa3bc99e82d27c2fd",
+          "html_url": "https://github.com/SeohoKim02/bad_inventory_simulator/blob/main/dqn_artifacts/dqn_latest_summary.json",
+          "message": "uploaded"
+        }
+      ]
+    }
+  }
+}
