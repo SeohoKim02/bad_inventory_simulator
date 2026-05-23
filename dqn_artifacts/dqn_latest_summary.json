@@ -1,11 +1,11 @@
 {
-  "created_at": "20260523_210253",
-  "sample_no": "sample11",
-  "scenario_name": "demand_surge",
-  "learning_rate": 0.02,
+  "created_at": "20260523_210355",
+  "sample_no": "sample12",
+  "scenario_name": "transport_cost",
+  "learning_rate": 0.01,
   "episodes": 500,
   "candidate_count": 500,
-  "named_prefix": "dqn_sample11_demand_surge_lr0200_500x500",
+  "named_prefix": "dqn_sample12_transport_cost_lr0100_500x500",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -32,7 +32,7 @@
   "summary": {
     "training_samples": 500,
     "transition_count": 2000,
-    "final_loss": 52.27711505085922,
+    "final_loss": 5.827077069409481,
     "dqn_top_action": "재고 이동",
     "dqn_top_product": "농심 육개장사발면",
     "dqn_top_route": "교대점 → 선릉점",
