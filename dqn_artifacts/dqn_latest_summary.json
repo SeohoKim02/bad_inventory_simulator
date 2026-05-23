@@ -1,5 +1,5 @@
 {
-  "created_at": "20260523_195428",
+  "created_at": "20260523_195438",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -26,13 +26,13 @@
   "summary": {
     "training_samples": 178,
     "transition_count": 712,
-    "final_loss": 43.63192963673078,
+    "final_loss": 46.64530684004215,
     "dqn_top_action": "재고 이동",
     "dqn_top_product": "라면086",
     "dqn_top_route": "건대점 → 역삼2점",
     "greedy_top_action": "재고 이동",
-    "match_count": 108,
-    "match_rate": 60.67415730337079,
+    "match_count": 138,
+    "match_rate": 77.52808988764045,
     "feature_names": [
       "score_norm",
       "qty_norm",
