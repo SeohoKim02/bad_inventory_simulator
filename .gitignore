@@ -1,7 +1,29 @@
-.streamlit/secrets.toml
-__pycache__/
-*.pyc
-dqn_artifacts/
-
+# Streamlit secrets
 .streamlit/secrets.toml
 streamlit/secrets.toml
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# DQN 학습 결과
+dqn_artifacts/
+
+# Local environment
+.env
+venv/
+.venv/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE settings
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.log
