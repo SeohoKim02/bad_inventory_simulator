@@ -554,81 +554,110 @@ def save_dqn_training_artifacts(
     summary,
     output_dir="dqn_artifacts",
     prefix="dqn_latest",
+    # ── 신규: 학습 메타데이터 ─────────────────────────────
+    sample_no:       str = "",
+    scenario_name:   str = "",
+    learning_rate:   float = 0.0,
+    episodes:        int = 0,
+    candidate_count: int = 0,
 ):
     """
     DQN 학습 결과를 파일로 저장한다.
 
-    저장 파일:
-    - dqn_model_latest.npz: 신경망 가중치와 메타데이터
-    - dqn_recommendations_latest.csv: 후보별 DQN 추천 결과
-    - dqn_training_history_latest.csv: episode별 loss 변화
-    - dqn_summary_latest.json: 요약 지표
+    저장 파일 (2종류):
+    1. latest 파일 (덮어쓰기): dqn_latest_*.{npz,csv,json}
+    2. 보관 파일 (누적):       dqn_<sample>_<scenario>_lr<lr>_<ep>x<cand>_*.{npz,csv,json}
+
+    + dqn_training_comparison.csv 에 결과를 누적 append.
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    model_file = output_path / f"{prefix}_model.npz"
-    compare_file = output_path / f"{prefix}_recommendations.csv"
-    history_file = output_path / f"{prefix}_history.csv"
-    summary_file = output_path / f"{prefix}_summary.json"
+    # ── named prefix 생성 ─────────────────────────────────
+    def _slug(s): return str(s).lower().replace(" ", "_").replace(".", "")[:20]
+    lr_str  = f"lr{str(learning_rate).replace('.','')}"[:8]  # 0.005 → lr0005
+    named   = f"dqn_{_slug(sample_no)}_{_slug(scenario_name)}_{lr_str}_{episodes}x{candidate_count}"
 
-    timestamp_model_file = output_path / f"dqn_{timestamp}_model.npz"
-    timestamp_compare_file = output_path / f"dqn_{timestamp}_recommendations.csv"
-    timestamp_history_file = output_path / f"dqn_{timestamp}_history.csv"
-    timestamp_summary_file = output_path / f"dqn_{timestamp}_summary.json"
+    # ── 파일 경로 ─────────────────────────────────────────
+    latest_base = output_path / prefix
+    named_base  = output_path / named
+
+    paths = {}
+    for base, tag in [(str(latest_base), "latest"), (str(named_base), "named")]:
+        paths[tag] = {
+            "model":   Path(f"{base}_model.npz"),
+            "compare": Path(f"{base}_recommendations.csv"),
+            "history": Path(f"{base}_history.csv"),
+            "summary": Path(f"{base}_summary.json"),
+        }
 
     metadata = {
-        "created_at": timestamp,
-        "action_labels": ACTION_LABELS,
-        "feature_names": model.feature_names,
-        "summary": summary,
+        "created_at":      timestamp,
+        "sample_no":       sample_no,
+        "scenario_name":   scenario_name,
+        "learning_rate":   learning_rate,
+        "episodes":        episodes,
+        "candidate_count": candidate_count,
+        "action_labels":   ACTION_LABELS,
+        "feature_names":   model.feature_names,
+        "summary":         summary,
     }
+    meta_json = json.dumps(metadata, ensure_ascii=False, default=_json_default)
 
-    # 최신 파일 저장
-    np.savez(
-        model_file,
-        W1=model.W1,
-        b1=model.b1,
-        W2=model.W2,
-        b2=model.b2,
-        metadata=json.dumps(metadata, ensure_ascii=False, default=_json_default),
-    )
+    # ── 공통 저장 함수 ────────────────────────────────────
+    def _save(p_dict):
+        np.savez(p_dict["model"],
+                 W1=model.W1, b1=model.b1,
+                 W2=model.W2, b2=model.b2,
+                 metadata=meta_json)
+        compare.to_csv(p_dict["compare"], index=False, encoding="utf-8-sig")
+        history.to_csv(p_dict["history"], index=False, encoding="utf-8-sig")
+        with open(p_dict["summary"], "w", encoding="utf-8") as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2, default=_json_default)
 
-    compare.to_csv(compare_file, index=False, encoding="utf-8-sig")
-    history.to_csv(history_file, index=False, encoding="utf-8-sig")
+    _save(paths["latest"])   # latest 덮어쓰기
+    _save(paths["named"])    # 보관용 named 파일
 
-    with open(summary_file, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, ensure_ascii=False, indent=2, default=_json_default)
+    # ── dqn_training_comparison.csv 누적 기록 ────────────
+    comp_file = output_path / "dqn_training_comparison.csv"
+    final_loss   = float(history["loss"].iloc[-1])   if not history.empty else None
+    mean_reward  = float(history["reward"].mean())   if "reward" in history.columns and not history.empty else None
+    match_rate   = summary.get("match_rate", None)
 
-    # 타임스탬프 백업 저장
-    np.savez(
-        timestamp_model_file,
-        W1=model.W1,
-        b1=model.b1,
-        W2=model.W2,
-        b2=model.b2,
-        metadata=json.dumps(metadata, ensure_ascii=False, default=_json_default),
-    )
-
-    compare.to_csv(timestamp_compare_file, index=False, encoding="utf-8-sig")
-    history.to_csv(timestamp_history_file, index=False, encoding="utf-8-sig")
-
-    with open(timestamp_summary_file, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, ensure_ascii=False, indent=2, default=_json_default)
+    new_row = {
+        "sample_no":            sample_no,
+        "scenario_name":        scenario_name,
+        "learning_rate":        learning_rate,
+        "episodes":             episodes,
+        "candidate_count":      candidate_count,
+        "final_loss":           round(final_loss, 6)  if final_loss  is not None else None,
+        "mean_reward":          round(mean_reward, 4) if mean_reward is not None else None,
+        "match_rate":           round(match_rate, 2)  if match_rate  is not None else None,
+        "trained_at":           timestamp,
+        "model_file":           str(paths["named"]["model"]),
+        "summary_file":         str(paths["named"]["summary"]),
+        "recommendations_file": str(paths["named"]["compare"]),
+    }
+    import pandas as _pd
+    if comp_file.exists():
+        existing = _pd.read_csv(comp_file, encoding="utf-8-sig")
+        updated  = _pd.concat([existing, _pd.DataFrame([new_row])], ignore_index=True)
+    else:
+        updated = _pd.DataFrame([new_row])
+    updated.to_csv(comp_file, index=False, encoding="utf-8-sig")
 
     return {
-        "output_dir": str(output_path),
-        "model_file": str(model_file),
-        "compare_file": str(compare_file),
-        "history_file": str(history_file),
-        "summary_file": str(summary_file),
-        "timestamp_model_file": str(timestamp_model_file),
-        "timestamp_compare_file": str(timestamp_compare_file),
-        "timestamp_history_file": str(timestamp_history_file),
-        "timestamp_summary_file": str(timestamp_summary_file),
-        "created_at": timestamp,
+        "output_dir":       str(output_path),
+        "model_file":       str(paths["latest"]["model"]),
+        "named_model_file": str(paths["named"]["model"]),
+        "compare_file":     str(paths["latest"]["compare"]),
+        "history_file":     str(paths["latest"]["history"]),
+        "summary_file":     str(paths["latest"]["summary"]),
+        "named_prefix":     named,
+        "comparison_file":  str(comp_file),
+        "created_at":       timestamp,
     }
 
 
@@ -671,6 +700,9 @@ def train_dqn_policy(
     seed=42,
     save_artifacts=True,
     output_dir="dqn_artifacts",
+    # ── 학습 메타데이터 (파일명·comparison 기록용) ──────
+    sample_no:       str = "",
+    scenario_name:   str = "",
 ):
     candidate_df = _prepare_candidate_table(
         final_recommendations,
@@ -751,6 +783,11 @@ def train_dqn_policy(
             summary=summary,
             output_dir=output_dir,
             prefix="dqn_latest",
+            sample_no=sample_no,
+            scenario_name=scenario_name,
+            learning_rate=lr,
+            episodes=episodes,
+            candidate_count=len(candidate_df),
         )
 
         summary["model_saved"] = True

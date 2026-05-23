@@ -1562,6 +1562,11 @@ def show_excel_optimizer():
     if _using_demo:
         excel_data = st.session_state["demo_sheets"]
         st.sidebar.info(f"🎮 데모: {st.session_state.get('demo_scenario','')}")
+        if st.sidebar.button("❌ 데모 종료 (엑셀 입력으로)", key="exit_demo_btn", type="secondary"):
+            for k in ["demo_active","demo_sheets","demo_scenario",
+                      "_analysis_result","_analysis_file_hash","_validation_warning"]:
+                st.session_state.pop(k, None)
+            st.rerun()
         missing_sheets = []
     else:
         excel_data, missing_sheets = cached_load_excel_file(uploaded_file.getvalue())

@@ -869,6 +869,16 @@ def _apply_page_style():
                 max-width: none !important;
                 white-space: nowrap !important;
                 overflow: visible !important;
+                padding-left: 10px !important;
+                margin-left: 4px !important;
+            }
+            /* 태그 텍스트 span에 추가 여백 */
+            [data-baseweb="tag"] > span:first-of-type {
+                padding-left: 6px !important;
+                overflow: visible !important;
+            }
+            /* 멀티셀렉트 전체 컨테이너 왼쪽 여백 */
+            .stMultiSelect [data-baseweb="select"] > div:first-child {
                 padding-left: 8px !important;
             }
             [data-baseweb="tag"] span:first-child {
@@ -3177,6 +3187,24 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
     st.markdown("---")
     st.subheader("🧠 DQN 실제 학습 추천")
 
+    # ── 학습 메타데이터 입력 ─────────────────────────────
+    meta_c1, meta_c2 = st.columns(2)
+    with meta_c1:
+        dqn_sample_no = st.text_input(
+            "샘플 번호 (예: sample09)",
+            value=st.session_state.get("dqn_sample_no_val", "sample01"),
+            key="dqn_sample_no",
+            help="파일명에 포함됩니다. 예: sample01, sample09",
+        )
+        st.session_state["dqn_sample_no_val"] = dqn_sample_no
+    with meta_c2:
+        dqn_scenario = st.text_input(
+            "시나리오명 (예: expiry)",
+            value=st.session_state.get("dqn_scenario_val", ""),
+            key="dqn_scenario_name",
+            help="학습 목적/상황. 예: expiry, cold, surge",
+        )
+        st.session_state["dqn_scenario_val"] = dqn_scenario
 
     dqn_col1, dqn_col2, dqn_col3 = st.columns(3)
 
@@ -3231,6 +3259,8 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
                     seed=42,
                     save_artifacts=True,
                     output_dir="dqn_artifacts",
+                    sample_no=dqn_sample_no,
+                    scenario_name=dqn_scenario,
                 )
 
             if dqn_compare.empty:
@@ -3254,10 +3284,19 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
                 if dqn_summary.get("model_saved"):
                     saved_paths = dqn_summary.get("saved_paths", {})
 
-                    st.success(
-                        "DQN 학습 결과를 저장했습니다. "
-                        "다음 단계에서는 이 저장 모델을 불러와서 이어서 학습하도록 확장할 수 있습니다."
-                    )
+                    # ── 저장 파일 안내 ────────────────────────────────
+                    named = saved_paths.get("named_prefix", "")
+                    comp  = saved_paths.get("comparison_file", "")
+                    st.success(f"✅ 학습 결과 저장 완료")
+                    if named:
+                        st.code(
+                            f"보관 파일: {named}_model.npz\n"
+                            f"          {named}_recommendations.csv\n"
+                            f"          {named}_history.csv\n"
+                            f"          {named}_summary.json\n"
+                            f"누적 기록: dqn_training_comparison.csv",
+                            language=None,
+                        )
 
                     github_upload = dqn_summary.get("github_upload", {})
 
@@ -3467,6 +3506,51 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
         st.info("rl_policy_helper.py 파일이 없어서 기존 Q-table 비교는 생략합니다.")
     except Exception as e:
         st.warning(f"기존 정책 비교 중 오류가 발생했습니다: {e}")
+
+    # ── 학습 이력 비교 (dqn_training_comparison.csv) ─────
+    st.markdown("---")
+    st.subheader("📋 전체 학습 결과 비교")
+    st.caption("매 학습 실행 시 dqn_artifacts/dqn_training_comparison.csv에 자동 누적됩니다.")
+
+    try:
+        import pandas as _pd
+        from pathlib import Path as _Path
+        _comp_path = _Path("dqn_artifacts/dqn_training_comparison.csv")
+        if _comp_path.exists():
+            _comp_df = _pd.read_csv(_comp_path, encoding="utf-8-sig")
+            if not _comp_df.empty:
+                # 표시용 컬럼 정리
+                _disp_cols = [c for c in [
+                    "sample_no","scenario_name","learning_rate","episodes",
+                    "candidate_count","final_loss","mean_reward","match_rate","trained_at"
+                ] if c in _comp_df.columns]
+                _disp = _comp_df[_disp_cols].copy()
+                # 최신 학습 먼저
+                if "trained_at" in _disp.columns:
+                    _disp = _disp.sort_values("trained_at", ascending=False)
+
+                # 요약 지표
+                sm1, sm2, sm3 = st.columns(3)
+                sm1.metric("누적 학습 횟수", f"{len(_comp_df)}회")
+                if "match_rate" in _comp_df.columns:
+                    sm2.metric("평균 일치율", f"{_comp_df['match_rate'].mean():.1f}%")
+                if "final_loss" in _comp_df.columns:
+                    sm3.metric("최저 Loss", f"{_comp_df['final_loss'].min():.4f}")
+
+                st.dataframe(_disp, use_container_width=True, hide_index=True)
+
+                # 파일 경로 전체 보기
+                with st.expander("📁 저장 파일 경로 전체 보기", expanded=False):
+                    _file_cols = [c for c in ["model_file","summary_file","recommendations_file"] if c in _comp_df.columns]
+                    if _file_cols:
+                        st.dataframe(_comp_df[["trained_at","sample_no"] + _file_cols],
+                                     use_container_width=True, hide_index=True)
+            else:
+                st.info("아직 학습 기록이 없습니다. DQN 학습을 실행하면 자동으로 기록됩니다.")
+        else:
+            st.info("학습 결과 파일이 없습니다. 첫 번째 DQN 학습 실행 후 여기에 표시됩니다.")
+    except Exception as _e:
+        st.warning(f"학습 이력 로드 오류: {_e}")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -4450,7 +4534,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
 
     st.markdown(
         f"""
-        <div style="background:linear-gradient(135deg,#3b82f6 0%,#60a5fa 60%,#2563eb 100%);
+        <div style="background:linear-gradient(135deg,#60a5fa 0%,#93c5fd 60%,#3b82f6 100%);
                     border-radius:20px;padding:24px 28px;margin-bottom:18px;
                     box-shadow:0 4px 18px rgba(37,99,235,0.25);">
             <div style="display:flex;gap:32px;flex-wrap:wrap;align-items:center;">
