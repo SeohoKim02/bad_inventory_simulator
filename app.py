@@ -1,4 +1,4 @@
-
+﻿
 import html as html_lib
 import io
 import warnings
@@ -1901,7 +1901,19 @@ def show_excel_optimizer():
             )
 
             try:
-                from rl_data_logger import build_rl_training_log
+                from rl_data_logger import build_rl_training_log, save_rl_log, load_master
+
+                # ── 시나리오명 입력 (master 누적용) ─────────────────
+                _rl_scenario_col1, _rl_scenario_col2 = st.columns([2,3])
+                with _rl_scenario_col1:
+                    _rl_scenario_name = st.text_input(
+                        "시나리오명 (master 누적용)",
+                        value=st.session_state.get("_rl_scenario_name_val", ""),
+                        placeholder="예: expiry_강남점_0524",
+                        key="rl_scenario_name_input",
+                        help="입력 시 master CSV에 시나리오명이 기록됩니다.",
+                    )
+                    st.session_state["_rl_scenario_name_val"] = _rl_scenario_name
 
                 rl_training_log = build_rl_training_log(
                     stores=stores,
@@ -1924,8 +1936,8 @@ def show_excel_optimizer():
                     with st.expander("강화학습 학습 데이터 미리보기"):
                         st.dataframe(rl_training_log, width="stretch")
 
+                    # ── 개별 로그 다운로드 (기존 유지) ──────────────
                     csv_data = rl_training_log.to_csv(index=False).encode("utf-8-sig")
-
                     st.download_button(
                         label="📥 RL 학습 데이터 CSV 다운로드",
                         data=csv_data,
@@ -1933,6 +1945,26 @@ def show_excel_optimizer():
                         mime="text/csv",
                         key="download_rl_training_log",
                     )
+
+                    # ── master CSV 누적 저장 + 다운로드 ─────────────
+                    _uploaded_name = getattr(uploaded_file, "name", "") if uploaded_file else ""
+                    _save_result = save_rl_log(
+                        rl_training_log,
+                        scenario_name=_rl_scenario_name,
+                        uploaded_excel_name=_uploaded_name,
+                        output_dir=".",
+                    )
+
+                    _master_df = load_master(output_dir=".")
+                    if not _master_df.empty:
+                        _master_csv = _master_df.to_csv(index=False).encode("utf-8-sig")
+                        st.download_button(
+                            label=f"📦 Master CSV 다운로드 (누적 {len(_master_df)}건)",
+                            data=_master_csv,
+                            file_name="rl_training_log_master.csv",
+                            mime="text/csv",
+                            key="download_rl_master_csv",
+                        )
 
                     st.markdown("---")
                     st.subheader("🧩 Greedy 추천 vs 강화학습 추천 비교")

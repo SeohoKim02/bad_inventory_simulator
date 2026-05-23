@@ -1,4 +1,4 @@
-
+﻿
 from numbers import Number
 import io
 import html as html_lib
@@ -3485,44 +3485,75 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
                     (rl_compare_result["rl_match_status"] == "정책 매칭됨").sum()
                 )
 
-                rc1, rc2, rc3 = st.columns(3)
-                rc1.metric("비교 후보 수", f"{len(rl_compare_result)}개")
-                rc2.metric("정책 매칭 수", f"{matched_count}개")
+                # ── 요약 카드 (7단계 추가) ────────────────────────
+                total_count = len(rl_compare_result)
+                action_match = 0
+                action_diff  = 0
+                if "action" in rl_compare_result.columns and "rl_recommended_action" in rl_compare_result.columns:
+                    valid = rl_compare_result.dropna(subset=["rl_recommended_action"])
+                    action_match = int((valid["action"] == valid["rl_recommended_action"]).sum())
+                    action_diff  = len(valid) - action_match
+
+                rc1, rc2, rc3, rc4 = st.columns(4)
+                rc1.metric("비교 후보 수",         f"{total_count}개")
+                rc2.metric("정책 매칭 수",         f"{matched_count}개")
+                rc3.metric("Greedy=RL 일치",       f"{action_match}개")
+                rc4.metric("Greedy≠RL 불일치",     f"{action_diff}개")
 
                 if rl_compare_result["expected_reward"].notna().any():
-                    avg_expected_reward = rl_compare_result["expected_reward"].dropna().mean()
-                    rc3.metric("평균 기대 Reward", f"{avg_expected_reward:.2f}")
-                else:
-                    rc3.metric("평균 기대 Reward", "-")
+                    avg_er = rl_compare_result["expected_reward"].dropna().mean()
+                    st.caption(f"평균 기대 Reward: **{avg_er:.2f}**")
+
+                # ── 해석 문구 (7단계 추가) ──────────────────────
+                st.markdown("---")
+                for _, row in rl_compare_result.iterrows():
+                    greedy_act = row.get("action", "")
+                    rl_act     = row.get("rl_recommended_action", "")
+                    if pd.isna(rl_act) or rl_act == "":
+                        continue
+                    if greedy_act == rl_act:
+                        badge = "🟢 **일치**"
+                        msg   = "현재 조건 기준의 Greedy 추천과 학습된 정책이 같은 방향을 제안합니다."
+                    else:
+                        badge = "🔴 **불일치**"
+                        msg   = (f"Greedy는 현재 점수 기준의 단기 최적 후보를 선택했지만, "
+                                 f"RL은 누적 학습된 보상 기준에서 다른 행동을 추천했습니다. "
+                                 f"(Greedy: `{greedy_act}` → RL: `{rl_act}`)")
+                    prod = row.get("product_name", "")
+                    st.markdown(f"- **{prod}** {badge}: {msg}")
+                st.markdown("---")
 
                 cols = [
-                    "product_name",
-                    "source_store",
-                    "target_store",
-                    "action",
+                    "product_name", "source_store", "target_store",
+                    "action", "action_label",
                     "rl_recommended_action",
-                    "reward",
-                    "expected_reward",
-                    "heuristic_score",
-                    "greedy_rank",
-                    "rl_match_status",
+                    "reward", "expected_reward",
+                    "heuristic_score", "greedy_rank", "rl_match_status",
                 ]
+                # action_label 없으면 자동 생성
+                if "action_label" not in rl_compare_result.columns:
+                    try:
+                        from rl_data_logger import get_action_label_ko
+                        rl_compare_result = rl_compare_result.copy()
+                        rl_compare_result["action_label"] = rl_compare_result["action"].apply(get_action_label_ko)
+                    except Exception:
+                        pass
 
                 view = rl_compare_result[[c for c in cols if c in rl_compare_result.columns]].rename(
                     columns={
-                        "product_name": "상품명",
-                        "source_store": "보내는 점포",
-                        "target_store": "받는 점포",
-                        "action": "현재 추천 Action",
-                        "rl_recommended_action": "정책 추천 Action",
-                        "reward": "현재 Reward",
-                        "expected_reward": "기대 Reward",
-                        "heuristic_score": "총점",
-                        "greedy_rank": "Greedy 순위",
-                        "rl_match_status": "매칭 상태",
+                        "product_name":           "상품명",
+                        "source_store":           "보내는 점포",
+                        "target_store":           "받는 점포",
+                        "action":                 "현재 Action",
+                        "action_label":           "한글 Action",
+                        "rl_recommended_action":  "정책 추천 Action",
+                        "reward":                 "현재 Reward",
+                        "expected_reward":        "기대 Reward",
+                        "heuristic_score":        "총점",
+                        "greedy_rank":            "Greedy 순위",
+                        "rl_match_status":        "매칭 상태",
                     }
                 )
-
                 _safe_dataframe(view, width="stretch")
 
     except FileNotFoundError:

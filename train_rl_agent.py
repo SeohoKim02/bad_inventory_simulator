@@ -4,8 +4,9 @@ import json
 import pandas as pd
 
 
-INPUT_FILE = "rl_training_log.csv"
-POLICY_FILE = "rl_policy_table.csv"
+MASTER_FILE  = "rl_training_log_master.csv"  # 우선순위 1
+INPUT_FILE   = "rl_training_log.csv"          # 우선순위 2
+POLICY_FILE  = "rl_policy_table.csv"
 Q_TABLE_FILE = "rl_q_table.csv"
 SUMMARY_FILE = "rl_training_summary.json"
 
@@ -217,7 +218,19 @@ def main():
         print("=" * 70)
         return
 
-    data = pd.read_csv(INPUT_FILE)
+    # ── 입력 파일 선택 (master 우선, 없으면 개별 로그) ───
+    if os.path.exists(MASTER_FILE):
+        data = pd.read_csv(MASTER_FILE)
+        used_file = MASTER_FILE
+        print(f"[INFO] master CSV 사용: {MASTER_FILE} ({len(data)}행)")
+    elif os.path.exists(INPUT_FILE):
+        data = pd.read_csv(INPUT_FILE)
+        used_file = INPUT_FILE
+        print(f"[INFO] 개별 로그 사용: {INPUT_FILE} ({len(data)}행)")
+    else:
+        print(f"[ERROR] 학습 데이터 없음: {MASTER_FILE} 또는 {INPUT_FILE}")
+        print("  → 앱에서 강화학습 비교 페이지를 열고 CSV를 먼저 생성하세요.")
+        return
 
     required_columns = [ACTION_COLUMN, REWARD_COLUMN]
 
@@ -247,15 +260,20 @@ def main():
     q_table.to_csv(Q_TABLE_FILE, index=False, encoding="utf-8-sig")
     policy_table.to_csv(POLICY_FILE, index=False, encoding="utf-8-sig")
 
+    n_scenarios = int(data["scenario_name"].nunique()) if "scenario_name" in data.columns else 1
+    scenario_list = data["scenario_name"].dropna().unique().tolist() if "scenario_name" in data.columns else []
+
     summary = {
-        "input_file": INPUT_FILE,
+        "input_file":      used_file,
         "training_samples": int(len(data)),
-        "state_count": int(policy_table["state_key"].nunique()),
-        "action_count": int(data[ACTION_COLUMN].nunique()),
-        "average_reward": round(float(data[REWARD_COLUMN].mean()), 4),
-        "max_reward": round(float(data[REWARD_COLUMN].max()), 4),
-        "policy_file": POLICY_FILE,
-        "q_table_file": Q_TABLE_FILE,
+        "scenario_count":   n_scenarios,
+        "scenario_list":    scenario_list,
+        "state_count":     int(policy_table["state_key"].nunique()),
+        "action_count":    int(data[ACTION_COLUMN].nunique()),
+        "average_reward":  round(float(data[REWARD_COLUMN].mean()), 4),
+        "max_reward":      round(float(data[REWARD_COLUMN].max()), 4),
+        "policy_file":     POLICY_FILE,
+        "q_table_file":    Q_TABLE_FILE,
     }
 
     with open(SUMMARY_FILE, "w", encoding="utf-8") as f:
