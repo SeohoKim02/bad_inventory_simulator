@@ -89,14 +89,48 @@ _CONF_COLOR = {"HIGH": "#2e7d32", "MEDIUM": "#f9a825", "LOW": "#c62828"}
 
 
 def add_confidence(df: pd.DataFrame) -> pd.DataFrame:
-    """DataFrame 전체에 vhs2_confidence 컬럼 추가."""
+    """DataFrame 전체에 vhs2_confidence 컬럼 추가 (벡터화)."""
     if df is None or df.empty:
         return df
     out = df.copy()
-    out["vhs2_confidence"]       = out.apply(calc_confidence, axis=1)
+
+    # 핵심 컬럼 결측률 (벡터화)
+    def _miss(cols):
+        avail = [c for c in cols if c in out.columns]
+        if not avail: return pd.Series(1.0, index=out.index)
+        return out[avail].isna().mean(axis=1)
+
+    data_score = (1 - _miss(_KEY_COLS))
+    nice_score = (1 - _miss(_NICE_COLS))
+
+    # 알고리즘 일치도 (벡터화)
+    avail_k = [c for c in _KEY_COLS if c in out.columns]
+    if len(avail_k) >= 2:
+        kdf = out[avail_k].apply(pd.to_numeric, errors='coerce').fillna(50)
+        agree_score = (1 - kdf.std(axis=1).clip(0,50) / 50)
+    else:
+        agree_score = pd.Series(0.5, index=out.index)
+
+    # DQN 안정성 (벡터화)
+    if "vhs2_history_correction" in out.columns:
+        dqn_corr = out["vhs2_history_correction"].abs().clip(0, 8)
+        stability = (1 - dqn_corr / 8)
+    else:
+        stability = pd.Series(1.0, index=out.index)
+
+    confidence = (data_score*0.40 + nice_score*0.20
+                  + agree_score*0.25 + stability*0.15).clip(0,1)
+
+    def _grade(v):
+        if v >= 0.68: return "HIGH"
+        if v >= 0.42: return "MEDIUM"
+        return "LOW"
+
+    import numpy as _np4
+    _grade_v = _np4.vectorize(_grade)
+    out["vhs2_confidence"]       = _grade_v(confidence.values)
     out["vhs2_confidence_label"] = out["vhs2_confidence"].map(_CONF_LABEL)
     out["vhs2_confidence_color"] = out["vhs2_confidence"].map(_CONF_COLOR)
-    # 나중에 신뢰구간으로 확장할 수 있는 자리 (현재 None)
     out["vhs2_ci_lower"] = None
     out["vhs2_ci_upper"] = None
     return out

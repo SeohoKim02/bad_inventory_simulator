@@ -237,12 +237,33 @@ def run_all_algorithms(
             "category",               # 폐기·EOQ 보관비율
             "avg_inventory",          # 회전율
             "sales_7d",               # 수요예측
+            "sales_30d",              # 수요예측·회전율
             "order_cost",             # EOQ
             "disposal_cost_per_unit", # 폐기 비용
+            "disposal_cost",          # 폐기 비용 별칭
             "lead_time_days",         # Safety Stock·EOQ
             "demand_std",             # Safety Stock
+            "dead_stock_qty",         # 사망재고
         ]
         extra_cols = [c for c in candidate_cols if c in inv.columns]
+
+        # ── sales_30d / sales_7d 파생 (avg_daily_sales 기반) ──────────
+        # Excel에 sales_30d/7d 없으면 avg_daily_sales × 기간으로 생성
+        if "avg_daily_sales" in inv.columns:
+            if "sales_30d" not in inv.columns:
+                inv["sales_30d"] = (inv["avg_daily_sales"] * 30).round(0)
+                if "sales_30d" not in extra_cols:
+                    extra_cols.append("sales_30d")
+            if "sales_7d" not in inv.columns:
+                inv["sales_7d"] = (inv["avg_daily_sales"] * 7).round(0)
+                if "sales_7d" not in extra_cols:
+                    extra_cols.append("sales_7d")
+
+        # disposal_cost_per_unit → disposal_cost 별칭
+        if "disposal_cost_per_unit" in inv.columns and "disposal_cost" not in inv.columns:
+            inv["disposal_cost"] = inv["disposal_cost_per_unit"]
+            if "disposal_cost" not in extra_cols:
+                extra_cols.append("disposal_cost")
 
         if extra_cols and "product_name" in inv.columns:
             # 점포명 컬럼이 있으면 (product_name + source_store) 로 정확히 join
@@ -257,6 +278,17 @@ def run_all_algorithms(
             new_cols = [c for c in extra_cols if c not in df.columns]
             if new_cols:
                 df = df.merge(inv_sub[join_keys + new_cols], on=join_keys, how="left")
+
+    # 추천 후보 수 제한 (대량 데이터 처리 속도 최적화)
+    _MAX_REC = 500
+    if len(df) > _MAX_REC:
+        _sc = next((c for c in ["heuristic_score","greedy_rank"] if c in df.columns), None)
+        if _sc == "greedy_rank":
+            df = df.nsmallest(_MAX_REC, _sc)
+        elif _sc:
+            df = df.nlargest(_MAX_REC, _sc)
+        else:
+            df = df.head(_MAX_REC)
 
     # 알고리즘 순차 실행
     df = analyze_abc(df)
@@ -303,6 +335,17 @@ def run_all_algorithms(
     except Exception:
         pass
 
+    # ── inventory groupby 사전 계산 (캐시 공유) ──────────
+    _inv_store_cache = {}
+    if inventory_df is not None and not inventory_df.empty:
+        _inv = inventory_df.copy()
+        if "store_name" in _inv.columns:
+            _inv = _inv.rename(columns={"store_name":"source_store"})
+        if "avg_daily_sales" in _inv.columns and "source_store" in _inv.columns:
+            _inv_store_cache["daily"] = _inv.groupby("source_store")["avg_daily_sales"].sum()
+        if "stock_qty" in _inv.columns and "source_store" in _inv.columns:
+            _inv_store_cache["stock"] = _inv.groupby("source_store")["stock_qty"].sum()
+
     # ── 추가 알고리즘 (#19,#20,#21,#22,#23,#25,#27,#29,#30,#31,#32) ──
     try:
         from advanced_inventory_analyzer import (
@@ -339,20 +382,26 @@ def run_all_algorithms(
     # Varo 통합 점수 (기존 호환용)
     df = calculate_varo_score(df)
 
-    # VARO Hybrid Score — 상황 감지 + 5개 구성요소 + 액션 추천
-    try:
-        from varo_hybrid_score import calculate_varo_hybrid_score
-        df = calculate_varo_hybrid_score(df)
-    except Exception:
-        pass
-
-    # ── VHS v2 — 7구성요소 + 상황반응형 가중치 + 정규화 ──
+    # ── VHS v2 (주 점수) ────────────────────────────────
     try:
         from varo_score_v2 import calculate_vhs_v2
         from vhs_confidence import add_confidence
         df = calculate_vhs_v2(df, inventory_df=inventory_df)
         df = add_confidence(df)
+        # vhs2 → vhs 별칭 (대시보드 호환)
+        if "vhs2" in df.columns and "vhs" not in df.columns:
+            df["vhs"]        = df["vhs2"]
+            df["vhs_grade"]  = df.get("vhs2_grade", "검토")
+            df["vhs_action"] = df.get("vhs2_action", "보류")
     except Exception:
         pass
+
+    # ── VHS 구버전 (호환용, vhs2 없을 때만) ─────────────
+    if "vhs2" not in df.columns:
+        try:
+            from varo_hybrid_score import calculate_varo_hybrid_score
+            df = calculate_varo_hybrid_score(df)
+        except Exception:
+            pass
 
     return df

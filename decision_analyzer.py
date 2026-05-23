@@ -12,7 +12,14 @@
 """
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
+try:
+    from scipy.stats import norm
+except ImportError:
+    import math
+    class norm:
+        @staticmethod
+        def cdf(x):
+            return 0.5 * (1 + math.erf(float(x) / math.sqrt(2)))
 
 
 def _s(s, d=0.0):

@@ -86,7 +86,7 @@ def _apply_discount(df: pd.DataFrame, discount_rate: float) -> pd.DataFrame:
 
     if has_unit and has_qty:
         unit = pd.to_numeric(
-            out.get("unit_cost", out.get("state_unit_cost", 0)), errors="coerce"
+            out.get("unit_cost", (out["state_unit_cost"] if "state_unit_cost" in out.columns else pd.Series([0]*len(out), index=out.index))), errors="coerce"
         ).fillna(0)
         qty = pd.to_numeric(out["suggested_qty"], errors="coerce").fillna(0)
         discount_loss = unit * discount_rate * qty
@@ -95,13 +95,13 @@ def _apply_discount(df: pd.DataFrame, discount_rate: float) -> pd.DataFrame:
             transfer_cost = pd.to_numeric(out["direct_cost"], errors="coerce").fillna(0)
         else:
             transfer_cost = pd.to_numeric(
-                out.get("estimated_cost", 0), errors="coerce"
+                (out["estimated_cost"] if "estimated_cost" in out.columns else pd.Series([0]*len(out), index=out.index)), errors="coerce"
             ).fillna(0) * 0.4
 
         out["estimated_cost_sim"] = (transfer_cost + discount_loss).round(0)
     else:
         out["estimated_cost_sim"] = pd.to_numeric(
-            out.get("estimated_cost", 0), errors="coerce"
+            (out["estimated_cost"] if "estimated_cost" in out.columns else pd.Series([0]*len(out), index=out.index)), errors="coerce"
         ).fillna(0)
 
     return out
@@ -160,7 +160,7 @@ def _recalc_heuristic_score(df: pd.DataFrame, params: dict) -> pd.Series:
     파라미터 변경 후 heuristic_score 근사 재계산.
     기존 점수에서 비용·수요 변동에 따른 delta를 더함.
     """
-    base = pd.to_numeric(df.get("heuristic_score", 50), errors="coerce").fillna(50)
+    base = pd.to_numeric(df["heuristic_score"] if "heuristic_score" in df.columns else 50, errors="coerce").fillna(50)
 
     # 비용 배율 영향: 비용 증가 → 점수 하락
     cost_delta = -(params["cost_multiplier"] - 1.0) * 15
@@ -212,7 +212,7 @@ def run_scenario(
     out["heuristic_score_sim"] = _recalc_heuristic_score(out, params)
     out["score_delta"] = (
         out["heuristic_score_sim"] -
-        pd.to_numeric(df.get("heuristic_score", 50), errors="coerce").fillna(50)
+        pd.to_numeric(df["heuristic_score"] if "heuristic_score" in df.columns else 50, errors="coerce").fillna(50)
     ).round(1)
 
     return out
@@ -242,17 +242,19 @@ def compare_scenarios(
     scenarios = scenarios or PRESET_SCENARIOS
     rows = []
 
-    base_score = pd.to_numeric(df.get("heuristic_score", 50), errors="coerce").mean()
-    base_cost  = pd.to_numeric(df.get("estimated_cost",  0), errors="coerce").sum()
+    base_score = pd.to_numeric(df["heuristic_score"] if "heuristic_score" in df.columns else 50, errors="coerce").fillna(50).mean()
+    base_cost  = pd.to_numeric(df["estimated_cost"] if "estimated_cost" in df.columns else pd.Series([0]*len(df)), errors="coerce").fillna(0).sum()
 
     for name, params in scenarios.items():
         sim_df = run_scenario(df, params)
 
         avg_sim_score = sim_df["heuristic_score_sim"].mean()
+        _cost_col = "estimated_cost_sim" if "estimated_cost_sim" in sim_df.columns \
+                    else ("estimated_cost" if "estimated_cost" in sim_df.columns else None)
         total_sim_cost = pd.to_numeric(
-            sim_df.get("estimated_cost_sim", sim_df.get("estimated_cost", 0)),
+            sim_df[_cost_col] if _cost_col else pd.Series([0]*len(sim_df), index=sim_df.index),
             errors="coerce",
-        ).sum()
+        ).fillna(0).sum()
 
         n_excellent = (sim_df["heuristic_score_sim"] >= 80).sum()
         n_good      = ((sim_df["heuristic_score_sim"] >= 60) & (sim_df["heuristic_score_sim"] < 80)).sum()
@@ -284,7 +286,7 @@ def sensitivity_analysis(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     base_score = pd.to_numeric(
-        df.get("heuristic_score", 50), errors="coerce"
+        (df["heuristic_score"] if "heuristic_score" in df.columns else pd.Series([50]*len(df), index=df.index)), errors="coerce"
     ).fillna(50).mean()
 
     tests = [

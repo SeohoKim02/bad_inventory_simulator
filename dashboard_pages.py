@@ -759,20 +759,42 @@ def _back_to_dashboard():
 
 # ── VHS 공통 상수 (모듈 레벨) ─────────────────────────────
 _ACT_COLOR = {
-    "재배치 이동": "#1565c0",
-    "할인 판매":   "#e65100",
-    "폐기":        "#b71c1c",
-    "보류":        "#2e7d32",
+    "재배치 이동": "#1976d2",
+    "할인 판매":   "#f57c00",
+    "폐기":        "#ef5350",
+    "보류":        "#43a047",
 }
 _ACT_ICON = {"재배치 이동": "🚚", "할인 판매": "🏷️", "폐기": "🗑️", "보류": "⏸️"}
 
 def _vhs_color(score):
     if score is None: return "#aaa"
-    if score >= 80:   return "#c62828"
-    if score >= 65:   return "#e65100"
-    if score >= 50:   return "#f9a825"
+    if score >= 80:   return "#e57373"   # 연한 빨강
+    if score >= 65:   return "#f57c00"   # 연한 주황
+    if score >= 50:   return "#ffb74d"   # 연한 노랑
     return "#43a047"
 
+
+
+def show_friendly_error(context: str, err: Exception) -> None:
+    """사용자 친화적 오류 메시지 표시 (Streamlit)."""
+    import streamlit as st
+
+    _MSG_MAP = {
+        "필수 시트":      "필수 시트가 없습니다. stores, products, inventory, routes 시트가 필요합니다.",
+        "필수 컬럼":      "필수 컬럼이 누락되었습니다. stock_qty, avg_daily_sales 컬럼을 확인해주세요.",
+        "숫자 컬럼":      "숫자 컬럼에 문자가 들어가 있습니다. 엑셀 데이터를 확인해주세요.",
+        "점포 ID":        "점포 ID와 상품 ID 연결이 깨졌습니다. store_id, product_id를 확인해주세요.",
+        "카카오맵":       "카카오맵 키 또는 도메인 설정을 확인해주세요.",
+        "ModuleNotFound": "필요한 라이브러리가 없습니다. requirements.txt를 확인해주세요.",
+    }
+    msg = next((v for k,v in _MSG_MAP.items() if k in str(err) or k in context), None)
+    if not msg:
+        msg = f"분석 중 문제가 발생했습니다: {context}"
+
+    st.error(f"⚠️ {msg}")
+    with st.expander("🔧 상세 오류 (관리자용)", expanded=False):
+        import traceback as _tb
+        st.code(_tb.format_exc())
 
 def _apply_page_style():
     # ── 구글 번역 차단 (JS + 메타태그) ──────────────────────
@@ -847,24 +869,28 @@ def _apply_page_style():
                 max-width: none !important;
                 white-space: nowrap !important;
                 overflow: visible !important;
+                padding-left: 8px !important;
             }
             [data-baseweb="tag"] span:first-child {
                 overflow: visible !important;
                 text-overflow: initial !important;
                 white-space: nowrap !important;
                 max-width: none !important;
+                padding-left: 4px !important;
             }
             [data-baseweb="tag"] span[title] {
                 overflow: visible !important;
                 text-overflow: initial !important;
                 white-space: nowrap !important;
                 max-width: none !important;
+                padding-left: 4px !important;
             }
             .stMultiSelect [data-baseweb="select"] > div {
                 flex-wrap: wrap !important;
             }
             [data-baseweb="multi-value"] {
                 max-width: none !important;
+                padding: 0 4px !important;
             }
             /* st.metric 숫자 크기 축소 → 잘림 방지 */
             [data-testid="stMetricValue"] {
@@ -1363,7 +1389,7 @@ def _show_dashboard_home(
                 c_vhs_action = str(candidate.get("vhs_action", "")) if c_vhs_val else ""
 
                 # 카드 색상 — 순위별 뚜렷한 색
-                _CARD_BG = ["#1e88e5","#43a047","#8e24aa","#e53935","#fb8c00"]
+                _CARD_BG = ["#64b5f6","#81c784","#ce93d8","#e57373","#ffb74d"]
                 card_bg = _CARD_BG[candidate_position % len(_CARD_BG)]
 
                 score_disp = f"{c_vhs_val:.0f}" if c_vhs_val else str(c_score)
@@ -1416,6 +1442,13 @@ def _show_dashboard_home(
                     st.session_state["dashboard_selected_candidate_index"] = original_index
                     st.rerun()
 
+                # 추천 근거 expander
+                try:
+                    from vhs_reason import render_reason_expander
+                    render_reason_expander(candidate, idx=candidate_position)
+                except Exception:
+                    pass
+
     # ── 네비게이션 ───────────────────────────────────────
     st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
@@ -1442,6 +1475,23 @@ def _show_dashboard_home(
 
     st.markdown("<div style='margin-top:5px;'></div>", unsafe_allow_html=True)
     if st.button("📚 Varo 가이드 & 설명", width="stretch", key="go_guide"):      _go("guide")
+
+    st.markdown("<div style='margin-top:5px;'></div>", unsafe_allow_html=True)
+    ng1, ng2 = st.columns(2)
+    with ng1:
+        if st.button("🎮 데모 모드",   width="stretch", key="go_demo"):      _go("demo")
+    with ng2:
+        if st.button("🔍 데이터 검증", width="stretch", key="go_validator"): _go("validator")
+
+    # ── 데이터 주의사항 (관리자 메뉴 바로 위) ──────────────
+    _vw = st.session_state.get("_validation_warning")
+    if _vw is not None:
+        with st.expander("⚠️ 데이터 주의사항 (클릭해서 확인)", expanded=False):
+            try:
+                from sample_validator import render_validation_result
+                render_validation_result(_vw)
+            except Exception:
+                pass
 
     with st.expander("⚙️ 관리자 메뉴", expanded=False):
         a1, a2 = st.columns(2)
@@ -4114,8 +4164,17 @@ def _show_whatif_page(final_recommendations):
             key="whatif_preset",
         )
 
+        # ── 슬라이더 session_state 초기화 (최초 1회) ──────
+        if "whatif_discount" not in st.session_state:
+            st.session_state["whatif_discount"] = int(DEFAULT_PARAMS["discount_rate"] * 100)
+        if "whatif_demand" not in st.session_state:
+            st.session_state["whatif_demand"]   = int(DEFAULT_PARAMS["demand_change_pct"])
+        if "whatif_cost" not in st.session_state:
+            st.session_state["whatif_cost"]     = float(DEFAULT_PARAMS["cost_multiplier"])
+        if "whatif_lead" not in st.session_state:
+            st.session_state["whatif_lead"]     = int(DEFAULT_PARAMS["lead_time_change"])
 
-        # ── 프리셋 변경 시 슬라이더 자동 업데이트 ──────────────
+        # ── 프리셋 변경 시 session_state만 업데이트 후 rerun ──
         if preset_name != "직접 조정":
             preset_p = PRESET_SCENARIOS[preset_name]
             if preset_name != st.session_state.get("_whatif_prev_preset", "직접 조정"):
@@ -4126,42 +4185,41 @@ def _show_whatif_page(final_recommendations):
                 st.session_state["_whatif_prev_preset"] = preset_name
                 st.rerun()
         else:
-            preset_p = DEFAULT_PARAMS
             st.session_state["_whatif_prev_preset"] = "직접 조정"
 
+        # ── 슬라이더: value= 없이 key만 사용 (session_state 충돌 방지) ──
         c1, c2 = st.columns(2)
         with c1:
             discount_rate = st.slider(
-                "💸 할인율 (%)", 0, 50,
-                int(preset_p["discount_rate"] * 100), 5,
+                "💸 할인율 (%)", 0, 50, step=5,
                 help="폐기 대신 할인 판매 시 단가 손실 비율",
                 key="whatif_discount",
             ) / 100.0
             demand_change = st.slider(
-                "📦 수요 변동 (%)", -30, 30,
-                int(preset_p["demand_change_pct"]), 5,
+                "📦 수요 변동 (%)", -30, 30, step=5,
                 help="수요가 기준 대비 얼마나 변했는가",
                 key="whatif_demand",
             )
         with c2:
             cost_mult = st.slider(
-                "🚚 이동비용 배율 (×)", 0.5, 2.0,
-                float(preset_p["cost_multiplier"]), 0.1,
+                "🚚 이동비용 배율 (×)", 0.5, 2.0, step=0.1,
                 help="운송비 변동 배율 (1.0 = 현재 기준)",
                 key="whatif_cost",
             )
             lead_change = st.slider(
-                "⏱ 리드타임 변동 (일)", -2, 5,
-                int(preset_p["lead_time_change"]), 1,
+                "⏱ 리드타임 변동 (일)", -2, 5, step=1,
                 help="발주~입고 리드타임 변동",
                 key="whatif_lead",
             )
 
+        sl_options = [0.90, 0.95, 0.99]
+        _sl_cur = st.session_state.get("whatif_sl", 0.95)
+        _sl_idx = sl_options.index(_sl_cur) if _sl_cur in sl_options else 1
         sl_val = st.selectbox(
             "🎯 서비스 수준 (Safety Stock Z계수)",
-            [0.90, 0.95, 0.99],
-            index=[0.90, 0.95, 0.99].index(preset_p.get("service_level", 0.95)),
-            format_func=lambda x: f"{x:.0%} (Z={[1.28,1.65,2.33][[0.90,0.95,0.99].index(x)]})",
+            sl_options,
+            index=_sl_idx,
+            format_func=lambda x: f"{x:.0%} (Z={[1.28,1.65,2.33][sl_options.index(x)]})",
             key="whatif_sl",
         )
 
@@ -4365,17 +4423,17 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     grade_cnt   = summary.get("grade_counts", {})
 
     top_icon  = _ACTION_ICONS.get(top_action, "")
-    act_color = {"재배치 이동":"#1565c0","할인 판매":"#e65100",
-                 "폐기":"#b71c1c","보류":"#2e7d32"}.get(top_action, "#555")
+    act_color = {"재배치 이동":"#1976d2","할인 판매":"#f57c00",
+                 "폐기":"#ef5350","보류":"#43a047"}.get(top_action, "#555")
 
     def _gauge_color(s):
-        if s >= 80: return "#c62828"
+        if s >= 80: return "#e57373"
         if s >= 65: return "#e65100"
         if s >= 50: return "#f9a825"
         return "#43a047"
 
     grade_bar = "".join(
-        f'<span style="display:inline-block;background:{["#c62828","#e65100","#f9a825","#66bb6a","#aaa"][i]};'
+        f'<span style="display:inline-block;background:{["#ef5350","#e65100","#f9a825","#66bb6a","#aaa"][i]};'
         f'color:#fff !important;padding:3px 10px;border-radius:4px;'
         f'font-size:12px;font-weight:700;margin:2px;">'
         f'{g} {grade_cnt.get(g,0)}건</span>'
@@ -4385,14 +4443,14 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     act_chips = "".join(
         f'<span style="display:inline-block;padding:4px 12px;border-radius:12px;'
         f'font-size:13px;font-weight:700;margin:3px;'
-        f'background:{["#1565c0","#e65100","#b71c1c","#2e7d32"][i]};color:#fff !important;">'
+        f'background:{["#1565c0","#e65100","#e57373","#2e7d32"][i]};color:#fff !important;">'
         f'{["🚚","🏷️","🗑️","⏸️"][i]} {a} {action_cnt.get(a,0)}건</span>'
         for i,a in enumerate(["재배치 이동","할인 판매","폐기","보류"])
     )
 
     st.markdown(
         f"""
-        <div style="background:linear-gradient(135deg,#2563eb 0%,#3b82f6 60%,#1d6ae5 100%);
+        <div style="background:linear-gradient(135deg,#3b82f6 0%,#60a5fa 60%,#2563eb 100%);
                     border-radius:20px;padding:24px 28px;margin-bottom:18px;
                     box-shadow:0 4px 18px rgba(37,99,235,0.25);">
             <div style="display:flex;gap:32px;flex-wrap:wrap;align-items:center;">
@@ -4456,11 +4514,16 @@ def _show_algorithms_page(final_recommendations, inventory=None):
             st.info("VHS 결과 없음")
         else:
             # 액션 필터
-            all_actions = sorted((df["vhs2_action"] if "vhs2_action" in df.columns else df["vhs_action"]).dropna().unique().tolist())
+            all_actions = sorted(set(
+                    ("  " + str(a)) if not str(a).startswith(" ") else str(a)
+                    for a in (df["vhs2_action"] if "vhs2_action" in df.columns else df["vhs_action"]).dropna()
+                ))
             selected_acts = st.multiselect(
                 "액션 필터", all_actions, default=all_actions, key="vhs_act_filter",
             )
-            show_df = df[(df["vhs2_action"] if "vhs2_action" in df.columns else df["vhs_action"]).isin(selected_acts)].copy() if selected_acts else df.copy()
+            show_df = df[(df["vhs2_action"] if "vhs2_action" in df.columns else df["vhs_action"])
+                .apply(lambda x: ("  " + str(x)) if not str(x).startswith(" ") else str(x))
+                .isin(selected_acts)].copy() if selected_acts else df.copy()
 
             # 상위 5개 시각 카드
             st.markdown("**🏆 VHS 상위 5개 추천**")
@@ -4469,8 +4532,8 @@ def _show_algorithms_page(final_recommendations, inventory=None):
             for i, (_, row) in enumerate(top5.iterrows()):
                 vhs_v  = float(row.get("vhs2") or row.get("vhs", 0))
                 action = str(row.get("vhs2_action") or row.get("vhs_action", "-"))
-                ac     = {"재배치 이동":"#1565c0","할인 판매":"#e65100",
-                          "폐기":"#b71c1c","보류":"#2e7d32"}.get(action, "#555")
+                ac     = {"재배치 이동":"#1976d2","할인 판매":"#f57c00",
+                          "폐기":"#ef5350","보류":"#43a047"}.get(action, "#555")
                 gauge  = _gauge_color(vhs_v)
                 icon   = _ACTION_ICONS.get(action, "")
                 with cols5[i]:
@@ -4531,38 +4594,52 @@ def _show_algorithms_page(final_recommendations, inventory=None):
         if not has_vhs or "vhs" not in df.columns:
             st.info("VHS 결과가 없습니다.")
         else:
-            from scipy.stats import spearmanr
+            try:
+                from scipy.stats import spearmanr
+            except ImportError:
+                import numpy as np
+                def spearmanr(x, y):
+                    """scipy 없을 때 Spearman 상관계수 수동 계산"""
+                    import pandas as _pd
+                    n = len(x)
+                    if n < 2:
+                        return 0.0, None
+                    rx = _pd.Series(x).rank().values.astype(float)
+                    ry = _pd.Series(y).rank().values.astype(float)
+                    d  = rx - ry
+                    rho = 1.0 - 6.0 * float((d**2).sum()) / max(n*(n**2-1), 1)
+                    return rho, None
 
             # ── 선택 가능한 알고리즘 목록 ─────────────────
             _ALGO_META = {
-                "disposal_risk_score":       "#3  폐기 위험도",
-                "turnover_score":            "#2  재고 회전율",
-                "abc_score":                 "#1  ABC 분석",
-                "demand_forecast_score":     "#6  수요 예측",
-                "safety_stock_score":        "#4  Safety Stock",
-                "eoq_score":                 "#5  EOQ",
-                "match_score":               "#8  점포-상품 매칭",
+                "disposal_risk_score": " #3  폐기 위험도",
+                "turnover_score": " #2  재고 회전율",
+                "abc_score": " #1  ABC 분석",
+                "demand_forecast_score": " #6  수요 예측",
+                "safety_stock_score": " #4  Safety Stock",
+                "eoq_score": " #5  EOQ",
+                "match_score": " #8  점포-상품 매칭",
                 "heuristic_score":           "휴리스틱 (기존)",
-                "aging_score":               "#11 재고 노후화",
-                "trend_score":               "#12 판매 추세",
-                "relocation_failure_score":  "#16 재배치 실패위험",
-                "substitute_conflict_score": "#13 대체상품 충돌",
-                "category_balance_score":    "#14 카테고리 균형",
-                "store_capacity_score":      "#15 점포 처리 능력",
-                "discount_sensitivity_score":"#17 할인 민감도",
-                "disposal_avoidance_score":  "#18 폐기 회피 이익",
-                "priority_queue_score":      "#19 우선순위 큐",
-                "newsvendor_score":          "#26 Newsvendor",
-                "topsis_score":              "#24 TOPSIS",
-                "pareto_score":              "#31 Pareto 분석",
-                "multiobjective_score":      "#20 다목적 의사결정",
-                "service_level_score":       "#25 서비스 수준",
-                "queue_capacity_score":      "#27 대기행렬",
-                "bottleneck_score":          "#30 병목 분석",
-                "sensitivity_score":         "#29 민감도 분석",
-                "transport_lp_score":        "#22 수송 문제 LP",
-                "lp_allocation_score":       "#21 선형계획법",
-                "assignment_score":          "#23 할당 문제",
+                "aging_score": " #11 재고 노후화",
+                "trend_score": " #12 판매 추세",
+                "relocation_failure_score": " #16 재배치 실패위험",
+                "substitute_conflict_score": " #13 대체상품 충돌",
+                "category_balance_score": " #14 카테고리 균형",
+                "store_capacity_score": " #15 점포 처리 능력",
+                "discount_sensitivity_score": " #17 할인 민감도",
+                "disposal_avoidance_score": " #18 폐기 회피 이익",
+                "priority_queue_score": " #19 우선순위 큐",
+                "newsvendor_score": " #26 Newsvendor",
+                "topsis_score": " #24 TOPSIS",
+                "pareto_score": " #31 Pareto 분석",
+                "multiobjective_score": " #20 다목적 의사결정",
+                "service_level_score": " #25 서비스 수준",
+                "queue_capacity_score": " #27 대기행렬",
+                "bottleneck_score": " #30 병목 분석",
+                "sensitivity_score": " #29 민감도 분석",
+                "transport_lp_score": " #22 수송 문제 LP",
+                "lp_allocation_score": " #21 선형계획법",
+                "assignment_score": " #23 할당 문제",
             }
             avail_algos = {k: v for k, v in _ALGO_META.items() if k in df.columns}
 
@@ -4645,7 +4722,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
                         rho_v    = row["_rho"]
                         agree_v  = row["_agree"]
                         rho_color = "#1565c0" if rho_v >= 0.7 else ("#f9a825" if rho_v >= 0.4 else "#ef5350")
-                        ag_color  = "#2e7d32" if agree_v >= 70 else ("#f9a825" if agree_v >= 50 else "#c62828")
+                        ag_color  = "#2e7d32" if agree_v >= 70 else ("#f9a825" if agree_v >= 50 else "#ef5350")
                         with cols[ci % len(cols)]:
                             st.markdown(
                                 f'''<div style="border:1.5px solid #ddd;border-radius:10px;
@@ -4736,7 +4813,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     with t3:
         st.subheader("🏗️ Varo Hybrid Score — 8개 구성요소 구조")
         _G8 = {
-            "A. 재고 위험 (22%)":   (["disposal_risk_score","turnover_score","abc_score","aging_score"],"#ef5350"),
+            "A. 재고 위험 (22%)":   (["disposal_risk_score","turnover_score","abc_score","aging_score"],"#e57373"),
             "B. 판매 가능성 (18%)": (["demand_forecast_score","trend_score","newsvendor_score"],"#ab47bc"),
             "C. 점포 적합도 (18%)": (["match_score","service_level_score","priority_queue_score","queue_capacity_score"],"#42a5f5"),
             "D. 재고 균형 (12%)":   (["category_balance_score","safety_stock_score","transport_lp_score"],"#26a69a"),
@@ -4768,7 +4845,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
         for pc in _PENALTY:
             if pc in df.columns:
                 st.markdown(
-                    f'<div style="border-left:3px solid #b71c1c;padding:4px 12px;'
+                    f'<div style="border-left:3px solid #e57373;padding:4px 12px;'
                     f'margin:2px 0;border-radius:0 6px 6px 0;background:#fff3f3;font-size:12px;">'
                     f'{pc.replace("_score","")} 평균 {float(df[pc].mean()):.1f}점 (차감)</div>',
                     unsafe_allow_html=True,
@@ -4802,7 +4879,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
             if total_contrib > 0:
                 st.markdown("**전체 평균 VHS 구성 (기여도 %)**")
                 color_map = {
-                    "disposal_risk": "#ef5350",
+                    "disposal_risk": "#e57373",
                     "turnover":      "#ec407a",
                     "demand_forecast":"#ab47bc",
                     "heuristic":     "#42a5f5",
@@ -4859,7 +4936,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
 
         # 26개 컴포넌트 역할·색상 매핑
         _RC = {
-            "disposal_risk_score":          ("#ef5350", "A.재고위험"),
+            "disposal_risk_score":          ("#e57373", "A.재고위험"),
             "turnover_score":               ("#ec407a", "A.재고위험"),
             "abc_score":                    ("#f06292", "A.재고위험"),
             "aging_score":                  ("#ce93d8", "A.재고위험"),
@@ -4931,7 +5008,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
         with col_s:
             st.subheader("🌡 상황 감지 현황")
             _sit_map = {
-                "sit_EXPIRY_URGENT":  ("⏰", "유통기한 임박",  "#ef5350"),
+                "sit_EXPIRY_URGENT":  ("⏰", "유통기한 임박",  "#e57373"),
                 "sit_FROZEN_EXCESS":  ("❄️", "냉동·냉장 과잉", "#42a5f5"),
                 "sit_HIGH_COST":      ("💸", "이동비용 높음",  "#ff7043"),
                 "sit_DEMAND_SURGE":   ("📈", "수요 급증",      "#66bb6a"),
@@ -5046,6 +5123,54 @@ def _show_algorithms_page(final_recommendations, inventory=None):
 # =========================
 # 라우터
 # =========================
+def _show_demo_page():
+    """데모 모드 — 샘플 데이터 선택 후 바로 시연."""
+    _back_to_dashboard()
+    st.header("🎮 데모 모드")
+    st.caption("엑셀 없이 내장 샘플 데이터로 Varo를 바로 시연합니다.")
+
+    try:
+        from demo_data import DEMO_SCENARIOS, get_demo_sheets, scenario_description
+    except ImportError:
+        st.error("demo_data.py를 찾을 수 없습니다.")
+        return
+
+    selected = st.selectbox("시나리오 선택", list(DEMO_SCENARIOS.keys()), key="demo_scenario_sel")
+    scenario_key = DEMO_SCENARIOS[selected]
+    desc = scenario_description(scenario_key)
+    if desc:
+        st.info(f"📌 {desc}")
+
+    if st.button("🚀 이 시나리오로 분석 시작", key="demo_run_btn"):
+        with st.spinner("샘플 데이터 생성 중..."):
+            sheets = get_demo_sheets(scenario_key)
+        st.session_state["demo_sheets"]     = sheets
+        st.session_state["demo_active"]     = True
+        st.session_state["demo_scenario"]   = selected
+        st.success(f"✅ '{selected}' 샘플 준비 완료 — 엑셀 업로드 화면에서 분석 버튼을 누르세요.")
+        st.info("💡 또는 엑셀 업로드 화면으로 돌아가 '데모 데이터 사용' 버튼을 클릭하세요.")
+
+
+def _show_validator_page(sheets: dict = None):
+    """샘플 엑셀 검증기 페이지."""
+    _back_to_dashboard()
+    st.header("🔍 엑셀 데이터 검증")
+    st.caption("업로드된 엑셀이 Varo 분석에 적합한지 자동으로 확인합니다.")
+
+    try:
+        from sample_validator import validate_excel, render_validation_result
+    except ImportError:
+        st.error("sample_validator.py를 찾을 수 없습니다.")
+        return
+
+    if sheets is None:
+        st.info("분석 후 자동으로 검증 결과가 표시됩니다.")
+        return
+
+    r = validate_excel(sheets)
+    render_validation_result(r)
+
+
 def show_dashboard_router(
     stores,
     products,
@@ -5144,10 +5269,16 @@ def show_dashboard_router(
         )
 
     elif page == "algorithms":
-        _show_algorithms_page(
-            final_recommendations=final_recommendations,
-            inventory=inventory,
-        )
+        try:
+            _show_algorithms_page(
+                final_recommendations=final_recommendations,
+                inventory=inventory,
+            )
+        except Exception as _e:
+            st.error("📊 분석 화면을 불러오는 중 문제가 발생했습니다.")
+            with st.expander("🔧 상세 오류 (관리자용)", expanded=False):
+                import traceback as _tb
+                st.code(_tb.format_exc())
 
     elif page == "network":
         _show_network_page()
@@ -5157,6 +5288,12 @@ def show_dashboard_router(
 
     elif page == "effect":
         _show_effect_page(final_recommendations)
+
+    elif page == "demo":
+        _show_demo_page()
+
+    elif page == "validator":
+        _show_validator_page(sheets=st.session_state.get("_uploaded_sheets"))
 
     elif page == "guide":
         _show_guide_page(final_recommendations)

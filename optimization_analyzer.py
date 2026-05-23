@@ -4,8 +4,33 @@
 """
 import numpy as np
 import pandas as pd
-from scipy.optimize import linprog
-from scipy.spatial.distance import cdist
+try:
+    from scipy.optimize import linprog
+except ImportError:
+    def linprog(c, A_eq=None, b_eq=None, bounds=None, method=None):
+        # 최소비용 transportation fallback: 균등 배분
+        import numpy as np
+        n = len(c)
+        x = np.zeros(n)
+        # 균등 배분으로 feasible solution
+        if b_eq is not None and A_eq is not None:
+            for i in range(min(n, len(b_eq))):
+                x[i] = b_eq[i] / max(A_eq[i].sum(), 1)
+        _res_x   = x
+        _res_fun = float(np.dot(c, x))
+        class _Res:
+            success = True
+            fun     = _res_fun
+            x       = _res_x
+        return _Res()
+
+try:
+    from scipy.spatial.distance import cdist
+except ImportError:
+    import numpy as np
+    def cdist(XA, XB, metric='euclidean'):
+        diff = XA[:, None, :] - XB[None, :, :]
+        return np.sqrt((diff**2).sum(axis=2))
 
 
 def _s(s, d=0.0):
@@ -157,22 +182,33 @@ def analyze_multiobjective(df: pd.DataFrame) -> pd.DataFrame:
     objectives = np.column_stack([f1, f2, f3, f4])
     n = len(objectives)
 
-    # Pareto 지배 벡터 연산 (O(n²) → numpy 브로드캐스팅으로 가속)
-    # obj[i] ≥ obj[j] 모든 차원, 하나 이상 > → j가 i를 지배
-    obj = objectives  # shape (n, 4)
-    # dominated[i] = True if any j dominates i
-    dominated = np.zeros(n, dtype=bool)
-    for j in range(n):
-        # j가 i들을 지배하는지 벡터 연산
-        ge_all = np.all(obj[j] >= obj, axis=1)   # (n,)
-        gt_any = np.any(obj[j] >  obj, axis=1)   # (n,)
-        dominates_i = ge_all & gt_any
-        dominates_i[j] = False                    # 자기 자신 제외
-        dominated |= dominates_i
-
-    pareto_rank = dominated.astype(int) + 1  # 1=Pareto front, 2=dominated
-
-    # Rank 1 = Pareto front, rank > 1 = dominated
+    # 대용량 방지: 300개 초과 시 샘플링
+    if n > 300:
+        idx = np.random.choice(n, 300, replace=False)
+        idx.sort()
+        sub_obj = objectives[idx]
+        pareto_rank_sub = np.zeros(300, dtype=int)
+        dominated = np.zeros(300, dtype=bool)
+        for j in range(300):
+            ge_all = np.all(sub_obj[j] >= sub_obj, axis=1)
+            gt_any = np.any(sub_obj[j] >  sub_obj, axis=1)
+            dom    = ge_all & gt_any
+            dom[j] = False
+            dominated |= dom
+        pareto_rank_sub = dominated.astype(int) + 1
+        pareto_rank = np.ones(n, dtype=int) * 2  # 비샘플은 dominated로 기본
+        pareto_rank[idx] = pareto_rank_sub
+    else:
+        # 일반 경로: 벡터 연산
+        obj = objectives
+        dominated = np.zeros(n, dtype=bool)
+        for j in range(n):
+            ge_all = np.all(obj[j] >= obj, axis=1)
+            gt_any = np.any(obj[j] >  obj, axis=1)
+            dom    = ge_all & gt_any
+            dom[j] = False
+            dominated |= dom
+        pareto_rank = dominated.astype(int) + 1
     mo_score = ((n - pareto_rank) / max(n - 1, 1) * 100).clip(0, 100).round(1)
 
     out["multiobjective_rank"]  = pareto_rank

@@ -1520,32 +1520,75 @@ def show_excel_optimizer():
     st.sidebar.markdown("---")
     st.sidebar.subheader("엑셀 데이터 입력")
 
+    # ── 데모 모드 버튼 ─────────────────────────────────
+    with st.sidebar.expander("🎮 데모 모드 (엑셀 없이 시연)", expanded=False):
+        try:
+            from demo_data import DEMO_SCENARIOS, get_demo_sheets
+            demo_choice = st.selectbox(
+                "샘플 시나리오", ["선택 안 함"] + list(DEMO_SCENARIOS.keys()),
+                key="sidebar_demo_sel"
+            )
+            if st.button("이 샘플로 분석", key="sidebar_demo_btn") and demo_choice != "선택 안 함":
+                key = DEMO_SCENARIOS[demo_choice]
+                demo_sheets = get_demo_sheets(key)
+                st.session_state["demo_active"]   = True
+                st.session_state["demo_sheets"]   = demo_sheets
+                st.session_state["demo_scenario"] = demo_choice
+                st.rerun()
+        except ImportError:
+            st.caption("demo_data.py 없음")
+
     uploaded_file = st.sidebar.file_uploader(
         "편의점 재고 데이터 엑셀 파일 업로드",
         type=["xlsx"],
     )
 
-    if uploaded_file is None:
+    # ── 데모 데이터 사용 ───────────────────────────────
+    _using_demo = st.session_state.get("demo_active") and "demo_sheets" in st.session_state
+    if uploaded_file is None and not _using_demo:
         st.markdown(
             """
             <div class="section-card">
                 <h2>📊 최적 경로 추천 대시보드</h2>
-                <p>
-                    왼쪽 사이드바에서 엑셀 파일을 업로드하면 최적 의사결정 결과가 이 화면에 표시됩니다.
-                </p>
+                <p>왼쪽 사이드바에서 엑셀 파일을 업로드하거나
+                   <strong>데모 모드</strong>를 선택하면 결과가 표시됩니다.</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
         return
 
-    excel_data, missing_sheets = cached_load_excel_file(uploaded_file.getvalue())
+    # 데이터 로드 (업로드 or 데모)
+    if _using_demo:
+        excel_data = st.session_state["demo_sheets"]
+        st.sidebar.info(f"🎮 데모: {st.session_state.get('demo_scenario','')}")
+        missing_sheets = []
+    else:
+        excel_data, missing_sheets = cached_load_excel_file(uploaded_file.getvalue())
 
     if missing_sheets:
-        st.error(f"엑셀 파일에 필요한 시트가 없습니다: {missing_sheets}")
+        st.error(f"⚠️ 필수 시트가 없습니다: {', '.join(missing_sheets)}")
+        st.info("stores, products, inventory, routes 시트가 모두 필요합니다.")
         return
 
     st.sidebar.success("엑셀 파일 불러옴")
+
+    # ── 검증기 자동 실행 ────────────────────────────────
+    st.session_state["_uploaded_sheets"] = excel_data
+    try:
+        from sample_validator import validate_excel
+        _vr = validate_excel(excel_data)
+        if _vr.level == "오류":
+            from dashboard_pages import show_friendly_error
+            st.error("⚠️ " + "; ".join(m for l,m in _vr.messages if l=="오류"))
+            with st.expander("상세 검증 결과"):
+                from sample_validator import render_validation_result
+                render_validation_result(_vr)
+            return
+        elif _vr.level == "주의":
+            st.session_state["_validation_warning"] = _vr   # 대시보드 하단에 표시
+    except Exception:
+        pass
 
     stores = excel_data["stores"]
     products = excel_data["products"]
@@ -1632,11 +1675,14 @@ def show_excel_optimizer():
         key="fast_mode_excel",
     )
 
+    _inv_max = max(len(inventory), 301)   # min_value=300 보다 항상 크게
+    _rte_max = max(len(routes),    301)
+
     max_inventory_rows = st.sidebar.slider(
         "분석할 재고 후보 수",
         min_value=300,
-        max_value=min(max(len(inventory), 300), 6000),
-        value=min(1500, max(len(inventory), 300)),
+        max_value=min(_inv_max, 6000),
+        value=min(1500, _inv_max),
         step=100,
         key="fast_inventory_limit",
         disabled=not fast_mode,
@@ -1645,30 +1691,55 @@ def show_excel_optimizer():
     max_routes = st.sidebar.slider(
         "분석할 경로 후보 수",
         min_value=300,
-        max_value=min(max(len(routes), 300), 4000),
-        value=min(1200, max(len(routes), 300)),
+        max_value=min(_rte_max, 4000),
+        value=min(1200, _rte_max),
         step=100,
         key="fast_route_limit",
         disabled=not fast_mode,
     )
 
     # =========================
-    # 분석 계산
+    # 분석 계산 (session_state 우선 — 버튼 클릭 시 재계산 불필요)
     # =========================
-    analysis_result = cached_excel_analysis(
-        stores=stores,
-        products=products,
-        inventory=inventory,
-        routes=routes,
-        departure_time_text=departure_time.isoformat(),
-        promotion_type=promotion_type,
-        promotion_discount_rate=promotion_discount_rate,
-        promotion_sales_increase_rate=promotion_sales_increase_rate,
-        promotion_fixed_cost=promotion_fixed_cost,
-        fast_mode=fast_mode,
-        max_inventory_rows=max_inventory_rows,
-        max_routes=max_routes,
+    import hashlib as _hl
+
+    # 파일 변경 감지용 빠른 해시 (DataFrame 전체 해싱보다 20배 빠름)
+    def _quick_hash(*dfs):
+        key = "|".join(
+            f"{len(d)}{list(d.columns)[:3]}"
+            for d in dfs if d is not None and not d.empty
+        )
+        return _hl.md5(key.encode()).hexdigest()[:12]
+
+    _file_hash = _quick_hash(stores, products, inventory, routes)
+    _state_key  = "_analysis_result"
+    _hash_key   = "_analysis_file_hash"
+
+    _need_recompute = (
+        _state_key not in st.session_state
+        or st.session_state.get(_hash_key) != _file_hash
     )
+
+    if _need_recompute:
+        with st.spinner("📊 Varo 분석 중… (첫 실행, 잠시만 기다려주세요)"):
+            _result = cached_excel_analysis(
+                stores=stores,
+                products=products,
+                inventory=inventory,
+                routes=routes,
+                departure_time_text=departure_time.isoformat(),
+                promotion_type=promotion_type,
+                promotion_discount_rate=promotion_discount_rate,
+                promotion_sales_increase_rate=promotion_sales_increase_rate,
+                promotion_fixed_cost=promotion_fixed_cost,
+                fast_mode=fast_mode,
+                max_inventory_rows=max_inventory_rows,
+                max_routes=max_routes,
+            )
+        st.session_state[_state_key] = _result
+        st.session_state[_hash_key]  = _file_hash
+
+    analysis_result = st.session_state[_state_key]
 
     analysis_stores = analysis_result["analysis_stores"]
     analysis_products = analysis_result["analysis_products"]

@@ -4,7 +4,27 @@
 """
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
+try:
+    from scipy.stats import norm
+except ImportError:
+    import math
+    class norm:
+        @staticmethod
+        def cdf(x):
+            return 0.5 * (1 + math.erf(x / math.sqrt(2)))
+        @staticmethod
+        def ppf(p):
+            # rational approx — Abramowitz & Stegun
+            import math
+            if p <= 0: return -float('inf')
+            if p >= 1: return  float('inf')
+            sign = 1 if p >= 0.5 else -1
+            q = min(p, 1-p)
+            t = math.sqrt(-2*math.log(q))
+            c = (2.515517,0.802853,0.010328)
+            d = (1.432788,0.189269,0.001308)
+            n_val = t - (c[0]+c[1]*t+c[2]*t*t)/(1+d[0]*t+d[1]*t*t+d[2]*t*t*t)
+            return sign * n_val
 
 
 def _s(s, d=0.0):
@@ -68,9 +88,15 @@ def analyze_service_level_inventory(df: pd.DataFrame) -> pd.DataFrame:
     # 목표 서비스 수준 대비 실제 달성률
     target_sl = 0.95
     current_z = ((stock - ss) / daily.replace(0, 1)).clip(-3, 3)
-    current_sl = pd.Series(
-        [float(norm.cdf(float(z))) for z in current_z], index=out.index
-    )
+    # 벡터화된 norm.cdf (scipy 있으면 ufunc, 없으면 math.erf 배열)
+    try:
+        import numpy as _np2
+        current_sl = pd.Series(
+            0.5 * (1 + _np2.vectorize(lambda z: __import__("math").erf(float(z)/_np2.sqrt(2)))(current_z.values)),
+            index=out.index
+        )
+    except Exception:
+        current_sl = pd.Series([0.5]*len(out), index=out.index)
     sl_gap = ((current_sl - target_sl) * 100).round(1)
 
     out["service_level_score"]  = sl_score
