@@ -1,7 +1,6 @@
 
 import json
 import streamlit as st
-import streamlit.components.v1 as components
 
 
 def _records_json(df):
@@ -161,12 +160,12 @@ def create_kakao_map_html(stores, routes, kakao_js_key, highlight_paths=None):
 
 def show_kakao_map(stores, routes, kakao_js_key):
     html = create_kakao_map_html(stores, routes, kakao_js_key)
-    st.iframe(html, height=720, width="stretch")
+    st.iframe(html, height=720)
 
 
 def show_kakao_map_with_highlights(stores, routes, kakao_js_key, highlight_paths):
     html = create_kakao_map_html(stores, routes, kakao_js_key, highlight_paths)
-    st.iframe(html, height=720, width="stretch")
+    st.iframe(html, height=720)
 
 
 def show_kakao_map_with_multi_trucks(
@@ -181,7 +180,7 @@ def show_kakao_map_with_multi_trucks(
     routes_data = routes.copy()
 
     if stores_data.empty:
-        st.iframe("<p>지도에 표시할 위치 데이터가 없습니다.</p>", height=200, width="stretch")
+        st.iframe("<p>지도에 표시할 위치 데이터가 없습니다.</p>", height=200)
         return
 
     kakao_js_key = str(kakao_js_key).strip()
@@ -1041,7 +1040,7 @@ def show_kakao_map_with_multi_trucks(
     html = html.replace("__SPEED__", str(speed_multiplier))
     html = html.replace("__DEFAULT_SELECTED_COUNT__", str(default_selected_count))
 
-    st.iframe(html, height=1060, width="stretch")
+    st.iframe(html, height=1060)
 
 
 def show_kakao_map_with_truck(
@@ -1761,4 +1760,4 @@ def show_store_matching_map(
     html = html.replace("__ROUTES_JSON__", routes_json)
     html = html.replace("__STATUS_JSON__", status_json)
 
-    st.components.v1.html(html, height=1180, scrolling=True)
+    st.iframe(html, height=1180)
