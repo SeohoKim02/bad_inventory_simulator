@@ -1,5 +1,5 @@
 {
-  "created_at": "20260523_200617",
+  "created_at": "20260523_200631",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -26,7 +26,7 @@
   "summary": {
     "training_samples": 500,
     "transition_count": 2000,
-    "final_loss": 13.571605756177323,
+    "final_loss": 24.824651018298187,
     "dqn_top_action": "재고 이동",
     "dqn_top_product": "도시락074",
     "dqn_top_route": "합정점 → 신촌점",
