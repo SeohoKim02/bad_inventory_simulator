@@ -3593,14 +3593,14 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
                 if "final_loss" in _comp_df.columns:
                     sm3.metric("최저 Loss", f"{_comp_df['final_loss'].min():.4f}")
 
-                st.dataframe(_disp, use_container_width=True, hide_index=True)
+                st.dataframe(_disp, width="stretch", hide_index=True)
 
                 # 파일 경로 전체 보기
                 with st.expander("📁 저장 파일 경로 전체 보기", expanded=False):
                     _file_cols = [c for c in ["model_file","summary_file","recommendations_file"] if c in _comp_df.columns]
                     if _file_cols:
                         st.dataframe(_comp_df[["trained_at","sample_no"] + _file_cols],
-                                     use_container_width=True, hide_index=True)
+                                     width="stretch", hide_index=True)
             else:
                 st.info("아직 학습 기록이 없습니다. DQN 학습을 실행하면 자동으로 기록됩니다.")
         else:
