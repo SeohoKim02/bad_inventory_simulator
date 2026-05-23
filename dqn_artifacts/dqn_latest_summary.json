@@ -1,5 +1,5 @@
 {
-  "created_at": "20260522_052753",
+  "created_at": "20260523_195359",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -24,15 +24,15 @@
     "cluster_norm"
   ],
   "summary": {
-    "training_samples": 529,
-    "transition_count": 2116,
-    "final_loss": 28.202707400431613,
+    "training_samples": 178,
+    "transition_count": 712,
+    "final_loss": 22.67683692988862,
     "dqn_top_action": "재고 이동",
-    "dqn_top_product": "오뚜기 진라면컵",
-    "dqn_top_route": "종로점 → 청량리점",
+    "dqn_top_product": "라면086",
+    "dqn_top_route": "건대점 → 역삼2점",
     "greedy_top_action": "재고 이동",
-    "match_count": 511,
-    "match_rate": 96.59735349716446,
+    "match_count": 140,
+    "match_rate": 78.65168539325843,
     "feature_names": [
       "score_norm",
       "qty_norm",
