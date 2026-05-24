@@ -1,5 +1,11 @@
 {
-  "created_at": "20260524_042728",
+  "created_at": "20260525_041119",
+  "sample_no": "sample09",
+  "scenario_name": "expiry",
+  "learning_rate": 0.01,
+  "episodes": 120,
+  "candidate_count": 300,
+  "named_prefix": "dqn_sample09_expiry_lr0100_120x300",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -26,13 +32,13 @@
   "summary": {
     "training_samples": 300,
     "transition_count": 1200,
-    "final_loss": 22.620577415754482,
+    "final_loss": 27.321909474675984,
     "dqn_top_action": "재고 이동",
-    "dqn_top_product": "농심 육개장사발면",
+    "dqn_top_product": "덴마크 드링킹요구르트",
     "dqn_top_route": "잠원점 → 선릉점",
     "greedy_top_action": "재고 이동",
-    "match_count": 299,
-    "match_rate": 99.66666666666667,
+    "match_count": 291,
+    "match_rate": 97.0,
     "feature_names": [
       "score_norm",
       "qty_norm",
@@ -56,64 +62,6 @@
       "폐기",
       "보류"
     ],
-    "model_saved": true,
-    "saved_paths": {
-      "output_dir": "dqn_artifacts",
-      "model_file": "dqn_artifacts\\dqn_latest_model.npz",
-      "compare_file": "dqn_artifacts\\dqn_latest_recommendations.csv",
-      "history_file": "dqn_artifacts\\dqn_latest_history.csv",
-      "summary_file": "dqn_artifacts\\dqn_latest_summary.json",
-      "timestamp_model_file": "dqn_artifacts\\dqn_20260524_042728_model.npz",
-      "timestamp_compare_file": "dqn_artifacts\\dqn_20260524_042728_recommendations.csv",
-      "timestamp_history_file": "dqn_artifacts\\dqn_20260524_042728_history.csv",
-      "timestamp_summary_file": "dqn_artifacts\\dqn_20260524_042728_summary.json",
-      "named_prefix": "dqn_sample11_demand_surge_lr0100_120x300",
-      "named_model_file": "dqn_artifacts\\dqn_sample11_demand_surge_lr0100_120x300_model.npz",
-      "named_compare_file": "dqn_artifacts\\dqn_sample11_demand_surge_lr0100_120x300_recommendations.csv",
-      "named_history_file": "dqn_artifacts\\dqn_sample11_demand_surge_lr0100_120x300_history.csv",
-      "named_summary_file": "dqn_artifacts\\dqn_sample11_demand_surge_lr0100_120x300_summary.json",
-      "comparison_file": "dqn_artifacts\\dqn_training_comparison.csv",
-      "created_at": "20260524_042728"
-    },
-    "github_upload": {
-      "configured": true,
-      "github_dir": "dqn_artifacts",
-      "ok_count": 4,
-      "fail_count": 0,
-      "results": [
-        {
-          "ok": true,
-          "file": "dqn_artifacts\\dqn_latest_model.npz",
-          "github_path": "dqn_artifacts/dqn_latest_model.npz",
-          "sha": "c3f18f728a67524ba87999fe4a7015ed3f656681",
-          "html_url": "https://github.com/SeohoKim02/bad_inventory_simulator/blob/main/dqn_artifacts/dqn_latest_model.npz",
-          "message": "uploaded"
-        },
-        {
-          "ok": true,
-          "file": "dqn_artifacts\\dqn_latest_recommendations.csv",
-          "github_path": "dqn_artifacts/dqn_latest_recommendations.csv",
-          "sha": "0fd8f77e2c81287ff98ae337f6f1d7aed7c1e999",
-          "html_url": "https://github.com/SeohoKim02/bad_inventory_simulator/blob/main/dqn_artifacts/dqn_latest_recommendations.csv",
-          "message": "uploaded"
-        },
-        {
-          "ok": true,
-          "file": "dqn_artifacts\\dqn_latest_history.csv",
-          "github_path": "dqn_artifacts/dqn_latest_history.csv",
-          "sha": "fc681dd808c7520b3f2ddd758650b6f6b51fc1c9",
-          "html_url": "https://github.com/SeohoKim02/bad_inventory_simulator/blob/main/dqn_artifacts/dqn_latest_history.csv",
-          "message": "uploaded"
-        },
-        {
-          "ok": true,
-          "file": "dqn_artifacts\\dqn_latest_summary.json",
-          "github_path": "dqn_artifacts/dqn_latest_summary.json",
-          "sha": "ce10010802245a2bc62d7d45f6b17f275d821c71",
-          "html_url": "https://github.com/SeohoKim02/bad_inventory_simulator/blob/main/dqn_artifacts/dqn_latest_summary.json",
-          "message": "uploaded"
-        }
-      ]
-    }
+    "model_saved": false
   }
 }
