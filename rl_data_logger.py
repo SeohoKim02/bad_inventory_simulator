@@ -22,7 +22,13 @@ rl_data_logger.py — 강화학습 학습 데이터 생성
 """
 
 import pandas as pd
+import os as _os
 
+# ── RL 저장 경로 (app.py / dashboard_pages.py 동일하게 사용) ──
+# Streamlit 실행 디렉토리 기준 고정
+RL_MASTER_DIR  = _os.path.abspath(".")
+MASTER_CSV     = "rl_training_log_master.csv"
+SCENARIO_CSV   = "rl_training_log.csv"
 
 # ── 헬퍼 유틸 ────────────────────────────────────────────
 
@@ -381,8 +387,6 @@ import os
 from datetime import datetime as _dt
 import hashlib as _hl
 
-MASTER_CSV   = "rl_training_log_master.csv"
-SCENARIO_CSV = "rl_training_log.csv"
 
 
 def _gen_scenario_id(scenario_name: str, created_at: str) -> str:
@@ -395,7 +399,7 @@ def save_rl_log(
     log: "pd.DataFrame",
     scenario_name: str = "",
     uploaded_excel_name: str = "",
-    output_dir: str = ".",
+    output_dir: str = None,    # None이면 RL_MASTER_DIR 사용
 ) -> dict:
     """
     rl_training_log.csv 저장 + master에 누적 append.
@@ -404,6 +408,11 @@ def save_rl_log(
     """
     if log is None or log.empty:
         return {}
+
+    # 경로 절대화 — None이면 모듈 실행 시점의 절대 경로
+    if output_dir is None:
+        output_dir = RL_MASTER_DIR
+    output_dir = _os.path.abspath(output_dir)
 
     log = log.copy()
     created_at  = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -414,9 +423,9 @@ def save_rl_log(
     log["created_at"]           = created_at
     log["uploaded_excel_name"]  = uploaded_excel_name if uploaded_excel_name else ""
 
-    os.makedirs(output_dir, exist_ok=True)
-    log_path    = os.path.join(output_dir, SCENARIO_CSV)
-    master_path = os.path.join(output_dir, MASTER_CSV)
+    _os.makedirs(output_dir, exist_ok=True)
+    log_path    = _os.path.join(output_dir, SCENARIO_CSV)
+    master_path = _os.path.join(output_dir, MASTER_CSV)
 
     # 현재 로그 저장 (덮어쓰기)
     log.to_csv(log_path, index=False, encoding="utf-8-sig")
@@ -446,10 +455,13 @@ def save_rl_log(
     }
 
 
-def load_master(output_dir: str = ".") -> "pd.DataFrame":
+def load_master(output_dir: str = None) -> "pd.DataFrame":
     """master CSV 로드. 없으면 빈 DataFrame."""
-    path = os.path.join(output_dir, MASTER_CSV)
-    if not os.path.exists(path):
+    if output_dir is None:
+        output_dir = RL_MASTER_DIR
+    output_dir = _os.path.abspath(output_dir)
+    path = _os.path.join(output_dir, MASTER_CSV)
+    if not _os.path.exists(path):
         return pd.DataFrame()
     try:
         return pd.read_csv(path, encoding="utf-8-sig")

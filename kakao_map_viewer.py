@@ -1,4 +1,3 @@
-
 import json
 import streamlit as st
 
@@ -24,7 +23,7 @@ def create_kakao_map_html(stores, routes, kakao_js_key, highlight_paths=None):
     routes_json = _records_json(routes_data)
     highlight_paths_json = json.dumps(highlight_paths, ensure_ascii=False)
 
-    html = """
+    html = r"""
     <!DOCTYPE html>
     <html>
     <head>
@@ -195,7 +194,7 @@ def show_kakao_map_with_multi_trucks(
     routes_json = _records_json(routes_data)
     scenarios_json = json.dumps(truck_scenarios, ensure_ascii=False)
 
-    html = """
+    html = r"""
     <!DOCTYPE html>
     <html>
     <head>
@@ -1218,7 +1217,7 @@ def show_store_matching_map(
     routes_json = _records_json(routes_data) if routes_data is not None else "[]"
     status_json = json.dumps(store_status, ensure_ascii=False)
 
-    html = """
+    html = r"""
     <!DOCTYPE html>
     <html>
     <head>
@@ -1453,6 +1452,7 @@ def show_store_matching_map(
             var myLocationOverlay = null;
             var currentLat = fallbackCenter.lat;
             var currentLng = fallbackCenter.lng;
+            var mapDrawn = false;
             var nearbyStores = [];
 
             var script = document.createElement('script');
@@ -1507,33 +1507,52 @@ def show_store_matching_map(
                     storeByName[String(store.store_name)] = store;
                 });
 
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                        function(position) {
-                            currentLat = position.coords.latitude;
-                            currentLng = position.coords.longitude;
+                // fallback: geolocation이 8.5초 안에 응답 없으면 기본 위치로 그림
+                var geoFallbackTimer = setTimeout(function() {
+                    if (!mapDrawn) {
+                        document.getElementById('gps-status').innerHTML =
+                            '<b>위치 응답 없음</b> — 기본 위치 기준으로 표시 중';
+                        drawNearbyMap(false);
+                    }
+                }, 8500);
 
-                            document.getElementById('gps-status').innerHTML =
-                                '<b>내 위치 기준</b>으로 가까운 점포를 표시 중';
+                try {
+                    if (navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition(
+                            function(position) {
+                                clearTimeout(geoFallbackTimer);
+                                currentLat = position.coords.latitude;
+                                currentLng = position.coords.longitude;
 
-                            drawNearbyMap(true);
-                        },
-                        function(error) {
-                            document.getElementById('gps-status').innerHTML =
-                                '<b>위치 권한을 허용하지 않아</b> 기본 위치 기준으로 표시 중';
+                                document.getElementById('gps-status').innerHTML =
+                                    '<b>내 위치 기준</b>으로 가까운 점포를 표시 중';
 
-                            drawNearbyMap(false);
-                        },
-                        {
-                            enableHighAccuracy: true,
-                            timeout: 8000,
-                            maximumAge: 60000
-                        }
-                    );
-                } else {
+                                drawNearbyMap(true);
+                            },
+                            function(error) {
+                                clearTimeout(geoFallbackTimer);
+                                document.getElementById('gps-status').innerHTML =
+                                    '<b>위치 권한을 허용하지 않아</b> 기본 위치 기준으로 표시 중';
+
+                                drawNearbyMap(false);
+                            },
+                            {
+                                enableHighAccuracy: true,
+                                timeout: 8000,
+                                maximumAge: 60000
+                            }
+                        );
+                    } else {
+                        clearTimeout(geoFallbackTimer);
+                        document.getElementById('gps-status').innerHTML =
+                            '<b>브라우저 위치 기능을 지원하지 않아</b> 기본 위치 기준으로 표시 중';
+
+                        drawNearbyMap(false);
+                    }
+                } catch(geoErr) {
+                    clearTimeout(geoFallbackTimer);
                     document.getElementById('gps-status').innerHTML =
-                        '<b>브라우저 위치 기능을 지원하지 않아</b> 기본 위치 기준으로 표시 중';
-
+                        '<b>위치 접근 오류</b> — 기본 위치 기준으로 표시 중';
                     drawNearbyMap(false);
                 }
             }
@@ -1558,6 +1577,7 @@ def show_store_matching_map(
 
             function drawNearbyMap(hasGps) {
                 clearMapObjects();
+                mapDrawn = true;
 
                 var centerPosition = new kakao.maps.LatLng(currentLat, currentLng);
                 map.setCenter(centerPosition);
@@ -1761,3 +1781,4 @@ def show_store_matching_map(
     html = html.replace("__STATUS_JSON__", status_json)
 
     st.iframe(html, height=1180)
+    

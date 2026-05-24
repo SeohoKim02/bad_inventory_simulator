@@ -1,0 +1,15 @@
+{
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "off",
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "reportArgumentType": "none",
+  "reportCallIssue": "none",
+  "reportOptionalCall": "none",
+  "reportOperatorIssue": "none",
+  "reportReturnType": "none",
+  "reportIndexIssue": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportUndefinedVariable": "none"
+}

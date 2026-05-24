@@ -1493,6 +1493,10 @@ def _show_dashboard_home(
     with ng2:
         if st.button("🔍 데이터 검증", width="stretch", key="go_validator"): _go("validator")
 
+    st.markdown("<div style='margin-top:5px;'></div>", unsafe_allow_html=True)
+    if st.button("🤖 DQN 검증 페이지",  width="stretch", key="go_dqn_validation"):  _go("dqn_validation")
+    if st.button("📘 DQN 결과 해석",    width="stretch", key="go_dqn_interpret"):   _go("dqn_interpret")
+
     # ── 데이터 주의사항 (관리자 메뉴 바로 위) ──────────────
     _vw = st.session_state.get("_validation_warning")
     if _vw is not None:
@@ -2727,6 +2731,13 @@ def _show_map_page(stores, routes, kakao_js_key, transfer_path_result, network_p
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     st.header("📍 내 주변 점포 재고 매칭 지도")
 
+    # 위치 권한 안내
+    st.info(
+        "⚠️ **내 위치 지도는 localhost(127.0.0.1) 또는 HTTPS 환경에서만 동작합니다.**\n\n"
+        "LAN IP(192.168.x.x)로 접속 시 브라우저 보안 정책으로 위치 정보가 차단됩니다.\n"
+        "위치 기능을 사용하려면 `streamlit run app.py`를 실행한 PC에서 `http://localhost:8502`로 접속해주세요."
+    )
+
     if not kakao_js_key:
         st.info("왼쪽 사이드바에 카카오맵 JavaScript 키를 입력하면 지도가 표시됩니다.")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -3176,16 +3187,69 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
                 key="download_rl_training_log_router",
             )
 
+            # ── Master CSV 누적 현황 ───────────────────────────
+            st.markdown("---")
+            try:
+                from rl_data_logger import load_master, save_rl_log, RL_MASTER_DIR
+                import os as _os_rl
+                _master_path_info = _os_rl.path.join(RL_MASTER_DIR, "rl_training_log_master.csv")
+                _master_df = load_master(output_dir=RL_MASTER_DIR)
+
+                if _master_df.empty:
+                    st.info("아직 누적된 Master CSV가 없습니다.")
+                    st.caption(f"📁 저장 경로: `{_master_path_info}`")
+                    # 수동 저장 버튼
+                    if st.button("💾 지금 Master CSV 저장", key="manual_master_save"):
+                        try:
+                            _r = save_rl_log(
+                                rl_training_log,
+                                scenario_name="수동저장",
+                                output_dir=RL_MASTER_DIR,
+                            )
+                            st.success(f"✅ 저장 완료: {_r.get('master_file','')}")
+                            st.rerun()
+                        except Exception as _e:
+                            st.error(f"저장 실패: {_e}")
+                else:
+                    _mc1, _mc2 = st.columns([2, 3])
+                    with _mc1:
+                        st.metric("📦 누적 강화학습 데이터", f"{len(_master_df)}건")
+                    with _mc2:
+                        _master_csv = _master_df.to_csv(index=False).encode("utf-8-sig")
+                        st.download_button(
+                            label=f"📦 Master CSV 다운로드 (누적 {len(_master_df)}건)",
+                            data=_master_csv,
+                            file_name="rl_training_log_master.csv",
+                            mime="text/csv",
+                            key="download_rl_master_dp",
+                        )
+                    if "scenario_name" in _master_df.columns:
+                        _scens = _master_df["scenario_name"].dropna().unique().tolist()
+                        if _scens:
+                            st.caption(f"포함 시나리오: {', '.join(str(s) for s in _scens[:5])}"
+                                       + (" 외..." if len(_scens) > 5 else ""))
+                    st.caption(f"📁 저장 경로: `{_master_path_info}`")
+            except Exception as _me:
+                st.info("아직 누적된 Master CSV가 없습니다.")
+
     except ImportError:
         st.info("rl_data_logger.py 파일이 없어 기본 RL 로그 미리보기는 생략합니다.")
     except Exception as e:
         st.warning(f"강화학습 데이터 생성 중 오류가 발생했습니다: {e}")
 
     # =========================
-    # 2. 실제 DQN 학습
+    # 2. DQN 학습 (numpy / PyTorch 자동 선택)
     # =========================
     st.markdown("---")
-    st.subheader("🧠 DQN 실제 학습 추천")
+    st.subheader("🧠 DQN 정책 학습")
+
+    # backend 표시
+    try:
+        import torch as _torch_chk  # type: ignore[import]
+        _backend_label = f"🟢 PyTorch {_torch_chk.__version__} 사용"
+    except ImportError:
+        _backend_label = "🟡 PyTorch 없음 — numpy fallback 사용"
+    st.caption(_backend_label)
 
     # ── 학습 메타데이터 입력 ─────────────────────────────
     meta_c1, meta_c2 = st.columns(2)
@@ -3562,6 +3626,120 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
         st.info("rl_policy_helper.py 파일이 없어서 기존 Q-table 비교는 생략합니다.")
     except Exception as e:
         st.warning(f"기존 정책 비교 중 오류가 발생했습니다: {e}")
+
+    # ── PyTorch DQN 학습 실행 ─────────────────────────────
+    st.markdown("---")
+    st.subheader("⚡ PyTorch/numpy DQN 빠른 학습")
+    st.caption("RL 로그 데이터를 기반으로 DQN 정책을 직접 학습합니다.")
+
+    try:
+        from torch_dqn_agent import run_torch_dqn, TORCH_AVAILABLE, TORCH_ACTION_SPACE
+        from rl_data_logger   import build_rl_training_log
+
+        _tdq_c1, _tdq_c2, _tdq_c3 = st.columns(3)
+        with _tdq_c1:
+            _tdq_episodes = st.slider(
+                "학습 에피소드 수", 10, 300, 50, 10,
+                key="tdqn_episodes",
+            )
+        with _tdq_c2:
+            _tdq_lr = st.selectbox(
+                "학습률", [0.0005, 0.001, 0.003, 0.01],
+                index=1, format_func=lambda x: f"{x}",
+                key="tdqn_lr",
+            )
+        with _tdq_c3:
+            _tdq_hidden = st.selectbox(
+                "은닉층 크기", [32, 64, 128],
+                index=1, key="tdqn_hidden",
+            )
+
+        if st.button("🚀 DQN 학습 실행", key="run_torch_dqn_btn"):
+            _rl_log = build_rl_training_log(
+                stores=stores, products=products, inventory=inventory,
+                final_recommendations=final_recommendations,
+                transfer_path_result=transfer_path_result,
+                promotion_result=promotion_result,
+            )
+            if _rl_log.empty:
+                st.warning("학습 데이터가 없습니다.")
+            else:
+                # ── DQN 실행 전 master CSV 자동 저장 ────────────
+                try:
+                    from rl_data_logger import save_rl_log, RL_MASTER_DIR
+                    _dqn_scenario = st.session_state.get("dqn_scenario_val", "dqn_run")
+                    _sr = save_rl_log(_rl_log, scenario_name=_dqn_scenario, output_dir=RL_MASTER_DIR)
+                    if _sr.get("master_file"):
+                        st.success(f"✅ master CSV 자동 저장 완료 ({_sr.get('master_rows',0)}건 누적)")
+                except Exception as _mse:
+                    st.warning(f"⚠️ master CSV 저장 실패: {_mse}")
+
+                _prog_bar = st.progress(0.0, "DQN 학습 준비 중...")
+                def _prog_fn(pct, txt):
+                    _prog_bar.progress(pct, txt)
+
+                with st.spinner("학습 중..."):
+                    _agent, _rec_df, _hist_df, _save_r = run_torch_dqn(
+                        df=_rl_log,
+                        episodes=_tdq_episodes,
+                        lr=float(_tdq_lr),
+                        hidden=_tdq_hidden,
+                        output_dir="dqn_artifacts",
+                        sample_no=st.session_state.get("dqn_sample_no_val",""),
+                        scenario_name=st.session_state.get("dqn_scenario_val",""),
+                        progress_fn=_prog_fn,
+                    )
+                _prog_bar.progress(1.0, "✅ 완료")
+
+                # 결과 요약
+                _rc1, _rc2, _rc3 = st.columns(3)
+                _rc1.metric("학습 에피소드",  f"{len(_hist_df)}회")
+                _rc2.metric("최종 Loss",       f'{_hist_df["loss"].iloc[-1]:.4f}' if not _hist_df.empty else "-")
+                _rc3.metric("최종 ε",          f'{_hist_df["epsilon"].iloc[-1]:.3f}' if not _hist_df.empty else "-")
+                st.caption(f"백엔드: {_save_r['backend']} | 저장: {_save_r['named_prefix']}")
+
+                # ── heuristic / greedy / DQN 3-way 비교 테이블 ──
+                st.markdown("#### 📊 Heuristic vs Greedy vs DQN 비교")
+                _cmp_cols = [
+                    "product_name", "source_store", "target_store",
+                    "heuristic_score", "greedy_rank",
+                    "action", "dqn_action", "dqn_action_label", "dqn_max_q",
+                ]
+                _cmp_view = _rec_df[[c for c in _cmp_cols if c in _rec_df.columns]].rename(
+                    columns={
+                        "product_name":   "상품명",
+                        "source_store":   "출발",
+                        "target_store":   "도착",
+                        "heuristic_score":"Heuristic",
+                        "greedy_rank":    "Greedy 순위",
+                        "action":         "RL Action",
+                        "dqn_action":     "DQN Action",
+                        "dqn_action_label":"DQN 한글",
+                        "dqn_max_q":      "Q값",
+                    }
+                )
+                _safe_dataframe(_cmp_view, width="stretch")
+
+                # 저장 결과 다운로드
+                if not _hist_df.empty:
+                    st.download_button(
+                        "📥 DQN 학습 이력 다운로드",
+                        data=_hist_df.to_csv(index=False).encode("utf-8-sig"),
+                        file_name="dqn_latest_history.csv",
+                        mime="text/csv",
+                        key="dl_tdqn_history",
+                    )
+                if not _rec_df.empty:
+                    st.download_button(
+                        "📥 DQN 추천 결과 다운로드",
+                        data=_rec_df.to_csv(index=False).encode("utf-8-sig"),
+                        file_name="dqn_latest_recommendations.csv",
+                        mime="text/csv",
+                        key="dl_tdqn_recs",
+                    )
+
+    except Exception as _tdqn_e:
+        st.warning(f"DQN 학습 오류: {_tdqn_e}")
 
     # ── 학습 이력 비교 (dqn_training_comparison.csv) ─────
     st.markdown("---")
@@ -5311,6 +5489,426 @@ def _show_validator_page(sheets: dict = None):
     render_validation_result(r)
 
 
+def _show_dqn_interpretation_page(final_recommendations=None, inventory=None):
+    """📘 DQN 결과 해석 페이지."""
+    _back_to_dashboard()
+    st.header("📘 DQN 결과 해석")
+    st.caption("DQN 추천 결과의 의미, Greedy/Heuristic과의 차이, 각 Action의 적용 상황을 설명합니다.")
+
+    ART_DIR = "dqn_artifacts"
+
+    def _load_safe(fname, loader):
+        import os
+        p = os.path.join(ART_DIR, fname)
+        if not os.path.exists(p):
+            return None
+        try:
+            return loader(p)
+        except Exception:
+            return None
+
+    import json
+    rec_df  = _load_safe("dqn_latest_recommendations.csv",
+                         lambda p: pd.read_csv(p, encoding="utf-8-sig"))
+    hist_df = _load_safe("dqn_latest_history.csv",
+                         lambda p: pd.read_csv(p, encoding="utf-8-sig"))
+    summary = _load_safe("dqn_latest_summary.json",
+                         lambda p: json.load(open(p, encoding="utf-8")))
+    comp_df = _load_safe("dqn_training_comparison.csv",
+                         lambda p: pd.read_csv(p, encoding="utf-8-sig"))
+
+    no_artifact = rec_df is None and hist_df is None and summary is None
+
+    # ── 1. DQN 학습 요약 ──────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 1️⃣ DQN 학습 요약")
+
+    if no_artifact:
+        st.info("📋 DQN 학습 결과 파일이 없습니다. 먼저 DQN 학습을 실행해 주세요.")
+    else:
+        inner = {}
+        if summary:
+            inner = summary.get("summary", summary)
+
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("학습 샘플 수", str(inner.get("training_samples", len(rec_df) if rec_df is not None else "-")))
+        s2.metric("에피소드 수",  str(inner.get("episodes", "-")))
+        s3.metric("Action 수",   str(inner.get("n_actions", 7)))
+        s4.metric("backend",     str(inner.get("backend", "-")))
+
+        s5, s6, s7, _ = st.columns(4)
+        mean_r = float(hist_df["mean_reward"].mean()) if (hist_df is not None and "mean_reward" in hist_df.columns) else 0.0
+        max_r  = float(hist_df["mean_reward"].max())  if (hist_df is not None and "mean_reward" in hist_df.columns) else 0.0
+        final_l= float(hist_df["loss"].iloc[-1])       if (hist_df is not None and "loss" in hist_df.columns and not hist_df.empty) else 0.0
+        s5.metric("평균 Reward",  f"{mean_r:.3f}")
+        s6.metric("최대 Reward",  f"{max_r:.3f}")
+        s7.metric("최종 Loss",    f"{final_l:.5f}")
+
+    # ── 2. 추천 방식별 의미 ───────────────────────────────
+    st.markdown("---")
+    st.markdown("### 2️⃣ 추천 방식별 의미")
+
+    st.markdown(
+        """
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+  <div style="flex:1;min-width:200px;background:#e8f5e9;border-radius:10px;padding:14px;">
+    <b>📐 Heuristic</b><br>
+    <span style="font-size:13px;color:#333;">
+    사람이 설계한 <b>규칙 기반 점수</b>.<br>
+    재고 위험, 판매 가능성, 이동 적합도 등<br>
+    7개 요소를 가중합산해 점수를 산출합니다.<br>
+    <i>→ 설명 가능성 높음, 빠른 판단에 유리</i>
+    </span>
+  </div>
+  <div style="flex:1;min-width:200px;background:#e3f2fd;border-radius:10px;padding:14px;">
+    <b>🏆 Greedy</b><br>
+    <span style="font-size:13px;color:#333;">
+    현재 후보 중 <b>휴리스틱 점수가 가장 높은</b> 후보 선택.<br>
+    단기 최적해를 빠르게 탐색합니다.<br>
+    <i>→ 현재 상태 기준 즉각적 최선 선택</i>
+    </span>
+  </div>
+  <div style="flex:1;min-width:200px;background:#f3e5f5;border-radius:10px;padding:14px;">
+    <b>🤖 DQN</b><br>
+    <span style="font-size:13px;color:#333;">
+    누적 학습된 <b>State → Action → Reward</b> 경험 기반.<br>
+    epsilon-greedy 탐색으로 정책을 학습하고,<br>
+    replay buffer를 통해 경험을 재사용합니다.<br>
+    <i>→ 장기 보상 관점의 정책 추천</i>
+    </span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── 3. Greedy = DQN 경우 해석 ─────────────────────────
+    st.markdown("---")
+    st.markdown("### 3️⃣ Greedy와 DQN이 같은 경우")
+    st.markdown(
+        """<div style="background:#e8f5e9;border-left:4px solid #43a047;padding:12px 16px;border-radius:0 8px 8px 0;">
+<b>🟢 추천 일치 — 신뢰도 상승</b><br>
+<span style="font-size:13px;">
+현재 조건 기준의 <b>단기 최적 판단(Greedy)</b>과 <b>누적 학습된 정책(DQN)</b>이 같은 행동을 제안한 경우입니다.<br>
+두 방법이 독립적으로 같은 결론에 도달했으므로, <b>해당 추천의 신뢰도가 상대적으로 높습니다.</b><br>
+의사결정자는 이 후보를 우선 처리 대상으로 고려할 수 있습니다.
+</span></div>""", unsafe_allow_html=True)
+
+    # ── 4. Greedy ≠ DQN 경우 해석 ─────────────────────────
+    st.markdown("---")
+    st.markdown("### 4️⃣ Greedy와 DQN이 다른 경우")
+    st.markdown(
+        """<div style="background:#fff3e0;border-left:4px solid #f57c00;padding:12px 16px;border-radius:0 8px 8px 0;">
+<b>🟡 추천 불일치 — 다각도 검토 권장</b><br>
+<span style="font-size:13px;">
+<b>Greedy</b>는 현재 휴리스틱 점수 기준으로 <b>단기 최적 후보</b>를 선택한 반면,<br>
+<b>DQN</b>은 누적 학습된 보상 기준에서 <b>장기적으로 더 유리한 행동</b>을 선택했을 가능성이 있습니다.<br><br>
+단, 아래 한계도 함께 고려해야 합니다:<br>
+· 현재 DQN은 <b>시뮬레이션/샘플 데이터 기반</b>으로 학습되어 실제 운영 환경과 차이가 있을 수 있습니다.<br>
+· 실제 운영 데이터가 많아질수록 DQN 정책의 <b>신뢰도가 향상</b>됩니다.<br>
+· 불일치 항목은 <b>운영자의 추가 판단</b>이 필요한 후보로 분류하는 것을 권장합니다.
+</span></div>""", unsafe_allow_html=True)
+
+    # ── 5. Action별 해석 ──────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 5️⃣ Action별 의미와 적용 상황")
+
+    ACTION_EXPLAIN = [
+        ("🚚 direct_transfer",   "직접 이동",   "#42a5f5",
+         "출발 점포에서 도착 점포로 직접 재고를 이동합니다.",
+         "유통기한 여유가 있고 이동 거리가 짧으며 도착 점포의 수요가 높을 때 유리합니다."),
+        ("🏭 dc_transfer",       "DC 경유 이동","#7986cb",
+         "배송센터(DC)를 경유하여 재고를 이동합니다.",
+         "출발·도착 점포 간 직접 경로가 없거나, 여러 점포에 분산 공급이 필요할 때 선택됩니다."),
+        ("🏷 discount_sale",     "할인 판매",   "#f57c00",
+         "현재 점포에서 할인 프로모션으로 재고를 소진합니다.",
+         "유통기한이 임박하거나 재고 과잉 상태에서 이동 비용보다 할인 손실이 작을 때 유리합니다."),
+        ("🎁 one_plus_one",      "1+1 프로모션","#ab47bc",
+         "1+1 행사를 통해 재고 회전율을 높입니다.",
+         "판매 속도가 느리고 재고가 누적된 상품에 적합하며, 폐기 비용을 줄이는 데 효과적입니다."),
+        ("📦 keep_inventory",    "재고 유지",   "#43a047",
+         "현재 재고 상태를 유지하고 별도 처리를 하지 않습니다.",
+         "유통기한 여유가 충분하고 현재 점포의 수요 회복이 예상될 때 선택됩니다."),
+        ("⚡ emergency_discount","긴급 할인",   "#e53935",
+         "즉각적인 대폭 할인으로 재고를 신속하게 소진합니다.",
+         "유통기한이 매우 임박하여 폐기 위험이 높을 때, 손실을 최소화하기 위해 선택됩니다."),
+        ("🗑 dispose",           "폐기",        "#757575",
+         "재고를 폐기 처리합니다.",
+         "유통기한 초과, 이동·할인 비용보다 폐기 비용이 낮은 경우 최후 수단으로 선택됩니다."),
+    ]
+
+    for icon_name, label_ko, color, desc, when in ACTION_EXPLAIN:
+        with st.expander(f"{icon_name}  **{label_ko}**", expanded=False):
+            st.markdown(
+                f'<div style="border-left:4px solid {color};padding:8px 14px;">'
+                f'<b>설명:</b> {desc}<br><br>'
+                f'<b>선택 상황:</b> {when}'
+                f'</div>', unsafe_allow_html=True)
+
+    # DQN이 실제 선택한 action 분포 (artifact 있을 때)
+    if rec_df is not None and "dqn_action" in rec_df.columns:
+        st.markdown("**현재 DQN 추천 Action 분포**")
+        _avc = rec_df["dqn_action"].value_counts()
+        for act, cnt in _avc.items():
+            pct = cnt / len(rec_df) * 100
+            label = next((ko for _, ko, _, _, _ in
+                         [x for x in ACTION_EXPLAIN if x[0].split()[1] == str(act)]), str(act))
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:8px;margin:3px 0;">'
+                f'<div style="width:130px;font-size:12px;">{act}</div>'
+                f'<div style="flex:1;background:#eee;border-radius:3px;height:14px;">'
+                f'<div style="width:{pct:.0f}%;background:#64b5f6;height:100%;border-radius:3px;"></div></div>'
+                f'<div style="width:50px;font-size:12px;text-align:right;">{cnt}건 ({pct:.0f}%)</div></div>',
+                unsafe_allow_html=True)
+
+    # ── 6. 주의사항/한계 ──────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 6️⃣ 주의사항 및 한계")
+    st.markdown(
+        """<div style="background:#fce4ec;border-left:4px solid #e53935;padding:12px 16px;border-radius:0 8px 8px 0;">
+<b>⚠️ 현재 시스템의 한계</b><br>
+<span style="font-size:13px;line-height:1.8;">
+① 현재 DQN은 <b>시뮬레이션 및 샘플 데이터 기반</b>으로 학습되어 실제 운영 환경과 차이가 있을 수 있습니다.<br>
+② 실제 편의점 운영 데이터가 많아질수록 <b>DQN 정책의 신뢰도가 향상</b>됩니다.<br>
+③ <b>Reward 함수 설계</b>(폐기비용 절감, 보관비 절감, 판매기회 증가 등 7개 컴포넌트)에 따라 추천 결과가 달라질 수 있습니다.<br>
+④ 현재 학습은 <b>numpy fallback</b> 기반이며, GPU 환경에서 PyTorch를 사용하면 학습 품질이 향상됩니다.<br>
+⑤ 본 시스템의 DQN은 <b>의사결정 보조 도구</b>이며, 최종 판단은 운영자가 수행합니다.
+</span></div>""", unsafe_allow_html=True)
+
+
+def _show_dqn_validation_page(final_recommendations=None, inventory=None):
+    """🤖 DQN 검증 페이지 — Greedy / Heuristic / DQN 비교."""
+    _back_to_dashboard()
+    st.header("🤖 DQN 검증 페이지")
+    st.caption("DQN 학습 결과를 Greedy·Heuristic 추천과 비교하여 검증합니다.")
+
+    ART_DIR = "dqn_artifacts"
+
+    # ── 안전 파일 로더 ────────────────────────────────────
+    def _load_csv(fname):
+        import os
+        p = os.path.join(ART_DIR, fname)
+        if not os.path.exists(p):
+            return None
+        try:
+            return pd.read_csv(p, encoding="utf-8-sig")
+        except Exception:
+            try:
+                return pd.read_csv(p)
+            except Exception:
+                return None
+
+    def _load_json(fname):
+        import os, json
+        p = os.path.join(ART_DIR, fname)
+        if not os.path.exists(p):
+            return None
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def _safe_str_df(df):
+        """pyarrow 타입 오류 방지 — 모든 컬럼 문자열로 변환."""
+        if df is None or df.empty:
+            return df
+        df = df.copy()
+        for col in df.columns:
+            try:
+                if df[col].dtype == object:
+                    df[col] = df[col].fillna("-").astype(str)
+                else:
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            except Exception:
+                df[col] = df[col].astype(str)
+        return df
+
+    # ── 파일 로드 ─────────────────────────────────────────
+    rec_df  = _load_csv("dqn_latest_recommendations.csv")
+    hist_df = _load_csv("dqn_latest_history.csv")
+    comp_df = _load_csv("dqn_training_comparison.csv")
+    summary = _load_json("dqn_latest_summary.json")
+
+    # 아무것도 없으면 안내
+    if rec_df is None and hist_df is None and summary is None:
+        st.info("📋 DQN 학습 결과 파일이 없습니다. 먼저 DQN 학습을 실행해 주세요.")
+        return
+        return
+
+    # ── 1. 상단 요약 카드 ─────────────────────────────────
+    st.markdown("### 📊 요약")
+    n_recs      = len(rec_df) if rec_df is not None else 0
+    mean_reward = float(rec_df["reward"].mean()) if (rec_df is not None and "reward" in rec_df.columns) else 0.0
+    max_reward  = float(rec_df["reward"].max())  if (rec_df is not None and "reward" in rec_df.columns) else 0.0
+
+    match_cnt = 0; diff_cnt = 0
+    if rec_df is not None and "action" in rec_df.columns and "dqn_action" in rec_df.columns:
+        valid = rec_df.dropna(subset=["dqn_action"])
+        match_cnt = int((valid["action"] == valid["dqn_action"]).sum())
+        diff_cnt  = len(valid) - match_cnt
+
+    sc1, sc2, sc3, sc4, sc5 = st.columns(5)
+    sc1.metric("DQN 추천 후보 수",   f"{n_recs}개")
+    sc2.metric("평균 Reward",        f"{mean_reward:.2f}")
+    sc3.metric("최대 Reward",        f"{max_reward:.2f}")
+    sc4.metric("Greedy=DQN 일치",    f"{match_cnt}개")
+    sc5.metric("Greedy≠DQN 불일치",  f"{diff_cnt}개")
+
+    # ── 2. 학습 요약 카드 ─────────────────────────────────
+    if summary:
+        st.markdown("---")
+        st.markdown("### 🗂 학습 요약")
+        inner = summary.get("summary", summary)
+        _s1, _s2, _s3, _s4 = st.columns(4)
+        _s1.metric("에피소드 수",    str(inner.get("episodes",       summary.get("episodes", "-"))))
+        _s2.metric("최종 Loss",
+            f'{float(inner.get("final_loss", inner.get("final_loss", 0)) or 0):.4f}'
+            if inner.get("final_loss") is not None else "-")
+        _s3.metric("backend",        str(inner.get("backend", summary.get("backend", "-"))))
+        _s4.metric("학습 샘플 수",   str(inner.get("training_samples", "-")))
+
+        with st.expander("📋 상세 요약 (JSON)", expanded=False):
+            st.json(inner)
+
+    # ── 3. 그래프 ─────────────────────────────────────────
+    if hist_df is not None and not hist_df.empty:
+        st.markdown("---")
+        st.markdown("### 📈 학습 곡선")
+
+        tab_loss, tab_reward, tab_eps, tab_action = st.tabs(
+            ["Loss 곡선", "Reward 곡선", "ε 감쇠", "Action 분포"]
+        )
+
+        with tab_loss:
+            if "loss" in hist_df.columns and "episode" in hist_df.columns:
+                _ldf = hist_df[["episode","loss"]].copy()
+                _ldf["loss"] = pd.to_numeric(_ldf["loss"], errors="coerce")
+                _ldf = _ldf.set_index("episode")
+                st.line_chart(_ldf, color="#ef5350")
+                st.caption(f"최종 Loss: {float(_ldf['loss'].iloc[-1]):.5f}")
+            else:
+                st.info("loss 데이터 없음")
+
+        with tab_reward:
+            if "mean_reward" in hist_df.columns and "episode" in hist_df.columns:
+                _rdf = hist_df[["episode","mean_reward"]].copy()
+                _rdf["mean_reward"] = pd.to_numeric(_rdf["mean_reward"], errors="coerce")
+                _rdf = _rdf.set_index("episode")
+                st.line_chart(_rdf, color="#43a047")
+                st.caption(f"최종 평균 Reward: {float(_rdf['mean_reward'].iloc[-1]):.3f}")
+            else:
+                st.info("reward 데이터 없음")
+
+        with tab_eps:
+            if "epsilon" in hist_df.columns and "episode" in hist_df.columns:
+                _edf = hist_df[["episode","epsilon"]].copy()
+                _edf["epsilon"] = pd.to_numeric(_edf["epsilon"], errors="coerce")
+                _edf = _edf.set_index("episode")
+                st.line_chart(_edf, color="#42a5f5")
+                st.caption("epsilon이 낮아질수록 탐색보다 학습된 정책을 따릅니다.")
+            else:
+                st.info("epsilon 데이터 없음")
+
+        with tab_action:
+            if rec_df is not None and "dqn_action" in rec_df.columns:
+                _adf = rec_df["dqn_action"].value_counts().reset_index()
+                _adf.columns = ["Action", "건수"]
+                _adf = _adf.set_index("Action")
+                st.bar_chart(_adf, color="#ce93d8")
+                st.caption("DQN이 선택한 Action 분포")
+            else:
+                st.info("DQN action 데이터 없음")
+
+    # ── 4. Greedy vs DQN reward 비교 그래프 ──────────────
+    if rec_df is not None and "reward" in rec_df.columns and "dqn_max_q" in rec_df.columns:
+        st.markdown("---")
+        st.markdown("### ⚖️ Greedy Reward vs DQN Q값 비교")
+        _cdf = pd.DataFrame({
+            "Greedy Reward": pd.to_numeric(rec_df["reward"],    errors="coerce").fillna(0).values,
+            "DQN Q값":       pd.to_numeric(rec_df["dqn_max_q"], errors="coerce").fillna(0).values,
+        })
+        st.line_chart(_cdf)
+        st.caption("DQN Q값이 높을수록 장기적으로 더 유리한 행동을 선택했습니다.")
+
+    # ── 5. 비교 테이블 ────────────────────────────────────
+    if rec_df is not None and not rec_df.empty:
+        st.markdown("---")
+        st.markdown("### 🔍 Heuristic / Greedy / DQN 비교 테이블")
+
+        _tdf = rec_df.copy()
+
+        # 일치 여부 컬럼
+        if "action" in _tdf.columns and "dqn_action" in _tdf.columns:
+            _tdf["일치 여부"] = _tdf.apply(
+                lambda r: "🟢 일치" if str(r.get("action","")) == str(r.get("dqn_action",""))
+                          else "🔴 불일치", axis=1
+            )
+        else:
+            _tdf["일치 여부"] = "-"
+
+        # 해석 문구
+        if "action" in _tdf.columns and "dqn_action" in _tdf.columns:
+            def _interp(r):
+                ga = str(r.get("action", ""))
+                da = str(r.get("dqn_action", ""))
+                if ga == da:
+                    return "현재 조건 기준의 Greedy 추천과 DQN 학습 정책이 같은 방향을 제안합니다."
+                return (f"Greedy는 현재 점수 기준의 단기 최적 후보를 선택했지만, "
+                        f"DQN은 누적 학습된 보상 기준에서 다른 행동을 추천했습니다.")
+            _tdf["해석"] = _tdf.apply(_interp, axis=1)
+
+        # 표시 컬럼 선택 및 이름 변환
+        _show_cols = {
+            "product_name":   "상품명",
+            "source_store":   "보내는 점포",
+            "target_store":   "받는 점포",
+            "heuristic_score":"Heuristic Score",
+            "greedy_rank":    "Greedy 순위",
+            "action":         "Greedy Action",
+            "dqn_action":     "DQN Action",
+            "dqn_action_label":"DQN 한글",
+            "dqn_max_q":      "DQN Q값",
+            "reward":         "Reward",
+            "일치 여부":       "일치 여부",
+            "해석":            "해석",
+        }
+        _view_cols = [c for c in _show_cols if c in _tdf.columns]
+        _view = _safe_str_df(_tdf[_view_cols].rename(columns=_show_cols))
+        _safe_dataframe(_view, width="stretch")
+
+        # ── 6. 항목별 해석 문구 상세 ─────────────────────
+        st.markdown("---")
+        st.markdown("### 💬 항목별 해석")
+        for _, row in _tdf.iterrows():
+            prod = str(row.get("product_name", "-"))
+            ga   = str(row.get("action", "-"))
+            da   = str(row.get("dqn_action", "-"))
+            badge = "🟢" if ga == da else "🔴"
+            interp = row.get("해석", "")
+            st.markdown(f"- **{prod}** {badge} `Greedy:{ga}` → `DQN:{da}` : {interp}")
+
+    # ── 7. 전체 학습 비교 (comparison CSV) ───────────────
+    if comp_df is not None and not comp_df.empty:
+        st.markdown("---")
+        st.markdown("### 📋 전체 DQN 학습 이력")
+        _disp_cols = [c for c in [
+            "sample_no","scenario_name","learning_rate","episodes",
+            "candidate_count","final_loss","final_epsilon","backend","trained_at"
+        ] if c in comp_df.columns]
+        _comp_view = _safe_str_df(comp_df[_disp_cols])
+        if "trained_at" in _comp_view.columns:
+            _comp_view = _comp_view.sort_values("trained_at", ascending=False)
+        _safe_dataframe(_comp_view, width="stretch")
+
+        # comparison 다운로드
+        st.download_button(
+            "📥 학습 이력 CSV 다운로드",
+            data=comp_df.to_csv(index=False).encode("utf-8-sig"),
+            file_name="dqn_training_comparison.csv",
+            mime="text/csv",
+            key="dl_dqn_comp_page",
+        )
+
+
 def show_dashboard_router(
     stores,
     products,
@@ -5435,6 +6033,18 @@ def show_dashboard_router(
     elif page == "validator":
         _show_validator_page(sheets=st.session_state.get("_uploaded_sheets"))
 
+    elif page == "dqn_validation":
+        _show_dqn_validation_page(
+            final_recommendations=final_recommendations,
+            inventory=inventory,
+        )
+
+    elif page == "dqn_interpret":
+        _show_dqn_interpretation_page(
+            final_recommendations=final_recommendations,
+            inventory=inventory,
+        )
+
     elif page == "guide":
         _show_guide_page(final_recommendations)
 
@@ -5462,3 +6072,4 @@ def show_dashboard_router(
     else:
         st.session_state.excel_dashboard_page = "dashboard"
         st.rerun()
+        

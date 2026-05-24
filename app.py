@@ -1948,12 +1948,16 @@ def show_excel_optimizer():
 
                     # ── master CSV 누적 저장 + 다운로드 ─────────────
                     _uploaded_name = getattr(uploaded_file, "name", "") if uploaded_file else ""
-                    _save_result = save_rl_log(
-                        rl_training_log,
-                        scenario_name=_rl_scenario_name,
-                        uploaded_excel_name=_uploaded_name,
-                        output_dir=".",
-                    )
+                    try:
+                        _save_result = save_rl_log(
+                            rl_training_log,
+                            scenario_name=_rl_scenario_name,
+                            uploaded_excel_name=_uploaded_name,
+                            output_dir=".",
+                        )
+                    except Exception as _se:
+                        st.warning(f"⚠️ Master CSV 저장 실패: {_se}")
+                        _save_result = {}
 
                     _master_df = load_master(output_dir=".")
                     if not _master_df.empty:

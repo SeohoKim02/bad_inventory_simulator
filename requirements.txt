@@ -4,3 +4,4 @@ numpy
 openpyxl
 scipy
 scikit-learn
+torch
