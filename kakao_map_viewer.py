@@ -1722,7 +1722,7 @@ def show_store_matching_map(
                     var storeName = String(item.store.store_name);
                     var itemsCount = item.items ? item.items.length : 0;
 
-                    html += '<div class="near-store-row" onclick="renderStoreDetail(\\'' + escapeHtml(storeName).replace(/'/g, "\\\\'") + '\\')">';
+                    html += '<div class="near-store-row" data-store-name="' + encodeURIComponent(storeName) + '" onclick="renderStoreDetail(decodeURIComponent(this.dataset.storeName))">';
                     html += '<div class="near-store-title">' + (idx + 1) + '. ' + escapeHtml(storeName) + '</div>';
                     html += '<div class="near-store-meta">거리 ' + item.distance_km.toFixed(2) + 'km · 상태 ' + escapeHtml(item.status) + ' · 추천 ' + itemsCount + '건</div>';
                     html += '</div>';
