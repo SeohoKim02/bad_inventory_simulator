@@ -1,11 +1,11 @@
 {
-  "created_at": "20260526_034347",
+  "created_at": "20260526_034414",
   "sample_no": "sample17",
   "scenario_name": "final_test",
-  "learning_rate": 0.003,
+  "learning_rate": 0.02,
   "episodes": 500,
   "candidate_count": 337,
-  "named_prefix": "dqn_sample17_final_test_lr0030_500x337",
+  "named_prefix": "dqn_sample17_final_test_lr0200_500x337",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -32,7 +32,7 @@
   "summary": {
     "training_samples": 337,
     "transition_count": 1348,
-    "final_loss": 12.213545783272743,
+    "final_loss": 47.6143990362611,
     "dqn_top_action": "재고 이동",
     "dqn_top_product": "브레디크 티라미수롤",
     "dqn_top_route": "신촌점 → 합정점",
