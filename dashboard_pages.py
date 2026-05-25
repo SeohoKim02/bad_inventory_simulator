@@ -1520,8 +1520,12 @@ def _show_dashboard_home(
         with m6:
             if st.button("🤖 이력 보정",         width="stretch", key="go_rl_a"):       _go("rl")
 
-
-
+    # ── 검증 리포트 ─────────────────────────────────────
+    with st.expander("🔎 검증 리포트", expanded=False):
+        _render_validation_report(
+            final_recommendations=final_recommendations,
+            stores=stores, products=products, inventory=inventory,
+        )
 
 
 # =========================
@@ -1750,6 +1754,46 @@ def _build_score_view(final_recommendations):
     if "총점" in score_view.columns:
         score_view = score_view.sort_values("총점", ascending=False, na_position="last")
 
+    # ── 신뢰도 컬럼 추가 ──────────────────────────────────
+    try:
+        from varo_confidence import add_confidence_columns
+        from varo_demand     import add_demand_features
+        from varo_promotion  import add_promotion_features
+        _products = st.session_state.get("_products_df")
+        enriched  = add_demand_features(final_recommendations.copy(), _products)
+        enriched  = add_promotion_features(enriched, _products)
+        conf_df   = add_confidence_columns(enriched)
+        if "confidence_level" in conf_df.columns:
+            score_view = score_view.copy()
+            score_view.index = range(len(score_view))
+            conf_df.index    = range(len(conf_df))
+            for col, alias in [
+                ("confidence_level",        "신뢰도"),
+                ("demand_status",           "수요 수준"),
+                ("promotion_status",        "프로모션 상태"),
+                ("confidence_score",        "confidence_score"),
+                ("confidence_reason",       "confidence_reason"),
+                ("demand_fit_score",        "demand_fit_score"),
+                ("demand_score",            "demand_score"),
+                ("expected_daily_demand",   "expected_daily_demand"),
+                ("expected_7d_demand",      "expected_7d_demand"),
+                ("stockout_risk_score",     "stockout_risk_score"),
+                ("promotion_type",          "promotion_type"),
+                ("applied_discount_rate",   "applied_discount_rate"),
+                ("expected_sales_lift",     "expected_sales_lift"),
+                ("expected_promotion_sales_qty","expected_promotion_sales_qty"),
+                ("expected_remaining_qty",  "expected_remaining_qty"),
+                ("discount_loss_cost",      "discount_loss_cost"),
+                ("promotion_fixed_cost",    "promotion_fixed_cost"),
+                ("avoided_disposal_cost",   "avoided_disposal_cost"),
+                ("promotion_net_benefit",   "promotion_net_benefit"),
+                ("promotion_feasibility_score","promotion_feasibility_score"),
+            ]:
+                if col in conf_df.columns:
+                    score_view[alias] = conf_df[col].values[:len(score_view)]
+    except Exception:
+        pass
+
     return score_view.reset_index(drop=True)
 
 
@@ -1913,6 +1957,406 @@ def _render_score_bar_chart(score_view, max_rows=5):
 # =========================
 # 개별 페이지
 # =========================
+def _render_validation_report(
+    final_recommendations=None,
+    stores=None, products=None, inventory=None,
+):
+    """검증 리포트 UI 렌더링."""
+    try:
+        from varo_validation import (
+            build_validation_report, get_validation_summary_df,
+            get_data_quality_df, get_top5_validation_df,
+            get_recommendation_summary_df, build_validation_excel, build_validation_csv,
+        )
+    except ImportError:
+        st.info("varo_validation 모듈을 불러올 수 없습니다.")
+        return
+
+    try:
+        report = build_validation_report(final_recommendations, stores, products, inventory)
+    except Exception as e:
+        st.warning(f"검증 리포트 생성 실패: {e}")
+        return
+
+    status = report.get("status", "확인 필요")
+    status_icon = {"정상": "✅", "확인 필요": "⚠️", "데이터 부족": "🟡", "오류 가능": "❌"}.get(status, "⚠️")
+
+    # 요약 카드 (기본 화면)
+    vc1, vc2, vc3, vc4, vc5, vc6 = st.columns(6)
+    vc1.metric("검증 상태",       f"{status_icon} {status}")
+    vc2.metric("최종 후보",       f'{report.get("n_recs", 0)}건')
+    vc3.metric("평균 Score",      f'{report.get("avg_score", 0):.1f}')
+    vc4.metric("신뢰도 높음",     f'{report.get("conf_높음", 0)}건')
+    vc5.metric("DQN 상태",        str(report.get("dqn_status", "-")))
+    vc6.metric("경고",            f'{report.get("warning_count", 0)}건')
+
+    # 경고 목록
+    warnings = report.get("warnings", [])
+    if warnings:
+        for w in warnings:
+            st.warning(f"• {w}")
+
+    # 상세 탭
+    rt1, rt2, rt3, rt4 = st.tabs(["📋 검증 요약", "🏆 TOP5", "📊 추천 요약", "🔍 데이터 품질"])
+
+    with rt1:
+        _safe_dataframe(get_validation_summary_df(report), width="stretch")
+
+    with rt2:
+        top5_df = get_top5_validation_df(final_recommendations)
+        if not top5_df.empty:
+            _safe_dataframe(top5_df, width="stretch")
+        else:
+            st.info("TOP5 데이터 없음")
+
+    with rt3:
+        rec_sum = get_recommendation_summary_df(final_recommendations)
+        if not rec_sum.empty:
+            _safe_dataframe(rec_sum, width="stretch")
+        else:
+            st.info("추천 요약 데이터 없음")
+
+    with rt4:
+        _safe_dataframe(get_data_quality_df(report), width="stretch")
+
+    # 다운로드 버튼
+    st.markdown("---")
+    dl1, dl2 = st.columns(2)
+    with dl1:
+        try:
+            csv_bytes = build_validation_csv(report, final_recommendations)
+            if csv_bytes:
+                st.download_button(
+                    "📥 검증 리포트 CSV",
+                    data=csv_bytes,
+                    file_name="varo_validation_report.csv",
+                    mime="text/csv",
+                    key="dl_validation_csv",
+                )
+        except Exception:
+            pass
+    with dl2:
+        try:
+            xl_bytes = build_validation_excel(report, final_recommendations)
+            if xl_bytes:
+                st.download_button(
+                    "📥 검증 리포트 Excel",
+                    data=xl_bytes,
+                    file_name="varo_validation_report.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_validation_excel",
+                )
+        except Exception:
+            pass
+
+
+def _render_promotion_analysis(final_recommendations):
+    """프로모션 분석 UI 렌더링 (접힌 영역 전용)."""
+    try:
+        from varo_promotion import (
+            add_promotion_features, get_promotion_summary, get_promotion_view_df,
+        )
+        from varo_demand import add_demand_features
+    except ImportError:
+        st.info("varo_promotion 모듈을 불러올 수 없습니다.")
+        return
+
+    if final_recommendations is None or final_recommendations.empty:
+        st.info("프로모션 분석 결과 없음")
+        return
+
+    try:
+        _products = st.session_state.get("_products_df")
+        enriched  = add_demand_features(final_recommendations.copy(), _products)
+        promo_df  = add_promotion_features(enriched, _products)
+    except Exception as e:
+        st.info(f"프로모션 분석 계산 실패: {e}")
+        return
+
+    # 요약 카드
+    summ = get_promotion_summary(promo_df)
+    if summ:
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("유리",        f'{summ.get("유리", 0)}건')
+        p2.metric("비추천",      f'{summ.get("비추천", 0)}건')
+        p3.metric("평균 증가율", str(summ.get("평균 판매증가율", "-")))
+        p4.metric("폐기회피 합", f'{summ.get("폐기회피비용 합", 0):,.0f}원')
+
+    # 프로모션 분석 표
+    view = get_promotion_view_df(promo_df)
+    if not view.empty:
+        _safe_dataframe(view, width="stretch")
+
+        # 상세 다운로드
+        dl_cols = [c for c in [
+            "product_name","source_store","promotion_type",
+            "applied_discount_rate","expected_sales_lift",
+            "expected_promotion_sales_qty","expected_remaining_qty",
+            "discount_loss_cost","promotion_fixed_cost",
+            "avoided_disposal_cost","promotion_net_benefit",
+            "promotion_feasibility_score","promotion_status",
+        ] if c in promo_df.columns]
+        try:
+            st.download_button(
+                "📥 프로모션 분석 CSV",
+                data=promo_df[dl_cols].to_csv(index=False).encode("utf-8-sig"),
+                file_name="varo_promotion_analysis.csv",
+                mime="text/csv",
+                key="dl_promotion_analysis",
+            )
+        except Exception:
+            pass
+    else:
+        st.info("프로모션 분석 데이터 없음")
+
+
+def _render_demand_analysis(final_recommendations):
+    """수요 분석 UI 렌더링 (접힌 영역 전용)."""
+    try:
+        from varo_demand import (
+            add_demand_features, get_demand_summary, get_demand_view_df,
+        )
+    except ImportError:
+        st.info("varo_demand 모듈을 불러올 수 없습니다.")
+        return
+
+    if final_recommendations is None or final_recommendations.empty:
+        st.info("수요 분석 결과 없음")
+        return
+
+    # 수요 피처 계산
+    try:
+        _products = st.session_state.get("_products_df")
+        demand_df = add_demand_features(final_recommendations.copy(), _products)
+    except Exception as e:
+        st.info(f"수요 분석 계산 실패: {e}")
+        return
+
+    # 요약 카드
+    summ = get_demand_summary(demand_df)
+    if summ:
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("수요 높음",     f'{summ.get("높음", 0)}건')
+        d2.metric("수요 보통",     f'{summ.get("보통", 0)}건')
+        d3.metric("수요 낮음",     f'{summ.get("낮음", 0)}건')
+        d4.metric("높음 비율",     f'{summ.get("높음 비율", 0)}%')
+
+    # 수요 분석 표
+    view = get_demand_view_df(demand_df)
+    if not view.empty:
+        _safe_dataframe(view, width="stretch")
+        try:
+            dl_csv = demand_df[[c for c in [
+                "product_name","source_store","target_store",
+                "demand_status","demand_fit_score","demand_score",
+                "expected_daily_demand","expected_7d_demand","stockout_risk_score"
+            ] if c in demand_df.columns]]
+            st.download_button(
+                "📥 수요 분석 CSV",
+                data=dl_csv.to_csv(index=False).encode("utf-8-sig"),
+                file_name="varo_demand_analysis.csv",
+                mime="text/csv",
+                key="dl_demand_analysis",
+            )
+        except Exception:
+            pass
+    else:
+        st.info("수요 분석 데이터 없음")
+
+
+def _render_sensitivity_analysis(final_recommendations):
+    """가중치 민감도 분석 UI 렌더링."""
+    try:
+        from varo_sensitivity import (
+            get_sensitivity_weight_scenarios,
+            run_hybrid_score_sensitivity_analysis,
+            summarize_sensitivity_results,
+            get_top5_by_scenario,
+            compare_top_recommendations_by_scenario,
+        )
+    except ImportError:
+        st.info("varo_sensitivity 모듈을 불러올 수 없습니다.")
+        return
+
+    if final_recommendations is None or final_recommendations.empty:
+        st.info("민감도 분석 결과 없음")
+        return
+
+    group_cols = [c for c in final_recommendations.columns if c.startswith("vhs2_group_")]
+    if not group_cols:
+        st.info("VHS 그룹 점수 컬럼이 없습니다. 엑셀을 업로드하고 분석을 실행해주세요.")
+        return
+
+    # 사용자 설정 가중치 (session_state에 있으면 포함)
+    user_w = st.session_state.get("_vhs_weights")
+    scenarios = get_sensitivity_weight_scenarios(user_w)
+
+    # ── 시나리오 선택 ────────────────────────────────────
+    sc_names   = list(scenarios.keys())
+    compare_sc = st.selectbox(
+        "비교 시나리오", [s for s in sc_names if s != "기본"],
+        key="sens_compare_sc",
+    )
+
+    # ── 분석 실행 ────────────────────────────────────────
+    with st.spinner("분석 중..."):
+        try:
+            results = run_hybrid_score_sensitivity_analysis(
+                final_recommendations, scenarios
+            )
+        except Exception as e:
+            st.warning(f"분석 실패: {e}")
+            return
+
+    if not results:
+        st.info("민감도 분석 결과 없음")
+        return
+
+    # ── 1. 시나리오 요약 ─────────────────────────────────
+    st.markdown("**시나리오 요약**")
+    summary_df = summarize_sensitivity_results(results)
+    if not summary_df.empty:
+        _safe_dataframe(summary_df, width="stretch")
+
+        # 막대 그래프: 평균 Score
+        try:
+            chart_data = summary_df.set_index("시나리오")[["평균 Score"]]
+            st.bar_chart(chart_data)
+        except Exception:
+            pass
+
+    # ── 2. 기본 vs 비교 시나리오 순위 변화 ───────────────
+    st.markdown(f"**기본 vs {compare_sc} 순위 변화**")
+    comp_df = compare_top_recommendations_by_scenario(results, "기본", compare_sc)
+    if not comp_df.empty:
+        _safe_dataframe(comp_df, width="stretch")
+        try:
+            csv_comp = comp_df.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                "📥 비교 결과 CSV",
+                data=csv_comp,
+                file_name="varo_sensitivity_comparison.csv",
+                mime="text/csv",
+                key="dl_sens_comparison",
+            )
+        except Exception:
+            pass
+
+    # ── 3. 시나리오별 TOP 5 (접힌 영역) ──────────────────
+    with st.expander("시나리오별 TOP 5", expanded=False):
+        top5_df = get_top5_by_scenario(results)
+        if not top5_df.empty:
+            # 선택한 시나리오만 필터
+            filter_sc = st.selectbox(
+                "시나리오 선택", ["전체"] + sc_names, key="sens_top5_filter"
+            )
+            view = top5_df if filter_sc == "전체" else top5_df[top5_df["시나리오"] == filter_sc]
+            _safe_dataframe(view, width="stretch")
+            try:
+                st.download_button(
+                    "📥 TOP5 CSV",
+                    data=top5_df.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="varo_sensitivity_top5.csv",
+                    mime="text/csv",
+                    key="dl_sens_top5",
+                )
+            except Exception:
+                pass
+        else:
+            st.info("TOP 5 데이터 없음")
+
+    # ── 4. 시나리오 가중치 상세 (접힌 영역) ───────────────
+    with st.expander("가중치 상세", expanded=False):
+        w_rows = []
+        for sc, w in scenarios.items():
+            row = {"시나리오": sc}
+            row.update({k: f"{v:.1%}" for k, v in w.items()})
+            w_rows.append(row)
+        _safe_dataframe(pd.DataFrame(w_rows), width="stretch")
+
+        try:
+            summary_df_full = summarize_sensitivity_results(results)
+            st.download_button(
+                "📥 요약 CSV",
+                data=summary_df_full.to_csv(index=False).encode("utf-8-sig"),
+                file_name="varo_sensitivity_summary.csv",
+                mime="text/csv",
+                key="dl_sens_summary",
+            )
+        except Exception:
+            pass
+
+
+def _render_hybrid_score_criteria(final_recommendations=None):
+    """
+    Hybrid Score 기준표 + 가중치 검증 정보 렌더링.
+    접힌 영역 안에서만 표시.
+    """
+    try:
+        from varo_score_config import (
+            get_score_criteria_df, get_weight_diagnostics,
+            GRADE_THRESHOLDS, DEFAULT_VHS_WEIGHTS,
+        )
+        from scenario_detector import adjust_weights_by_scenario, detect_scenario
+    except ImportError:
+        st.info("varo_score_config 모듈을 불러올 수 없습니다.")
+        return
+
+    # 현재 적용 가중치 (결과 있으면 상황별 가중치, 없으면 기본값)
+    active_weights = dict(DEFAULT_VHS_WEIGHTS)
+    if final_recommendations is not None and not final_recommendations.empty:
+        try:
+            scenarios = detect_scenario(final_recommendations)
+            active_weights = adjust_weights_by_scenario(scenarios)
+        except Exception:
+            pass
+
+    # 가중치 기준표
+    st.markdown("**가중치 기준**")
+    criteria_df = get_score_criteria_df()
+    # 현재 가중치 컬럼 추가
+    def _w(name):
+        v = active_weights.get(name.replace(" ", ""), active_weights.get(name, None))
+        if v is None:
+            # 유사 키 매핑
+            mapping = {
+                "재고 위험":     "재고위험",
+                "판매 가능성":   "판매가능성",
+                "점포 이동 적합":"점포이동적합",
+                "비용 절감":     "비용절감",
+                "폐기 회피 이익":"폐기회피이익",
+                "실행 가능성":   "실행가능성",
+                "이력 보정":     "이력보정",
+            }
+            v = active_weights.get(mapping.get(name, name), None)
+        return f"{v:.1%}" if v is not None else "-"
+
+    criteria_df["현재 가중치"] = criteria_df["항목"].apply(_w)
+    show_cols = ["항목", "현재 가중치", "반영 기준", "점수 방향"]
+    _safe_dataframe(criteria_df[show_cols], width="stretch")
+
+    # 추천 등급 기준
+    st.markdown("**추천 등급 기준**")
+    grade_rows = [
+        {"등급": "최적", "기준": f"{GRADE_THRESHOLDS['최적']}점 이상",  "설명": "즉각 처리 권장"},
+        {"등급": "권장", "기준": f"{GRADE_THRESHOLDS['권장']}점 이상",  "설명": "우선 검토"},
+        {"등급": "검토", "기준": f"{GRADE_THRESHOLDS['검토']}점 이상",  "설명": "상황 모니터링"},
+        {"등급": "보류", "기준": f"{GRADE_THRESHOLDS['검토']}점 미만", "설명": "후순위"},
+    ]
+    _safe_dataframe(pd.DataFrame(grade_rows), width="stretch")
+
+    # 검증 정보
+    diag = get_weight_diagnostics(active_weights, final_recommendations)
+    st.markdown("**가중치 검증**")
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("가중치 합계",        str(diag["가중치_합계"]))
+    d2.metric("정규화",             str(diag["정규화_여부"]))
+    d3.metric("설정",               str(diag["기본값_사용"]))
+    d4.metric("계산 후보 수",       f'{diag["계산_가능_후보_수"]}건')
+    if diag["fallback_컬럼_수"] > 0:
+        st.caption(f"fallback 처리: {diag['fallback_컬럼_수']}개 컬럼 (기본값 50점 적용)")
+
+
 def _render_dqn_comparison(final_recommendations):
     """Heuristic / Greedy / DQN / Varo 비교 테이블 렌더링."""
     try:
@@ -1920,21 +2364,47 @@ def _render_dqn_comparison(final_recommendations):
             build_comparison_table, make_comparison_view,
             get_agreement_summary, load_latest_summary, _safe_loss,
         )
+        from dqn_stability import (
+            run_dqn_stability_check, format_dqn_status_for_display,
+            get_stability_summary_df, safe_format_metric,
+        )
+        _stab_available = True
     except ImportError:
-        st.info("dqn_recommender 모듈을 불러올 수 없습니다.")
-        return
+        try:
+            from dqn_recommender import (
+                build_comparison_table, make_comparison_view,
+                get_agreement_summary, load_latest_summary, _safe_loss,
+            )
+        except ImportError:
+            st.info("dqn_recommender 모듈을 불러올 수 없습니다.")
+            return
+        _stab_available = False
 
     if final_recommendations is None or final_recommendations.empty:
         return
 
+    # ── DQN 안정성 상태 ──────────────────────────────────
+    stab_result = {}
+    dqn_status  = "데이터 없음"
+    if _stab_available:
+        try:
+            stab_result = run_dqn_stability_check()
+            dqn_status  = stab_result.get("status", "데이터 없음")
+        except Exception:
+            pass
+
+    status_display = format_dqn_status_for_display(dqn_status) if _stab_available \
+                     else f"⬜ {dqn_status}"
+
     # DQN 모델 요약
     summary = load_latest_summary()
     if summary:
-        sc1, sc2, sc3, sc4 = st.columns(4)
+        sc1, sc2, sc3, sc4, sc5 = st.columns(5)
         sc1.metric("에피소드",    str(summary.get("episodes", "-")))
         sc2.metric("최종 Loss",   _safe_loss(summary.get("final_loss", "-")))
         sc3.metric("학습 샘플",   str(summary.get("training_samples", "-")))
         sc4.metric("backend",     str(summary.get("backend", "-")))
+        sc5.metric("DQN 상태",    status_display)
 
     # 비교 테이블 빌드
     with st.spinner("DQN 추론 중..."):
@@ -1947,6 +2417,13 @@ def _render_dqn_comparison(final_recommendations):
     if comp_df.empty:
         st.info("비교할 후보가 없습니다.")
         return
+
+    # 신뢰도 컬럼 추가
+    try:
+        from varo_confidence import add_confidence_columns
+        comp_df = add_confidence_columns(comp_df)
+    except Exception:
+        pass
 
     # 요약 카드
     ag = get_agreement_summary(comp_df)
@@ -1974,6 +2451,9 @@ def _render_dqn_comparison(final_recommendations):
         st.info("해당 조건의 후보가 없습니다.")
     else:
         table = make_comparison_view(view_df)
+        # 신뢰도 컬럼 추가 (있으면)
+        if "confidence_level" in view_df.columns:
+            table["신뢰도"] = view_df["confidence_level"].values[:len(table)]
         _safe_dataframe(table, width="stretch")
 
     # 다운로드
@@ -1988,6 +2468,34 @@ def _render_dqn_comparison(final_recommendations):
         )
     except Exception:
         pass
+
+    # DQN 안정성 상세 (접힌 영역)
+    if _stab_available and stab_result:
+        with st.expander("🔍 DQN 안정성 상세", expanded=False):
+            checks = stab_result.get("checks", [])
+            if checks:
+                _safe_dataframe(pd.DataFrame(checks)[["check_name","status","value","threshold","passed"]], width="stretch")
+                try:
+                    stab_csv = get_stability_summary_df(stab_result)
+                    if not stab_csv.empty:
+                        st.download_button(
+                            "📥 안정성 요약 CSV",
+                            data=stab_csv.to_csv(index=False).encode("utf-8-sig"),
+                            file_name="varo_dqn_stability_check.csv",
+                            mime="text/csv",
+                            key="dl_dqn_stability",
+                        )
+                except Exception:
+                    pass
+
+            action_i = stab_result.get("action_info", {})
+            if action_i.get("distribution"):
+                st.markdown("**Action 분포**")
+                act_df = pd.DataFrame([
+                    {"Action": k, "건수": v, "비율": f"{v/action_i['total']:.1%}"}
+                    for k, v in action_i["distribution"].items()
+                ])
+                _safe_dataframe(act_df, width="stretch")
 
 
 def _show_score_page(final_recommendations):
@@ -2015,15 +2523,30 @@ def _show_score_page(final_recommendations):
 
     with _sc_tab1:
         summary_view = _pick_ai_summary_top5(filtered_view)
-        main_cols = ["상품명", "보내는 점포", "받는 점포", "추천 수량", "예상 비용", "추천 전략", "총점", "추천 등급"]
+        main_cols = ["상품명", "보내는 점포", "받는 점포", "추천 수량", "예상 비용",
+                     "추천 전략", "총점", "추천 등급", "신뢰도", "프로모션 상태"]
         display_table = summary_view[[c for c in main_cols if c in summary_view.columns]].copy()
         if "예상 비용" in display_table.columns:
             display_table["예상 비용"] = display_table["예상 비용"].apply(_format_money)
 
+        # 신뢰도 요약 카드
+        try:
+            from varo_confidence import get_confidence_summary
+            conf_sum = get_confidence_summary(score_view)
+            if conf_sum:
+                cs1, cs2, cs3, cs4 = st.columns(4)
+                cs1.metric("신뢰도 높음",  f'{conf_sum.get("높음", 0)}건')
+                cs2.metric("신뢰도 보통",  f'{conf_sum.get("보통", 0)}건')
+                cs3.metric("신뢰도 낮음",  f'{conf_sum.get("낮음", 0)}건')
+                cs4.metric("평균 신뢰도",  f'{conf_sum.get("평균", 0):.1f}점')
+        except Exception:
+            pass
+
         _safe_dataframe(display_table, width="stretch", max_rows=5)
 
         with st.expander("전체 결과 보기", expanded=False):
-            full_cols = [c for c in main_cols if c in score_view.columns]
+            full_cols = [c for c in main_cols + ["confidence_score","confidence_reason"]
+                         if c in score_view.columns]
             full_table = score_view[full_cols].copy()
             if "예상 비용" in full_table.columns:
                 full_table["예상 비용"] = full_table["예상 비용"].apply(_format_money)
@@ -2033,6 +2556,30 @@ def _show_score_page(final_recommendations):
 
         _render_score_bar_chart(summary_view, max_rows=5)
         _render_grade_category_top3(filtered_view)
+
+        # Hybrid Score 기준 (접힌 영역)
+        with st.expander("📐 Hybrid Score 기준", expanded=False):
+            _render_hybrid_score_criteria(filtered_view)
+
+        # 신뢰도 기준 (접힌 영역)
+        with st.expander("🎯 신뢰도 기준", expanded=False):
+            try:
+                from varo_confidence import get_confidence_criteria_table
+                _safe_dataframe(get_confidence_criteria_table(), width="stretch")
+            except Exception:
+                st.info("신뢰도 기준 표시 불가")
+
+        # 민감도 분석 (접힌 영역)
+        with st.expander("📉 민감도 분석", expanded=False):
+            _render_sensitivity_analysis(score_source)
+
+        # 수요 분석 (접힌 영역)
+        with st.expander("📦 수요 분석", expanded=False):
+            _render_demand_analysis(score_source)
+
+        # 프로모션 분석 (접힌 영역)
+        with st.expander("🏷️ 프로모션 분석", expanded=False):
+            _render_promotion_analysis(score_source)
 
         with st.expander("💰 비용 산정 기준", expanded=False):
             if st.button("비용 산정 기준 상세 보기", key="go_cost_compare_from_score"):

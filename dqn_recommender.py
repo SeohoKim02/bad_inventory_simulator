@@ -58,6 +58,18 @@ SCALE = {
 }
 
 
+# ── 안정성 모듈 연동 ─────────────────────────────────────────
+try:
+    from dqn_stability import (
+        run_dqn_stability_check, format_dqn_status_for_display,
+        safe_format_metric as _sfm,
+    )
+    _STABILITY_AVAILABLE = True
+except ImportError:
+    _STABILITY_AVAILABLE = False
+    def _sfm(v, **kw): return str(v) if v is not None else "-"
+
+
 # ── 유틸 ──────────────────────────────────────────────────────
 def _dqn_label(action_str: str) -> str:
     return DQN_ACTION_MAP.get(str(action_str), {}).get("label", str(action_str))
@@ -322,6 +334,26 @@ def build_comparison_table(final_recommendations: pd.DataFrame) -> pd.DataFrame:
         lambda s: 1 if "일치" in s else 0
     )
 
+    # DQN 안정성 상태 컬럼 추가
+    try:
+        if _STABILITY_AVAILABLE:
+            _sc = run_dqn_stability_check()
+            _st = _sc.get("status", "데이터 없음")
+        else:
+            _st = "데이터 없음"
+    except Exception:
+        _st = "데이터 없음"
+
+    df["dqn_status"] = _st
+    # 제외 상태면 DQN 컬럼 덮어쓰기
+    if _st == "제외":
+        df["dqn_action"]    = "제외"
+        df["dqn_label"]     = "제외"
+        df["dqn_strategy"]  = "제외"
+        df["agreement_status"] = df["agreement_status"].apply(
+            lambda s: "비교 불가" if s != "비교 불가" else s
+        )
+
     return df
 
 
@@ -336,6 +368,7 @@ def make_comparison_view(df: pd.DataFrame) -> pd.DataFrame:
         "heuristic_strategy":"Heuristic",
         "greedy_strategy":   "Greedy",
         "dqn_label":         "DQN",
+        "dqn_status":        "DQN 상태",
         "varo_strategy":     "Varo 최종",
         "heuristic_score":   "총점",
         "heuristic_grade":   "등급",

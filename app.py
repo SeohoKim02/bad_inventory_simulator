@@ -1,5 +1,4 @@
-﻿
-import html as html_lib
+﻿import html as html_lib
 import io
 import warnings
 from datetime import time
@@ -1578,6 +1577,14 @@ def show_excel_optimizer():
 
     st.sidebar.success("엑셀 파일 불러옴")
 
+    # ── config 시트 가중치 연동 ──────────────────────────
+    try:
+        from varo_score_config import load_config_sheet
+        _cfg_weights = load_config_sheet(excel_data)
+        st.session_state["_vhs_weights"] = _cfg_weights
+    except Exception:
+        pass
+
     # ── 검증기 자동 실행 ────────────────────────────────
     st.session_state["_uploaded_sheets"] = excel_data
     try:
@@ -1599,6 +1606,9 @@ def show_excel_optimizer():
     products = excel_data["products"]
     inventory = excel_data["inventory"]
     routes = excel_data["routes"]
+
+    # 수요 분석용 products_df 세션 저장
+    st.session_state["_products_df"] = products
 
     # =========================
     # 사이드바 데이터 요약

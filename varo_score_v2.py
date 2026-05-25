@@ -28,6 +28,16 @@ import numpy as np
 import pandas as pd
 from scenario_detector import detect_scenario, adjust_weights_by_scenario, scenario_labels
 
+# 가중치·등급 중앙 관리 (varo_score_config)
+try:
+    from varo_score_config import (
+        DEFAULT_VHS_WEIGHTS, assign_recommendation_grade,
+        load_config_sheet, get_weight_diagnostics,
+    )
+    _CONFIG_LOADED = True
+except ImportError:
+    _CONFIG_LOADED = False
+
 _INV = float("inf")
 
 
@@ -229,7 +239,8 @@ def calculate_vhs_v2(
     def _grade(s):
         if s >= 80: return "최적"
         if s >= 65: return "권장"
-        return "검토"
+        if s >= 50: return "검토"
+        return "보류"
 
     _grade_v = np.vectorize(_grade)
     out["vhs2_grade"] = _grade_v(out["vhs2"].values)
