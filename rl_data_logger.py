@@ -1,4 +1,3 @@
-
 """
 rl_data_logger.py — 강화학습 학습 데이터 생성
 ═══════════════════════════════════════════════
@@ -472,6 +471,7 @@ def load_master(output_dir: str = None) -> "pd.DataFrame":
 # ── Action 체계 정리 (8단계) ────────────────────────────
 
 ACTION_ID_MAP = {
+    # 기본 RL 로거 action 키
     "keep":                 0,
     "discount_promotion":   1,
     "one_plus_one":         2,
@@ -479,19 +479,24 @@ ACTION_ID_MAP = {
     "via_dc_transfer":      4,
     "multi_store_transfer": 5,
     "dispose":              6,
-    # 기존 별칭 매핑
+    # 기존 별칭
     "promotion":            1,
     "transfer":             3,
     "unknown":              0,
+    # torch_dqn_agent TORCH_ACTION_SPACE 호환
+    "keep_inventory":       0,
+    "discount_sale":        1,
+    "dc_transfer":          4,
+    "emergency_discount":   5,
 }
 
 ACTION_LABEL_KO = {
-    0: "유지",
-    1: "할인 프로모션",
+    0: "재고 유지",
+    1: "할인 판매",
     2: "1+1 프로모션",
     3: "직접 이동",
     4: "DC 경유 이동",
-    5: "다중 점포 이동",
+    5: "긴급 할인",
     6: "폐기",
 }
 

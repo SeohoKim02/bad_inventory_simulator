@@ -1,5 +1,4 @@
-﻿
-from numbers import Number
+﻿from numbers import Number
 import io
 import html as html_lib
 import pandas as pd
@@ -1459,65 +1458,67 @@ def _show_dashboard_home(
                 except Exception:
                     pass
 
-    # ── 네비게이션 ───────────────────────────────────────
+    # ── 네비게이션 ─────────────────────────────────────────
     st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
+    # 주요 4개 버튼
     n1, n2 = st.columns(2)
     with n1:
-        if st.button("🧠 AI 추천 결과",   width="stretch", key="go_score"):      _go("score")
+        if st.button("🧠 최종 추천",      width="stretch", key="go_score"):    _go("score")
     with n2:
-        if st.button("🗺 재고 이동 지도", width="stretch", key="go_movement"):   _go("movement")
-
-    st.markdown("<div style='margin-top:5px;'></div>", unsafe_allow_html=True)
+        if st.button("🗺 지도 & 시뮬레이션", width="stretch", key="go_movement"): _go("movement")
 
     n3, n4 = st.columns(2)
     with n3:
-        if st.button("📊 VARO 상세 분석", width="stretch", key="go_algorithms"): _go("algorithms")
+        if st.button("📊 상세 분석",      width="stretch", key="go_algorithms"): _go("algorithms")
     with n4:
-        if st.button("🌐 최소비용 경로",  width="stretch", key="go_network"):    _go("network")
+        if st.button("🤖 학습 관리",      width="stretch", key="go_rl_main"):    _go("rl")
 
-    st.markdown("<div style='margin-top:5px;'></div>", unsafe_allow_html=True)
-    n5, n6 = st.columns(2)
-    with n5:
-        if st.button("📦 처리 배치 최적화", width="stretch", key="go_batch"):     _go("batch")
-    with n6:
-        if st.button("📊 Before/After 효과", width="stretch", key="go_effect"):   _go("effect")
-
-    st.markdown("<div style='margin-top:5px;'></div>", unsafe_allow_html=True)
-    if st.button("📚 Varo 가이드 & 설명", width="stretch", key="go_guide"):      _go("guide")
-
-    st.markdown("<div style='margin-top:5px;'></div>", unsafe_allow_html=True)
-    ng1, ng2 = st.columns(2)
-    with ng1:
-        if st.button("🎮 데모 모드",   width="stretch", key="go_demo"):      _go("demo")
-    with ng2:
-        if st.button("🔍 데이터 검증", width="stretch", key="go_validator"): _go("validator")
-
-    st.markdown("<div style='margin-top:5px;'></div>", unsafe_allow_html=True)
-    if st.button("🤖 DQN 검증 페이지",  width="stretch", key="go_dqn_validation"):  _go("dqn_validation")
-    if st.button("📘 DQN 결과 해석",    width="stretch", key="go_dqn_interpret"):   _go("dqn_interpret")
-
-    # ── 데이터 주의사항 (관리자 메뉴 바로 위) ──────────────
+    # 데이터 주의사항
     _vw = st.session_state.get("_validation_warning")
     if _vw is not None:
-        with st.expander("⚠️ 데이터 주의사항 (클릭해서 확인)", expanded=False):
+        with st.expander("⚠️ 데이터 주의사항", expanded=False):
             try:
                 from sample_validator import render_validation_result
                 render_validation_result(_vw)
             except Exception:
                 pass
 
-    with st.expander("⚙️ 관리자 메뉴", expanded=False):
-        a1, a2 = st.columns(2)
-        with a1:
-            if st.button("🤖 이력 보정 비교", width="stretch", key="go_rl_a"):    _go("rl")
-        with a2:
-            if st.button("🔮 What-if 시뮬",  width="stretch", key="go_whatif_a"):_go("whatif")
-        a3, a4 = st.columns(2)
-        with a3:
-            if st.button("📈 그래프 보기",   width="stretch", key="go_graph_a"): _go("graph")
-        with a4:
-            if st.button("🧾 상세 데이터",   width="stretch", key="go_data_a"):  _go("data")
+    # 분석 도구
+    with st.expander("📐 분석 도구", expanded=False):
+        t1, t2 = st.columns(2)
+        with t1:
+            if st.button("🌐 최소비용 경로",     width="stretch", key="go_network"):  _go("network")
+        with t2:
+            if st.button("📦 배치 최적화",       width="stretch", key="go_batch"):    _go("batch")
+        t3, t4 = st.columns(2)
+        with t3:
+            if st.button("📊 Before/After",      width="stretch", key="go_effect"):   _go("effect")
+        with t4:
+            if st.button("🔮 What-if",           width="stretch", key="go_whatif_a"): _go("whatif")
+        t5, t6 = st.columns(2)
+        with t5:
+            if st.button("📈 그래프",            width="stretch", key="go_graph_a"):  _go("graph")
+        with t6:
+            if st.button("🧾 상세 데이터",       width="stretch", key="go_data_a"):   _go("data")
+
+    # 관리 & 설정
+    with st.expander("⚙️ 관리", expanded=False):
+        m1, m2 = st.columns(2)
+        with m1:
+            if st.button("🔍 데이터 검증",       width="stretch", key="go_validator"):      _go("validator")
+        with m2:
+            if st.button("📚 가이드",            width="stretch", key="go_guide"):          _go("guide")
+        m3, m4 = st.columns(2)
+        with m3:
+            if st.button("🤖 DQN 검증",          width="stretch", key="go_dqn_validation"): _go("dqn_validation")
+        with m4:
+            if st.button("📘 DQN 해석",          width="stretch", key="go_dqn_interpret"):  _go("dqn_interpret")
+        m5, m6 = st.columns(2)
+        with m5:
+            if st.button("🎮 데모",              width="stretch", key="go_demo"):       _go("demo")
+        with m6:
+            if st.button("🤖 이력 보정",         width="stretch", key="go_rl_a"):       _go("rl")
 
 
 
@@ -1912,13 +1913,87 @@ def _render_score_bar_chart(score_view, max_rows=5):
 # =========================
 # 개별 페이지
 # =========================
+def _render_dqn_comparison(final_recommendations):
+    """Heuristic / Greedy / DQN / Varo 비교 테이블 렌더링."""
+    try:
+        from dqn_recommender import (
+            build_comparison_table, make_comparison_view,
+            get_agreement_summary, load_latest_summary, _safe_loss,
+        )
+    except ImportError:
+        st.info("dqn_recommender 모듈을 불러올 수 없습니다.")
+        return
+
+    if final_recommendations is None or final_recommendations.empty:
+        return
+
+    # DQN 모델 요약
+    summary = load_latest_summary()
+    if summary:
+        sc1, sc2, sc3, sc4 = st.columns(4)
+        sc1.metric("에피소드",    str(summary.get("episodes", "-")))
+        sc2.metric("최종 Loss",   _safe_loss(summary.get("final_loss", "-")))
+        sc3.metric("학습 샘플",   str(summary.get("training_samples", "-")))
+        sc4.metric("backend",     str(summary.get("backend", "-")))
+
+    # 비교 테이블 빌드
+    with st.spinner("DQN 추론 중..."):
+        try:
+            comp_df = build_comparison_table(final_recommendations)
+        except Exception as _e:
+            st.warning(f"비교 테이블 생성 실패: {_e}")
+            return
+
+    if comp_df.empty:
+        st.info("비교할 후보가 없습니다.")
+        return
+
+    # 요약 카드
+    ag = get_agreement_summary(comp_df)
+    if ag:
+        a1, a2, a3 = st.columns(3)
+        a1.metric("전체 후보",   f'{ag["total"]}건')
+        a2.metric("일치 후보",   f'{ag["agree_count"]}건')
+        a3.metric("일치율",      f'{ag["agree_rate"]}%')
+
+    # 필터 탭
+    status_filter = st.radio(
+        "표시 범위", ["전체", "일치 후보", "불일치 후보", "비교 불가"],
+        horizontal=True, key="dqn_comp_filter",
+    )
+
+    view_df = comp_df.copy()
+    if status_filter == "일치 후보":
+        view_df = comp_df[comp_df["agreement_status"].str.contains("일치", na=False)]
+    elif status_filter == "불일치 후보":
+        view_df = comp_df[comp_df["agreement_status"] == "불일치"]
+    elif status_filter == "비교 불가":
+        view_df = comp_df[comp_df["agreement_status"] == "비교 불가"]
+
+    if view_df.empty:
+        st.info("해당 조건의 후보가 없습니다.")
+    else:
+        table = make_comparison_view(view_df)
+        _safe_dataframe(table, width="stretch")
+
+    # 다운로드
+    try:
+        full_view = make_comparison_view(comp_df)
+        st.download_button(
+            "📥 비교 결과 CSV 다운로드",
+            data=full_view.to_csv(index=False).encode("utf-8-sig"),
+            file_name="varo_dqn_comparison.csv",
+            mime="text/csv",
+            key="dl_dqn_comparison",
+        )
+    except Exception:
+        pass
+
+
 def _show_score_page(final_recommendations):
     _back_to_dashboard()
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("🧠 상품별 AI 추천 결과")
-
-    if st.button("💰 비용 산정 기준 보기", width="stretch", key="go_cost_compare_from_score"):
-        _go("cost_compare")
+    st.header("🧠 최종 추천")
 
     if final_recommendations is None or final_recommendations.empty:
         st.info("표시할 추천 후보가 없습니다.")
@@ -1935,20 +2010,36 @@ def _show_score_page(final_recommendations):
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    summary_view = _pick_ai_summary_top5(filtered_view)
+    # ── 탭: 추천 결과 | 방식 비교 ─────────────────────────────
+    _sc_tab1, _sc_tab2 = st.tabs(["🏆 최종 추천", "⚖️ 추천 방식 비교"])
 
-    main_cols = ["상품명", "보내는 점포", "받는 점포", "추천 수량", "예상 비용", "추천 전략", "총점", "추천 등급"]
-    display_table = summary_view[[c for c in main_cols if c in summary_view.columns]].copy()
+    with _sc_tab1:
+        summary_view = _pick_ai_summary_top5(filtered_view)
+        main_cols = ["상품명", "보내는 점포", "받는 점포", "추천 수량", "예상 비용", "추천 전략", "총점", "추천 등급"]
+        display_table = summary_view[[c for c in main_cols if c in summary_view.columns]].copy()
+        if "예상 비용" in display_table.columns:
+            display_table["예상 비용"] = display_table["예상 비용"].apply(_format_money)
 
-    if "예상 비용" in display_table.columns:
-        display_table["예상 비용"] = display_table["예상 비용"].apply(_format_money)
+        _safe_dataframe(display_table, width="stretch", max_rows=5)
 
-    st.subheader("AI 추천 결과 요약")
-    _safe_dataframe(display_table, width="stretch", max_rows=5)
-    _download_filtered_excel_button(display_table, file_name="상품별_AI_추천_결과.xlsx", key="download_score_filtered_excel")
+        with st.expander("전체 결과 보기", expanded=False):
+            full_cols = [c for c in main_cols if c in score_view.columns]
+            full_table = score_view[full_cols].copy()
+            if "예상 비용" in full_table.columns:
+                full_table["예상 비용"] = full_table["예상 비용"].apply(_format_money)
+            _safe_dataframe(full_table, width="stretch")
+            _download_filtered_excel_button(full_table, file_name="최종_추천_결과.xlsx",
+                                             key="download_score_filtered_excel")
 
-    _render_score_bar_chart(summary_view, max_rows=5)
-    _render_grade_category_top3(filtered_view)
+        _render_score_bar_chart(summary_view, max_rows=5)
+        _render_grade_category_top3(filtered_view)
+
+        with st.expander("💰 비용 산정 기준", expanded=False):
+            if st.button("비용 산정 기준 상세 보기", key="go_cost_compare_from_score"):
+                _go("cost_compare")
+
+    with _sc_tab2:
+        _render_dqn_comparison(score_source)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -2731,12 +2822,7 @@ def _show_map_page(stores, routes, kakao_js_key, transfer_path_result, network_p
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     st.header("📍 내 주변 점포 재고 매칭 지도")
 
-    # 위치 권한 안내
-    st.info(
-        "⚠️ **내 위치 지도는 localhost(127.0.0.1) 또는 HTTPS 환경에서만 동작합니다.**\n\n"
-        "LAN IP(192.168.x.x)로 접속 시 브라우저 보안 정책으로 위치 정보가 차단됩니다.\n"
-        "위치 기능을 사용하려면 `streamlit run app.py`를 실행한 PC에서 `http://localhost:8502`로 접속해주세요."
-    )
+    st.caption("⚠️ 내 위치 기능은 localhost 또는 HTTPS 환경에서만 작동합니다. LAN IP 접속 시 위치 정보가 차단됩니다.")
 
     if not kakao_js_key:
         st.info("왼쪽 사이드바에 카카오맵 JavaScript 키를 입력하면 지도가 표시됩니다.")
@@ -2771,32 +2857,28 @@ def _show_movement_page(
 ):
     _back_to_dashboard()
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("🗺 재고 이동 지도")
+    st.header("🗺 지도 & 이동 시뮬레이션")
 
     if not kakao_js_key:
         st.info("왼쪽 사이드바에 카카오맵 JavaScript 키를 입력하면 지도와 재고 이동 시뮬레이션이 표시됩니다.")
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    # =========================
-    # 내 주변 점포 매칭 지도
-    # =========================
-    st.subheader("📍 내 주변 점포 재고 매칭 지도")
-
-    show_store_matching_map(
-        stores=stores,
-        routes=routes,
-        final_recommendations=final_recommendations,
-        kakao_js_key=kakao_js_key,
-        selected_store_name=None,
-    )
+    # ── 지도 섹션 ────────────────────────────────────────
+    with st.expander("📍 내 위치 지도", expanded=False):
+        st.caption("⚠️ 내 위치 기능은 localhost 또는 HTTPS 환경에서 작동합니다.")
+        show_store_matching_map(
+            stores=stores,
+            routes=routes,
+            final_recommendations=final_recommendations,
+            kakao_js_key=kakao_js_key,
+            selected_store_name=None,
+        )
 
     st.markdown("---")
-
     # =========================
-    # 재고 이동 시뮬레이션
+    # 이동 시뮬레이션
     # =========================
-    st.subheader("재고 이동 및 재고 변화")
 
     if show_kakao_map_with_multi_trucks is None:
         st.warning("kakao_map_viewer.py에 show_kakao_map_with_multi_trucks 함수가 없습니다.")
@@ -3148,7 +3230,7 @@ def _show_data_page(
 def _show_rl_page(stores, products, inventory, final_recommendations, transfer_path_result, promotion_result):
     _back_to_dashboard()
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("🤖 이력 보정 비교 페이지")
+    st.header("🤖 학습 관리")
 
 
     # =========================
