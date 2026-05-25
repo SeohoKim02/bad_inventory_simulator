@@ -1,0 +1,22 @@
+{
+  "backend": "numpy",
+  "n_states": 9,
+  "n_actions": 7,
+  "episodes": 300,
+  "training_samples": 337,
+  "candidate_count": 337,
+  "final_loss": 22.34436,
+  "final_epsilon": 0.05,
+  "sample_no": "sample17",
+  "scenario_name": "final_test",
+  "created_at": "20260526_041039",
+  "action_space": [
+    "keep_inventory",
+    "discount_sale",
+    "one_plus_one",
+    "direct_transfer",
+    "dc_transfer",
+    "emergency_discount",
+    "dispose"
+  ]
+}
