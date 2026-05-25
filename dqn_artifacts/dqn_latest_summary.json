@@ -1,11 +1,11 @@
 {
-  "created_at": "20260526_034146",
+  "created_at": "20260526_034250",
   "sample_no": "sample17",
   "scenario_name": "final_test",
   "learning_rate": 0.01,
-  "episodes": 120,
-  "candidate_count": 300,
-  "named_prefix": "dqn_sample17_final_test_lr0100_120x300",
+  "episodes": 500,
+  "candidate_count": 337,
+  "named_prefix": "dqn_sample17_final_test_lr0100_500x337",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -30,15 +30,15 @@
     "cluster_norm"
   ],
   "summary": {
-    "training_samples": 300,
-    "transition_count": 1200,
-    "final_loss": 20.8997438600835,
+    "training_samples": 337,
+    "transition_count": 1348,
+    "final_loss": 10.505549442509714,
     "dqn_top_action": "재고 이동",
     "dqn_top_product": "브레디크 티라미수롤",
     "dqn_top_route": "신촌점 → 합정점",
     "greedy_top_action": "재고 이동",
-    "match_count": 295,
-    "match_rate": 98.33333333333333,
+    "match_count": 327,
+    "match_rate": 97.03264094955489,
     "feature_names": [
       "score_norm",
       "qty_norm",
