@@ -321,3 +321,305 @@ def compare_top_recommendations_by_scenario(
 
     final_cols = [c for c in rename if c in merged.columns]
     return merged[final_cols].rename(columns=rename).sort_values(f"{base_scenario} 순위", ignore_index=True)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 순위 안정성 검증 (민감도 분석 기반)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def build_candidate_key(row) -> str:
+    """후보 식별 키 생성 (product_name + source_store + target_store)."""
+    parts = [
+        str(row.get("product_name", "") or ""),
+        str(row.get("source_store",  "") or ""),
+        str(row.get("target_store",  "") or ""),
+    ]
+    return "||".join(p.strip() for p in parts)
+
+
+def _get_top_n_keys(df: pd.DataFrame, n: int) -> set:
+    """sens_rank 기준 상위 N개 후보 키 집합."""
+    if df is None or df.empty or "sens_rank" not in df.columns:
+        return set()
+    top = df.nsmallest(n, "sens_rank")
+    return {build_candidate_key(row) for _, row in top.iterrows()}
+
+
+def _key_to_rank(df: pd.DataFrame) -> dict:
+    """후보 키 → sens_rank 매핑 dict."""
+    if df is None or df.empty or "sens_rank" not in df.columns:
+        return {}
+    return {build_candidate_key(r): int(r["sens_rank"]) for _, r in df.iterrows()}
+
+
+def _key_to_col(df: pd.DataFrame, col: str) -> dict:
+    """후보 키 → 특정 컬럼 값 매핑."""
+    if df is None or df.empty or col not in df.columns:
+        return {}
+    return {build_candidate_key(r): r[col] for _, r in df.iterrows()}
+
+
+def calculate_top_n_retention(base_df: pd.DataFrame,
+                               scenario_df: pd.DataFrame, n: int = 5) -> float:
+    """TOP N 유지율 (0~1)."""
+    base_keys = _get_top_n_keys(base_df, n)
+    sc_keys   = _get_top_n_keys(scenario_df, n)
+    if not base_keys:
+        return 0.0
+    common = base_keys & sc_keys
+    return round(len(common) / len(base_keys), 4)
+
+
+def calculate_rank_changes(base_df: pd.DataFrame,
+                            scenario_df: pd.DataFrame) -> dict:
+    """공통 후보의 순위 변화 통계."""
+    base_ranks = _key_to_rank(base_df)
+    sc_ranks   = _key_to_rank(scenario_df)
+    common_keys = set(base_ranks) & set(sc_ranks)
+    if not common_keys:
+        return {"mean": 0.0, "max": 0, "count": 0}
+    changes = [abs(base_ranks[k] - sc_ranks[k]) for k in common_keys]
+    return {
+        "mean":  round(float(np.mean(changes)),  2),
+        "max":   int(max(changes)),
+        "count": len(common_keys),
+    }
+
+
+def calculate_strategy_change_rate(base_df: pd.DataFrame,
+                                    scenario_df: pd.DataFrame) -> float:
+    """추천 전략 변경률 (0~1)."""
+    strat_col = _get_strategy_col(base_df) or _get_strategy_col(scenario_df)
+    if not strat_col:
+        return 0.0
+    base_strat = _key_to_col(base_df, strat_col)
+    sc_strat   = _key_to_col(scenario_df, strat_col) if strat_col in (scenario_df.columns if scenario_df is not None else []) else {}
+    common_keys = set(base_strat) & set(sc_strat)
+    if not common_keys:
+        return 0.0
+    changed = sum(1 for k in common_keys if str(base_strat[k]) != str(sc_strat[k]))
+    return round(changed / len(common_keys), 4)
+
+
+def calculate_grade_change_rate(base_df: pd.DataFrame,
+                                 scenario_df: pd.DataFrame) -> float:
+    """추천 등급 변경률 (0~1)."""
+    col = "sens_grade"
+    base_grades = _key_to_col(base_df, col)
+    sc_grades   = _key_to_col(scenario_df, col) if scenario_df is not None and col in scenario_df.columns else {}
+    common_keys = set(base_grades) & set(sc_grades)
+    if not common_keys:
+        return 0.0
+    changed = sum(1 for k in common_keys if str(base_grades[k]) != str(sc_grades[k]))
+    return round(changed / len(common_keys), 4)
+
+
+def calculate_score_change_summary(base_df: pd.DataFrame,
+                                    scenario_df: pd.DataFrame) -> dict:
+    """점수 변화 요약."""
+    base_scores = _key_to_col(base_df, "sens_score")
+    sc_scores   = _key_to_col(scenario_df, "sens_score") if scenario_df is not None and "sens_score" in scenario_df.columns else {}
+    common_keys = set(base_scores) & set(sc_scores)
+    if not common_keys:
+        return {"mean_change": 0.0, "max_change": 0.0}
+    changes = [abs(float(base_scores[k]) - float(sc_scores[k])) for k in common_keys]
+    return {
+        "mean_change": round(float(np.mean(changes)), 2),
+        "max_change":  round(float(max(changes)),     2),
+    }
+
+
+def calculate_stability_score(metrics: dict) -> float:
+    """
+    순위 안정성 점수 0~100.
+    StabilityScore = 0.35*Top5 + 0.20*Top1 + 0.20*RankChange + 0.15*Strategy + 0.10*Grade
+    """
+    # TOP 5 유지율 (0~1 → 0~100)
+    top5  = float(metrics.get("top5_retention", 0)) * 100
+    top1  = 100.0 if metrics.get("top1_retained", False) else 0.0
+
+    # 순위 변화 점수: 변화 0 → 100, 변화 클수록 감소
+    n_cand  = max(metrics.get("n_candidates", 1), 1)
+    rchange = float(metrics.get("avg_rank_change", 0))
+    rank_sc = max(0.0, 100.0 - (rchange / n_cand * 100))
+
+    # 전략 일관성 (변경률이 낮을수록 높은 점수)
+    strat_sc = (1.0 - float(metrics.get("strategy_change_rate", 0))) * 100
+    grade_sc = (1.0 - float(metrics.get("grade_change_rate",    0))) * 100
+
+    weights = {"top5": 0.35, "top1": 0.20, "rank": 0.20, "strat": 0.15, "grade": 0.10}
+    score = (weights["top5"]  * top5  +
+             weights["top1"]  * top1  +
+             weights["rank"]  * rank_sc +
+             weights["strat"] * strat_sc +
+             weights["grade"] * grade_sc)
+    return round(min(100.0, max(0.0, score)), 1)
+
+
+def assign_stability_level(score) -> str:
+    """안정성 등급."""
+    try:
+        s = float(score)
+        if s >= 80: return "안정"
+        if s >= 60: return "보통"
+        return "변동 큼"
+    except: return "데이터 없음"
+
+
+def build_sensitivity_stability_report(
+    analysis_results: dict,
+    base_scenario: str = "기본",
+    top_n: int = 5,
+) -> pd.DataFrame:
+    """
+    시나리오별 순위 안정성 요약 DataFrame.
+    base_scenario와 각 비교 시나리오를 비교.
+    """
+    if not analysis_results or base_scenario not in analysis_results:
+        return pd.DataFrame()
+
+    base_df  = analysis_results[base_scenario]
+    base_top1 = _get_top_n_keys(base_df, 1)
+
+    rows = []
+    for sc_name, sc_df in analysis_results.items():
+        if sc_df is None or sc_df.empty:
+            continue
+
+        top5 = calculate_top_n_retention(base_df, sc_df, top_n)
+        top1_retained = bool(_get_top_n_keys(sc_df, 1) & base_top1)
+        rc   = calculate_rank_changes(base_df, sc_df)
+        strat_cr = calculate_strategy_change_rate(base_df, sc_df)
+        grade_cr = calculate_grade_change_rate(base_df, sc_df)
+        score_ch = calculate_score_change_summary(base_df, sc_df)
+
+        metrics = {
+            "top5_retention":      top5,
+            "top1_retained":       top1_retained,
+            "avg_rank_change":     rc["mean"],
+            "strategy_change_rate":strat_cr,
+            "grade_change_rate":   grade_cr,
+            "n_candidates":        len(base_df),
+        }
+        stab_score = calculate_stability_score(metrics)
+        stab_level = assign_stability_level(stab_score)
+
+        rows.append({
+            "시나리오":       sc_name,
+            "TOP5 유지율":   f"{top5:.0%}",
+            "TOP1 유지":     "✅" if top1_retained else "❌",
+            "평균 순위 변화":rc["mean"],
+            "최대 순위 변화":rc["max"],
+            "전략 변경률":   f"{strat_cr:.0%}",
+            "등급 변경률":   f"{grade_cr:.0%}",
+            "평균 점수 변화":score_ch["mean_change"],
+            "안정성 점수":   stab_score,
+            "안정성 등급":   stab_level,
+        })
+
+    return pd.DataFrame(rows)
+
+
+def get_top_n_change_detail(
+    analysis_results: dict,
+    base_scenario: str = "기본",
+    compare_scenario: str = None,
+    n: int = 5,
+) -> pd.DataFrame:
+    """
+    기본 vs 비교 시나리오 TOP N 후보 변화 상세표.
+    """
+    if not analysis_results or base_scenario not in analysis_results:
+        return pd.DataFrame()
+
+    sc_names = [s for s in analysis_results if s != base_scenario]
+    if compare_scenario is None:
+        compare_scenario = sc_names[0] if sc_names else None
+    if compare_scenario not in analysis_results:
+        return pd.DataFrame()
+
+    base_df = analysis_results[base_scenario]
+    comp_df = analysis_results[compare_scenario]
+    if base_df is None or base_df.empty or comp_df is None or comp_df.empty:
+        return pd.DataFrame()
+
+    base_ranks  = _key_to_rank(base_df)
+    comp_ranks  = _key_to_rank(comp_df)
+    base_top_n  = _get_top_n_keys(base_df, n)
+    comp_top_n  = _get_top_n_keys(comp_df, n)
+
+    strat_col_b = _get_strategy_col(base_df)
+    strat_col_c = _get_strategy_col(comp_df)
+    base_strat  = _key_to_col(base_df, strat_col_b) if strat_col_b else {}
+    comp_strat  = _key_to_col(comp_df, strat_col_c) if strat_col_c else {}
+    base_scores = _key_to_col(base_df, "sens_score")
+    comp_scores = _key_to_col(comp_df, "sens_score")
+
+    all_keys = base_top_n | comp_top_n
+    rows = []
+    for key in all_keys:
+        parts = key.split("||")
+        pname = parts[0] if len(parts) > 0 else "-"
+        sstor = parts[1] if len(parts) > 1 else "-"
+        tstor = parts[2] if len(parts) > 2 else "-"
+        b_rank = base_ranks.get(key)
+        c_rank = comp_ranks.get(key)
+        rank_diff = (b_rank - c_rank) if (b_rank and c_rank) else None
+
+        if key in base_top_n and key in comp_top_n:
+            if rank_diff and rank_diff > 0: state = "순위 하락"
+            elif rank_diff and rank_diff < 0: state = "순위 상승"
+            else: state = "유지"
+        elif key in base_top_n:
+            state = "TOP N 이탈"
+        else:
+            state = "신규 진입"
+
+        rows.append({
+            "시나리오":        compare_scenario,
+            "상품명":          pname,
+            "보내는 점포":     sstor,
+            "받는 점포":       tstor,
+            "기본 순위":       b_rank if b_rank else "-",
+            "비교 순위":       c_rank if c_rank else "-",
+            "순위 변화":       f"▲{abs(rank_diff)}" if rank_diff and rank_diff > 0
+                               else (f"▼{abs(rank_diff)}" if rank_diff and rank_diff < 0 else "—"),
+            "기본 전략":       str(base_strat.get(key, "-"))[:15],
+            "비교 전략":       str(comp_strat.get(key, "-"))[:15],
+            "기본 점수":       round(float(base_scores.get(key, 0)), 1),
+            "비교 점수":       round(float(comp_scores.get(key, 0)), 1),
+            "상태":            state,
+        })
+
+    return pd.DataFrame(rows).sort_values(
+        ["상태", "기본 순위"], ascending=[True, True], ignore_index=True
+    )
+
+
+def get_stability_summary(stability_df: pd.DataFrame) -> dict:
+    """안정성 보고 전체 요약."""
+    if stability_df is None or stability_df.empty:
+        return {}
+
+    # TOP5 유지율 — 문자열 "80%" → float 0.8
+    def _pct_to_float(s):
+        try: return float(str(s).replace("%","").strip()) / 100
+        except: return 0.0
+
+    top5_vals = stability_df["TOP5 유지율"].apply(_pct_to_float)
+    score_vals = pd.to_numeric(stability_df["안정성 점수"], errors="coerce")
+    rank_vals  = pd.to_numeric(stability_df["평균 순위 변화"], errors="coerce")
+    strat_vals = stability_df["전략 변경률"].apply(_pct_to_float)
+    vc = stability_df["안정성 등급"].value_counts().to_dict()
+
+    avg_score = round(float(score_vals.mean()), 1) if not score_vals.empty else 0
+    overall   = assign_stability_level(avg_score)
+
+    return {
+        "avg_top5_retention":   round(float(top5_vals.mean()), 4),
+        "avg_rank_change":      round(float(rank_vals.mean()),  2),
+        "avg_stability_score":  avg_score,
+        "avg_strategy_change":  round(float(strat_vals.mean()), 4),
+        "overall_level":        overall,
+        "grade_counts":         vc,
+    }

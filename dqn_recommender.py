@@ -233,7 +233,8 @@ def infer_dqn_per_candidate(df: pd.DataFrame) -> pd.DataFrame:
             }
             action_key = label_to_action.get(label, label)
             dqn_actions.append(action_key)
-            dqn_labels.append(label)
+            # 표시명은 normalize_action_name으로 통일
+            dqn_labels.append(normalize_action_name(label))
             dqn_strategies.append(_dqn_varo(action_key))
             dqn_qs.append(round(float(q.max()), 4))
             dqn_ok.append(True)
@@ -253,17 +254,79 @@ def infer_dqn_per_candidate(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ── agreement 계산 ────────────────────────────────────────────
-def _normalize_strategy(s: str) -> str:
-    """전략 문자열을 비교용 그룹으로 정규화."""
-    s = str(s).lower()
-    if any(k in s for k in ["이동", "재배치", "transfer", "direct", "dc"]):
-        return "재배치"
-    if any(k in s for k in ["할인", "discount", "1+1", "one_plus", "promo"]):
+# ── action → 표시명 매핑 테이블 ──────────────────────────────
+_ACTION_DISPLAY_MAP = {
+    "multi_store_transfer": "재고 이동",
+    "transfer":             "재고 이동",
+    "direct_transfer":      "재고 이동",
+    "dc_transfer":          "재고 이동",
+    "store_transfer":       "재고 이동",
+    "relocation":           "재고 이동",
+    "재고 이동":            "재고 이동",
+    "재배치":               "재고 이동",
+    "discount_sale":        "할인",
+    "discount":             "할인",
+    "할인 판매":            "할인",
+    "할인":                 "할인",
+    "emergency_discount":   "긴급 할인",
+    "urgent_discount":      "긴급 할인",
+    "긴급 할인":            "긴급 할인",
+    "one_plus_one":         "1+1",
+    "plus_one":             "1+1",
+    "1+1":                  "1+1",
+    "dispose":              "폐기",
+    "discard":              "폐기",
+    "waste":                "폐기",
+    "폐기":                 "폐기",
+    "keep_inventory":       "보류",
+    "hold":                 "보류",
+    "no_action":            "보류",
+    "maintain":             "보류",
+    "보류":                 "보류",
+    "유지":                 "보류",
+}
+
+def normalize_action_name(action: str) -> str:
+    """원본 action 문자열 → 표준 표시명 변환."""
+    a = str(action).strip()
+    # 직접 매핑
+    if a in _ACTION_DISPLAY_MAP:
+        return _ACTION_DISPLAY_MAP[a]
+    # 포함 검색 (순서 중요: 긴급 먼저)
+    al = a.lower()
+    if any(k in al for k in ["긴급", "emergency", "urgent"]):
+        return "긴급 할인"
+    if any(k in al for k in ["이동", "재배치", "transfer", "direct", "dc", "multi"]):
+        return "재고 이동"
+    if any(k in al for k in ["1+1", "one_plus", "plus_one"]):
+        return "1+1"
+    if any(k in al for k in ["할인", "discount", "promo"]):
         return "할인"
-    if any(k in s for k in ["폐기", "dispose"]):
+    if any(k in al for k in ["폐기", "dispose", "discard", "waste"]):
         return "폐기"
-    if any(k in s for k in ["보류", "유지", "keep"]):
+    if any(k in al for k in ["보류", "유지", "keep", "hold", "no_action", "maintain"]):
         return "보류"
+    if a in ("-", "", "None", "nan", "비교 불가", "제외"):
+        return a
+    return a
+
+def map_action_to_strategy(action: str) -> str:
+    """alias for normalize_action_name."""
+    return normalize_action_name(action)
+
+def _normalize_strategy(s: str) -> str:
+    """전략 문자열을 비교용 그룹으로 정규화 (내부 비교용)."""
+    norm = normalize_action_name(str(s))
+    if norm in ("재고 이동",): return "재배치"
+    if norm in ("할인", "긴급 할인", "1+1"): return "할인"
+    if norm == "폐기": return "폐기"
+    if norm == "보류": return "보류"
+    # 기존 한글 직접 매핑
+    sl = str(s).lower()
+    if any(k in sl for k in ["이동", "재배치"]): return "재배치"
+    if any(k in sl for k in ["할인", "프로모션", "긴급"]): return "할인"
+    if "폐기" in sl: return "폐기"
+    if any(k in sl for k in ["보류", "검토"]): return "보류"
     return "기타"
 
 def _get_agreement_status(varo_strategy: str, dqn_strategy: str,
@@ -308,10 +371,16 @@ def build_comparison_table(final_recommendations: pd.DataFrame) -> pd.DataFrame:
 
     df["heuristic_strategy"] = df.apply(_heuristic_strategy, axis=1)
 
-    # Greedy 전략
-    df["greedy_strategy"] = df.apply(
-        lambda r: "선택" if bool(r.get("is_greedy_selected", False)) else "미선택", axis=1
-    )
+    # Greedy 전략 — final_recommendation 기반으로 전략명 표시
+    def _greedy_strat(row):
+        # Greedy가 선택한 행이면 해당 추천 전략명 표시
+        if bool(row.get("is_greedy_selected", False)):
+            fr = str(row.get("final_recommendation", "") or "")
+            vhs = str(row.get("vhs2_action", "") or "")
+            action = fr if fr else vhs
+            return normalize_action_name(action) if action else "선택"
+        return "-"
+    df["greedy_strategy"] = df.apply(_greedy_strat, axis=1)
 
     # Varo (vhs2_action 우선, 없으면 final_recommendation)
     def _varo_strategy(row):
@@ -365,9 +434,9 @@ def make_comparison_view(df: pd.DataFrame) -> pd.DataFrame:
         "target_store":      "받는 점포",
         "suggested_qty":     "추천 수량",
         "estimated_cost":    "예상 비용",
-        "heuristic_strategy":"Heuristic",
-        "greedy_strategy":   "Greedy",
-        "dqn_label":         "DQN",
+        "heuristic_strategy":"Heuristic 전략",
+        "greedy_strategy":   "Greedy 전략",
+        "dqn_label":         "DQN 전략",
         "dqn_status":        "DQN 상태",
         "varo_strategy":     "Varo 최종",
         "heuristic_score":   "총점",

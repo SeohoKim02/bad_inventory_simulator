@@ -1134,331 +1134,111 @@ def _show_dashboard_home(
     promotion_result=None,
     transfer_path_result=None,
 ):
-    best = _best_row(final_recommendations)
-
-    if best is None:
-        st.info("대시보드에 표시할 최종 추천 결과가 없습니다.")
-        return
-
-    product_name = _safe_get(best, "product_name")
-    source_store = _safe_get(best, "source_store")
-    target_store = _safe_get(best, "target_store")
-    suggested_qty = _safe_qty(best, 0)
-    final_recommendation = _safe_get(best, "final_recommendation")
-    estimated_cost = _safe_get(best, "estimated_cost", 0)
-    heuristic_score = _safe_get(best, "heuristic_score", "-")
-    heuristic_grade = _safe_get(best, "heuristic_grade", "-")
-    original_reason = _safe_get(best, "reason", "-")
-    display_grade = _display_grade(heuristic_grade)
-
-    dashboard_reason = original_reason
-    dashboard_transport_type = "-"
-    dashboard_transport_cost = estimated_cost
+    # ── 모니터링 대시보드 ─────────────────────────────────
     try:
-        dashboard_cost_table = _build_cost_comparison_table(
-            stores=stores,
-            products=products,
-            inventory=inventory,
-            final_recommendations=final_recommendations,
-            promotion_result=promotion_result,
-            transfer_path_result=transfer_path_result,
-            discount_rate=20.0,
+        from varo_dashboard_kpi import (
+            calculate_before_after_costs, calculate_vhs_kpi,
+            calculate_action_summary, MONITOR_CSS, _mcard,
+            safe_format_currency, safe_format_percent,
         )
+        _kpi_ok = True
+    except ImportError:
+        _kpi_ok = False
 
-        if dashboard_cost_table is not None and not dashboard_cost_table.empty:
-            best_cost_row = dashboard_cost_table.iloc[0]
-            dashboard_reason = best_cost_row.get("비율 기반 추천 이유", original_reason)
-            dashboard_transport_type = best_cost_row.get("추천 이동수단", "-")
-            dashboard_transport_cost = best_cost_row.get("AI 이동수단 비용", estimated_cost)
+    st.markdown('<div class="dash-page-box" style="padding-bottom:0">', unsafe_allow_html=True)
+    st.markdown("### 모니터링 대시보드")
+    st.caption("Varo 운영 현황")
 
-            dashboard_ratios = {
-                "수익 회수 가능성": str(best_cost_row.get("수익 회수 가능성", "0%")).replace("%", ""),
-                "폐기 위험 감소 효과": str(best_cost_row.get("폐기 위험 감소 효과", "0%")).replace("%", ""),
-                "비용 부담률": str(best_cost_row.get("비용 부담률", "0%")).replace("%", ""),
-            }
+    if _kpi_ok:
+        st.markdown(MONITOR_CSS, unsafe_allow_html=True)
+
+    # KPI 계산
+    vhs_kpi    = calculate_vhs_kpi(final_recommendations)    if _kpi_ok else {}
+    costs      = calculate_before_after_costs(final_recommendations) if _kpi_ok else {}
+    act_summ   = calculate_action_summary(final_recommendations)     if _kpi_ok else {}
+
+    # 검증 리포트
+    val_status = "-"
+    val_warn   = 0
+    try:
+        from varo_validation import build_validation_report
+        _vr = build_validation_report(final_recommendations, stores, products, inventory)
+        val_status = _vr.get("status", "-")
+        val_warn   = _vr.get("warning_count", 0)
     except Exception:
-        dashboard_reason = original_reason
+        pass
 
-    st.markdown(
-        f"""
-        <div class="dash-hero" translate="no">
-            <div class="dash-small-title">AI 추천 결과</div>
-            <div class="dash-main-title">{product_name}</div>
-            <div style="font-size: 18px; font-weight: 800; color:#333; margin-top:-2px; margin-bottom:12px;">
-                {source_store} → {target_store}
-            </div>
-            <div class="dash-desc">
-                추천 전략: <b>{final_recommendation}</b>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # ── KPI 카드 (4열) ───────────────────────────────────
+    k1, k2, k3, k4 = st.columns(4)
 
-    metric_qty       = _escape_text(f"{suggested_qty}개")
-    metric_cost      = _escape_text(_format_money(estimated_cost))
-    metric_transport = _escape_text(dashboard_transport_type)
+    # 카드 1: VHS 점수
+    avg_sc = vhs_kpi.get("avg_score")
+    sc_val = f"{avg_sc:.1f}" if avg_sc is not None else "데이터 없음"
+    sc_bar = float(avg_sc) if avg_sc is not None else None
+    sc_badge_cls = "green" if avg_sc and avg_sc >= 65 else ("yellow" if avg_sc else "gray")
+    sc_badge = vhs_kpi.get("top_grade","-")
 
-    # ── VHS / 점수 파싱 ────────────────────────────────────
-    import math
-    def _sf(v):
-        try:
-            f = float(v); return None if math.isnan(f) else f
-        except (TypeError, ValueError):
-            return None
-
-    # vhs2 우선, 없으면 vhs fallback
-    vhs_val    = _sf(best.get("vhs2"))   if best is not None and _sf(best.get("vhs2")) is not None \
-                 else (_sf(best.get("vhs")) if best is not None else None)
-    varo_val   = _sf(best.get("varo_score")) if best is not None else None
-    vhs_action = str(best.get("vhs2_action") or best.get("vhs_action", "-")) \
-                 if best is not None else "-"
-    vhs_grade  = str(best.get("vhs2_grade")  or best.get("vhs_grade", "-")) \
-                 if best is not None else "-"
-    vhs_confidence = str(best.get("vhs2_confidence_label", "")) \
-                     if best is not None else ""
-    act_col    = _ACT_COLOR.get(vhs_action, "#555")
-    act_icon   = _ACT_ICON.get(vhs_action, "")
-
-    # ── 점수 카드 (VHS > Varo > 휴리스틱 순서로 우선) ──────
-    if vhs_val is not None:
-        gc = _vhs_color(vhs_val)
-        score_card = (
-            f'<div class="compact-metric-card" style="border:2px solid {gc};'
-            f'background:linear-gradient(160deg,#fff,#f8f9ff);">'
-            f'<div class="compact-metric-label" style="color:{gc};font-weight:800;">'
-            f'VHS · {vhs_grade}</div>'
-            f'<div class="compact-metric-value" style="color:{gc};">{vhs_val:.0f}점</div>'
-            f'<div style="background:#eee;border-radius:3px;height:4px;margin:4px 0;">'
-            f'<div style="width:{vhs_val:.0f}%;height:100%;background:{gc};border-radius:3px;">'
-            f'</div></div>'
-            f'<div style="font-size:11px;color:{act_col};font-weight:700;">'
-            f'{act_icon} {vhs_action}</div>'
-            f'<div style="font-size:10px;color:#888;margin-top:2px;">{vhs_confidence}</div>'
-            f'</div>'
-        )
-    elif varo_val is not None:
-        vg = str(best.get("varo_grade", "-")) if best is not None else "-"
-        score_card = (
-            f'<div class="compact-metric-card" style="border:2px solid #ffd43b;">'
-            f'<div class="compact-metric-label">Varo 점수</div>'
-            f'<div class="compact-metric-value">{varo_val:.1f}점</div>'
-            f'<div style="font-size:11px;color:#888;margin-top:2px;">{vg}</div>'
-            f'</div>'
-        )
-    else:
-        hs = _escape_text(f"{heuristic_score}점")
-        dg = _escape_text(display_grade)
-        score_card = (
-            f'<div class="compact-metric-card">'
-            f'<div class="compact-metric-label">총점 · 등급</div>'
-            f'<div class="compact-metric-value">{hs}</div>'
-            f'<div style="font-size:11px;color:#888;margin-top:2px;">{dg}</div>'
-            f'</div>'
-        )
-
-    st.markdown(
-        f"""
-        <div class="compact-metric-grid">
-            {score_card}
-            <div class="compact-metric-card">
-                <div class="compact-metric-label">추천 수량</div>
-                <div class="compact-metric-value">{metric_qty}</div>
-            </div>
-            <div class="compact-metric-card">
-                <div class="compact-metric-label">예상 비용</div>
-                <div class="compact-metric-value small">{metric_cost}</div>
-            </div>
-            <div class="compact-metric-card">
-                <div class="compact-metric-label">이동수단</div>
-                <div class="compact-metric-value small">{metric_transport}</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # ── 상황 감지 + 액션 분포 (활성 상황이 있을 때만 표시) ──
-    if final_recommendations is not None and not final_recommendations.empty:
-        fr = final_recommendations
-        _SIT = {
-            "sit_EXPIRY_URGENT": "⏰ 유통기한 임박",
-            "sit_FROZEN_EXCESS": "❄️ 냉동·냉장 과잉",
-            "sit_DEAD_STOCK":    "💀 악성재고",
-            "sit_REORDER_CRISIS":"🚨 재주문 위기",
-            "sit_DEMAND_SURGE":  "📈 수요 급증",
-            "sit_HIGH_COST":     "💸 이동비용 높음",
-        }
-        sit_html = "".join(
-            f'<span style="border:1px solid #ffd54f;background:#fff8e1;color:#c77000;'
-            f'padding:2px 9px;border-radius:12px;font-size:11px;font-weight:700;'
-            f'margin:2px;display:inline-block;">{lab} {int(fr[col].sum())}건</span>'
-            for col, lab in _SIT.items()
-            if col in fr.columns and int(fr[col].sum()) > 0
-        )
-        act_html = ""
-        if "vhs_action" in fr.columns:
-            act_html = "".join(
-                f'<span style="background:{_ACT_COLOR.get(a,"#888")};color:#fff;'
-                f'padding:2px 9px;border-radius:12px;font-size:11px;font-weight:700;'
-                f'margin:2px;display:inline-block;">{_ACT_ICON.get(a,"")} {a} {c}건</span>'
-                for a, c in fr["vhs_action"].value_counts().items()
-            )
-        if act_html or sit_html:
-            st.markdown(
-                f'<div style="padding:8px 12px;background:#f8f9ff;border-radius:10px;'
-                f'border:1px solid #e8eaf0;margin-bottom:8px;">'
-                f'{act_html}'
-                f'{"<div style=margin-top:4px;>" + sit_html + "</div>" if sit_html else ""}'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-    dashboard_ratios = _estimate_ratio_summary(
-        move_cost=estimated_cost,
-        discount_loss_cost=0,
-        disposal_cost=max(_safe_numeric(estimated_cost, 0) * 1.4, 1),
-        score=heuristic_score,
-        qty=suggested_qty,
-    )
-
-    with st.expander("📋 추천 근거 & 지표", expanded=False):
-        rc1, rc2, rc3, rc4 = st.columns(4)
-        rc1.metric("수익 회수", f"{dashboard_ratios['수익 회수 가능성']}%")
-        rc2.metric("폐기위험 감소", f"{dashboard_ratios['폐기 위험 감소 효과']}%")
-        rc3.metric("비용 부담률", f"{dashboard_ratios['비용 부담률']}%")
-        rc4.metric("이동 비용", _format_money(dashboard_transport_cost))
-        if dashboard_reason and str(dashboard_reason) not in ("-", ""):
-            st.caption(str(dashboard_reason)[:200])
-
-    with st.expander("📈 다른 추천 후보", expanded=False):
-        top_candidates = _filter_positive_qty_recommendations(final_recommendations).copy()
-
-        # 원본 index를 보관해야 후보를 눌렀을 때 대시보드 메인 카드가 같은 후보로 바뀜
-        top_candidates["_candidate_original_index"] = top_candidates.index
-
-        if "greedy_rank" in top_candidates.columns:
-            top_candidates["_rank"] = pd.to_numeric(top_candidates["greedy_rank"], errors="coerce")
-            top_candidates = top_candidates.sort_values("_rank", na_position="last")
-        elif "heuristic_score" in top_candidates.columns:
-            top_candidates["_score"] = pd.to_numeric(top_candidates["heuristic_score"], errors="coerce")
-            top_candidates = top_candidates.sort_values("_score", ascending=False, na_position="last")
-        elif "estimated_cost" in top_candidates.columns:
-            top_candidates["_cost"] = pd.to_numeric(top_candidates["estimated_cost"], errors="coerce")
-            top_candidates = top_candidates.sort_values("_cost", na_position="last")
-
-        # 현재 대시보드에 올라온 후보는 더보기 목록에서 제외.
-        # 다른 후보를 누르면 기존 메인 후보가 다시 더보기 목록으로 내려감.
-        current_candidate = _best_row(final_recommendations)
-        current_original_index = None
-
-        try:
-            if current_candidate is not None:
-                current_original_index = current_candidate.name
-        except Exception:
-            current_original_index = None
-
-        if current_original_index is not None:
-            top_candidates = top_candidates[
-                top_candidates["_candidate_original_index"].astype(str) != str(current_original_index)
-            ]
-
-        top_candidates = top_candidates.head(5).reset_index(drop=True)
-
-        if top_candidates.empty:
-            st.info("표시할 다른 추천 후보가 없습니다.")
+    with k1:
+        if _kpi_ok:
+            st.markdown(_mcard("VHS 점수", sc_val,
+                sub="추천 결과 종합 점수",
+                badge=sc_badge, badge_cls=sc_badge_cls,
+                bar_pct=sc_bar), unsafe_allow_html=True)
         else:
-            for candidate_position, candidate in top_candidates.iterrows():
-                original_index = candidate.get("_candidate_original_index")
+            st.metric("VHS 점수", sc_val)
 
-                c_product = _safe_get(candidate, "product_name", "-")
-                c_source = _safe_get(candidate, "source_store", "-")
-                c_target = _safe_get(candidate, "target_store", "-")
-                c_qty = _safe_qty(candidate, 0)
-                c_cost = _format_money(_safe_get(candidate, "estimated_cost", 0))
-                c_strategy = _safe_get(candidate, "final_recommendation", "-")
-                c_score = _safe_get(candidate, "heuristic_score", "-")
-                c_grade = _display_grade(_safe_get(candidate, "heuristic_grade", "-"))
+    # 카드 2: Before → After
+    before_v = costs.get("before")
+    after_v  = costs.get("after")
+    ba_val   = f"{safe_format_currency(before_v)} → {safe_format_currency(after_v)}"                if (before_v is not None and after_v is not None) else "데이터 없음"
+    with k2:
+        if _kpi_ok:
+            st.markdown(_mcard("Before → After", ba_val,
+                sub="처리 비용 변화"), unsafe_allow_html=True)
+        else:
+            st.metric("Before → After", ba_val)
 
-                rank_text = candidate_position + 1
-                if "greedy_rank" in candidate.index and not pd.isna(candidate.get("greedy_rank")):
-                    try:
-                        rank_text = int(float(candidate.get("greedy_rank")))
-                    except Exception:
-                        rank_text = candidate_position + 1
+    # 카드 3: 절감액
+    sav    = costs.get("savings")
+    sr     = costs.get("savings_rate")
+    sav_v  = safe_format_currency(sav) if sav is not None else "계산 불가"
+    sav_sub= safe_format_percent(sr) + " 절감" if sr is not None else "-"
+    sav_cls= "green" if (sav is not None and sav > 0) else "gray"
+    with k3:
+        if _kpi_ok:
+            st.markdown(_mcard("예상 절감액", sav_v,
+                sub=sav_sub, badge_cls=sav_cls), unsafe_allow_html=True)
+        else:
+            st.metric("예상 절감액", sav_v)
 
-                grade_color = _grade_color(c_grade)
+    # 카드 4: 데이터 품질
+    vs_map = {"정상":"green","확인 필요":"yellow","데이터 부족":"yellow","오류 가능":"gray"}
+    vs_cls = vs_map.get(val_status, "gray")
+    q_sub  = f"경고 {val_warn}건" if val_warn else ""
+    with k4:
+        if _kpi_ok:
+            st.markdown(_mcard("데이터 품질", val_status,
+                sub=q_sub, badge_cls=vs_cls), unsafe_allow_html=True)
+        else:
+            st.metric("데이터 품질", val_status)
 
-                # VHS 점수가 있으면 우선 사용
-                c_vhs = candidate.get("vhs", None)
-                try:
-                    c_vhs_val = float(c_vhs) if c_vhs is not None else None
-                except (TypeError, ValueError):
-                    c_vhs_val = None
-                c_vhs_action = str(candidate.get("vhs_action", "")) if c_vhs_val else ""
+    # ── 액션 현황 (간단 리스트) ───────────────────────────
+    if act_summ:
+        st.markdown("---")
+        ac1, ac2, ac3, ac4, ac5 = st.columns(5)
+        ac_items = [
+            ("전체 후보",  act_summ.get("total", 0)),
+            ("이동 추천",  act_summ.get("이동",  0)),
+            ("할인 추천",  act_summ.get("할인",  0)),
+            ("폐기 검토",  act_summ.get("폐기",  0)),
+            ("보류",       act_summ.get("보류",  0)),
+        ]
+        for col, (label, num) in zip([ac1,ac2,ac3,ac4,ac5], ac_items):
+            col.metric(label, f"{num}건")
 
-                # 카드 색상 — 순위별 뚜렷한 색
-                _CARD_BG = ["#64b5f6","#81c784","#ce93d8","#e57373","#ffb74d"]
-                card_bg = _CARD_BG[candidate_position % len(_CARD_BG)]
-
-                score_disp = f"{c_vhs_val:.0f}" if c_vhs_val else str(c_score)
-                grade_disp = c_vhs_action if c_vhs_action else c_grade
-
-                st.markdown(
-                    f"""
-                    <div style="background:{card_bg};border-radius:12px;
-                                padding:13px 16px;margin:6px 0;">
-                      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-                        <div style="flex:1;">
-                          <div style="color:#fff;font-size:15px;font-weight:900;line-height:1.3;">
-                            #{rank_text} {c_product}
-                          </div>
-                          <div style="color:rgba(255,255,255,0.80);font-size:12px;margin-top:3px;">
-                            {c_source} → {c_target}
-                          </div>
-                        </div>
-                        <div style="text-align:right;min-width:64px;">
-                          <div style="color:#fff;font-size:22px;font-weight:900;line-height:1;">
-                            {score_disp}점
-                          </div>
-                          <div style="color:rgba(255,255,255,0.75);font-size:11px;margin-top:2px;">
-                            {grade_disp}
-                          </div>
-                        </div>
-                      </div>
-                      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
-                        <span style="background:rgba(255,255,255,0.20);color:#fff;
-                                     padding:2px 9px;border-radius:8px;font-size:11px;font-weight:600;">
-                          {c_qty}개
-                        </span>
-                        <span style="background:rgba(255,255,255,0.20);color:#fff;
-                                     padding:2px 9px;border-radius:8px;font-size:11px;font-weight:600;">
-                          {c_cost}
-                        </span>
-                        <span style="background:rgba(255,255,255,0.20);color:#fff;
-                                     padding:2px 9px;border-radius:8px;font-size:11px;font-weight:600;">
-                          {c_strategy}
-                        </span>
-                      </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button(
-                    "✓ 이 후보로 변경",
-                    key=f"candidate_row_select_{candidate_position}_{original_index}",
-                ):
-                    st.session_state["dashboard_selected_candidate_index"] = original_index
-                    st.rerun()
-
-                # 추천 근거 expander
-                try:
-                    from vhs_reason import render_reason_expander
-                    render_reason_expander(candidate, idx=candidate_position)
-                except Exception:
-                    pass
-
-    # ── 네비게이션 ─────────────────────────────────────────
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("---")
+        # ── 네비게이션 ─────────────────────────────────────────
     st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
     # 주요 4개 버튼
@@ -1514,11 +1294,7 @@ def _show_dashboard_home(
             if st.button("🤖 DQN 검증",          width="stretch", key="go_dqn_validation"): _go("dqn_validation")
         with m4:
             if st.button("📘 DQN 해석",          width="stretch", key="go_dqn_interpret"):  _go("dqn_interpret")
-        m5, m6 = st.columns(2)
-        with m5:
-            if st.button("🎮 데모",              width="stretch", key="go_demo"):       _go("demo")
-        with m6:
-            if st.button("🤖 이력 보정",         width="stretch", key="go_rl_a"):       _go("rl")
+        if st.button("🎮 데모",  width="stretch", key="go_demo"):  _go("demo")
 
     # ── 검증 리포트 ─────────────────────────────────────
     with st.expander("🔎 검증 리포트", expanded=False):
@@ -1981,14 +1757,16 @@ def _render_validation_report(
     status = report.get("status", "확인 필요")
     status_icon = {"정상": "✅", "확인 필요": "⚠️", "데이터 부족": "🟡", "오류 가능": "❌"}.get(status, "⚠️")
 
-    # 요약 카드 (기본 화면)
-    vc1, vc2, vc3, vc4, vc5, vc6 = st.columns(6)
-    vc1.metric("검증 상태",       f"{status_icon} {status}")
-    vc2.metric("최종 후보",       f'{report.get("n_recs", 0)}건')
-    vc3.metric("평균 Score",      f'{report.get("avg_score", 0):.1f}')
-    vc4.metric("신뢰도 높음",     f'{report.get("conf_높음", 0)}건')
-    vc5.metric("DQN 상태",        str(report.get("dqn_status", "-")))
-    vc6.metric("경고",            f'{report.get("warning_count", 0)}건')
+    # 요약 카드 (기본 화면) — 4열로 줄여 짤림 방지
+    vc1, vc2, vc3, vc4 = st.columns(4)
+    vc1.metric("검증 상태",  f"{status_icon} {status}")
+    vc2.metric("최종 후보",  f'{report.get("n_recs", 0)}건')
+    vc3.metric("신뢰도 높음",f'{report.get("conf_높음", 0)}건')
+    vc4.metric("경고",       f'{report.get("warning_count", 0)}건')
+    # DQN 상태 / 평균 Score — 캡션으로 짤림 없이 표시
+    dqn_st_val = str(report.get("dqn_status", "-"))
+    avg_sc_val  = f'{report.get("avg_score", 0):.1f}'
+    st.caption(f"DQN 상태: **{dqn_st_val}** · 평균 Score: **{avg_sc_val}**")
 
     # 경고 목록
     warnings = report.get("warnings", [])
@@ -2164,6 +1942,254 @@ def _render_demand_analysis(final_recommendations):
         st.info("수요 분석 데이터 없음")
 
 
+def _render_optimality_gap(final_recommendations):
+    """최적화 비교 (Optimality Gap) UI 렌더링 — 접힌 영역 전용."""
+    try:
+        from varo_optimality_gap import (
+            calculate_optimality_gap, build_optimality_comparison_table,
+        )
+    except ImportError:
+        st.info("varo_optimality_gap 모듈을 불러올 수 없습니다.")
+        return
+
+    if final_recommendations is None or final_recommendations.empty:
+        st.info("비교 대상 없음")
+        return
+
+    with st.spinner("최적화 계산 중..."):
+        try:
+            gap = calculate_optimality_gap(final_recommendations, k=5, max_candidates=30)
+        except Exception as e:
+            st.info(f"최적화 비교 계산 불가: {e}")
+            return
+
+    gap_str = gap.get("gap_str", "계산 불가")
+
+    # 요약 카드
+    g1, g2, g3, g4 = st.columns(4)
+    g1.metric("Varo 총 비용",    f'{gap.get("varo_total", 0):,.0f}원'
+              if gap.get("varo_total") is not None else "-")
+    g2.metric("최적화 총 비용",  f'{gap.get("opt_total", 0):,.0f}원'
+              if gap.get("opt_total") is not None else "-")
+    g3.metric("Optimality Gap",  gap_str)
+    g4.metric("선택 일치율",     f'{gap.get("match_rate", 0):.1f}%')
+
+    st.caption(
+        f"후보 {gap.get('candidates_used', 0)}건 · "
+        f"방식: {gap.get('opt_method', '-')} · "
+        f"공통 선택: {gap.get('common_count', 0)}건"
+    )
+
+    # 선택 후보 비교 표
+    comp_table = build_optimality_comparison_table(gap)
+    if not comp_table.empty:
+        _safe_dataframe(comp_table, width="stretch")
+    else:
+        st.info("비교 후보 없음")
+
+    # 수식 기준 (접힌 영역)
+    with st.expander("Optimality Gap 기준", expanded=False):
+        st.code(
+            "비용 함수  Cost(i):\n"
+            "  = estimated_cost\n"
+            "  + discount_loss_cost (있으면)\n"
+            "  + promotion_fixed_cost (있으면)\n"
+            "  - avoided_disposal_cost (있으면)\n"
+            "  - promotion_net_benefit (양수일 때)\n"
+            "\n"
+            "선택 기준:\n"
+            "  i* = argmin Σ Cost(i)·x_i  (x_i ∈ {0,1}, Σx_i = K)\n"
+            "\n"
+            "Optimality Gap:\n"
+            "  Gap(%) = (C_Varo - C_Opt) / C_Opt × 100\n"
+            "\n"
+            "※ 소규모 후보 집합(상위 30개) 기준 계산",
+            language=None
+        )
+
+
+def _render_weight_optimizer(final_recommendations):
+    """가중치 자동 최적화 비교 UI — 접힌 영역 전용."""
+    try:
+        from varo_weight_optimizer import (
+            optimize_hybrid_weights, build_weight_comparison_table,
+            build_top_k_comparison,
+        )
+    except ImportError:
+        st.info("varo_weight_optimizer 모듈을 불러올 수 없습니다.")
+        return
+
+    if final_recommendations is None or final_recommendations.empty:
+        st.info("가중치 최적화 데이터 없음")
+        return
+
+    group_cols = [c for c in final_recommendations.columns if c.startswith("vhs2_group_")]
+    if not group_cols:
+        st.info("VHS 그룹 점수 컬럼이 없습니다. 분석을 실행해주세요.")
+        return
+
+    # 탐색 설정 UI
+    n_trials = st.slider("탐색 횟수", min_value=50, max_value=300, value=100, step=50,
+                          key="wo_n_trials")
+
+    with st.spinner(f"가중치 탐색 중 ({n_trials}회)..."):
+        try:
+            opt = optimize_hybrid_weights(
+                final_recommendations, method="random",
+                n_trials=n_trials, top_k=5, seed=42,
+            )
+        except Exception as e:
+            st.info(f"가중치 탐색 실패: {e}")
+            return
+
+    status = opt.get("status", "계산 불가")
+    if status != "완료":
+        st.info(f"가중치 탐색: {status}")
+        return
+
+    def_res  = opt["default_result"]
+    best_res = opt["best_result"]
+    impr_raw = def_res.get("objective",1) - best_res.get("objective",1)
+    impr_pct = round(impr_raw / max(abs(def_res.get("objective",1)),1) * 100, 1)
+
+    # 요약 카드 (4열)
+    w1, w2, w3, w4 = st.columns(4)
+    w1.metric("적용 상태",    "비교 모드")
+    w2.metric("탐색 횟수",    f'{opt.get("n_evaluated",0)}회')
+    w3.metric("목적함수 개선", f"{impr_pct:+.1f}%")
+    w4.metric("탐색 방식",    str(opt.get("method_used","random")))
+
+    st.caption(
+        f"기본 Score 평균: {def_res.get('avg_score',0):.1f}  →  "
+        f"자동 Score 평균: {best_res.get('avg_score',0):.1f}"
+    )
+
+    # 가중치 비교 표
+    st.markdown("**가중치 비교**")
+    from varo_score_config import DEFAULT_VHS_WEIGHTS
+    w_comp = build_weight_comparison_table(DEFAULT_VHS_WEIGHTS, opt["best_weights"])
+    _safe_dataframe(w_comp, width="stretch")
+
+    # TOP 5 비교
+    st.markdown("**TOP 5 비교**")
+    top_comp = build_top_k_comparison(final_recommendations, opt["best_weights"], top_k=5)
+    if not top_comp.empty:
+        _safe_dataframe(top_comp, width="stretch")
+
+    # 탐색 상세 (접힌 영역)
+    with st.expander("탐색 결과 상세", expanded=False):
+        all_df = opt.get("all_results_df", pd.DataFrame())
+        if not all_df.empty:
+            _safe_dataframe(all_df, width="stretch")
+        else:
+            st.info("탐색 상세 없음")
+
+    # 수식 기준 (접힌 영역)
+    with st.expander("가중치 최적화 기준", expanded=False):
+        st.code(
+            "w* = argmin Objective(w)\n"
+            "\n"
+            "subject to:\n"
+            "  wk ≥ 0\n"
+            "  Σwk = 1\n"
+            "\n"
+            "Objective(w) =\n"
+            "  total_cost × 0.5\n"
+            "  + zero_qty_penalty (×5,000)\n"
+            "  + disposal_risk_penalty (×3,000)\n"
+            "  + low_demand_penalty (×2,000)\n"
+            "  - avg_confidence × 100\n"
+            "  - avoided_disposal_benefit × 0.3\n"
+            "\n"
+            "※ 자동 가중치는 비교 모드 — 기존 추천 미대체",
+            language=None
+        )
+
+
+def _render_stability_analysis(final_recommendations):
+    """순위 안정성 검증 UI 렌더링 — 접힌 영역 전용."""
+    try:
+        from varo_sensitivity import (
+            get_sensitivity_weight_scenarios, run_hybrid_score_sensitivity_analysis,
+            build_sensitivity_stability_report, get_top_n_change_detail,
+            get_stability_summary,
+        )
+    except ImportError:
+        st.info("varo_sensitivity 모듈을 불러올 수 없습니다.")
+        return
+
+    if final_recommendations is None or final_recommendations.empty:
+        st.info("순위 안정성 분석 데이터 없음")
+        return
+
+    group_cols = [c for c in final_recommendations.columns if c.startswith("vhs2_group_")]
+    if not group_cols:
+        st.info("VHS 그룹 점수 컬럼이 없습니다. 분석을 실행해주세요.")
+        return
+
+    user_w = st.session_state.get("_vhs_weights")
+    scenarios = get_sensitivity_weight_scenarios(user_w)
+
+    with st.spinner("순위 안정성 계산 중..."):
+        try:
+            analysis = run_hybrid_score_sensitivity_analysis(final_recommendations, scenarios)
+            stab_df  = build_sensitivity_stability_report(analysis)
+        except Exception as e:
+            st.info(f"안정성 분석 실패: {e}")
+            return
+
+    if stab_df.empty:
+        st.info("안정성 분석 결과 없음")
+        return
+
+    summ = get_stability_summary(stab_df)
+
+    # 요약 카드 (4열 — 짤림 방지)
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("평균 TOP5 유지율", f'{summ.get("avg_top5_retention", 0):.0%}')
+    s2.metric("평균 순위 변화",   f'{summ.get("avg_rank_change", 0):.1f}')
+    s3.metric("평균 안정성 점수", f'{summ.get("avg_stability_score", 0):.1f}')
+    s4.metric("전체 안정성 등급", str(summ.get("overall_level", "-")))
+
+    # 핵심 컬럼만 기본 표시
+    show_cols = ["시나리오","TOP5 유지율","평균 순위 변화","전략 변경률","안정성 점수","안정성 등급"]
+    basic = stab_df[[c for c in show_cols if c in stab_df.columns]]
+    _safe_dataframe(basic, width="stretch")
+
+    # 상세 비교 (접힌 영역)
+    with st.expander("TOP5 변화 상세", expanded=False):
+        sc_names = [s for s in scenarios if s != "기본"]
+        if sc_names:
+            compare_sc = st.selectbox("비교 시나리오", sc_names, key="stab_compare_sc")
+            detail_df  = get_top_n_change_detail(analysis, "기본", compare_sc, n=5)
+            if not detail_df.empty:
+                _safe_dataframe(detail_df, width="stretch")
+            else:
+                st.info("변화 상세 데이터 없음")
+
+    # 전체 안정성 테이블
+    with st.expander("시나리오별 안정성 전체", expanded=False):
+        _safe_dataframe(stab_df, width="stretch")
+
+    # 수식 기준
+    with st.expander("안정성 기준", expanded=False):
+        st.code(
+            "TOP N 유지율:\n"
+            "  = |TopN_base ∩ TopN_scenario| / N\n"
+            "\n"
+            "순위 변화:\n"
+            "  RankChange(i) = |rank_base(i) - rank_scenario(i)|\n"
+            "\n"
+            "안정성 점수:\n"
+            "  = 0.35×TOP5유지율 + 0.20×TOP1유지\n"
+            "  + 0.20×순위안정 + 0.15×전략일관성 + 0.10×등급일관성\n"
+            "\n"
+            "안정성 등급:\n"
+            "  80+ → 안정   60+ → 보통   <60 → 변동 큼",
+            language=None
+        )
+
+
 def _render_sensitivity_analysis(final_recommendations):
     """가중치 민감도 분석 UI 렌더링."""
     try:
@@ -2286,23 +2312,30 @@ def _render_sensitivity_analysis(final_recommendations):
         except Exception:
             pass
 
+    # ── 5. 순위 안정성 ────────────────────────────────────
+    st.markdown("---")
+    st.markdown("**순위 안정성**")
+    _render_stability_analysis(final_recommendations)
+
 
 def _render_hybrid_score_criteria(final_recommendations=None):
     """
-    Hybrid Score 기준표 + 가중치 검증 정보 렌더링.
-    접힌 영역 안에서만 표시.
+    Hybrid Score 기준표 + 수식 정의 + 가중치 검증 렌더링.
+    접힌 영역 안에서만 표시. 다운로드 버튼 없음.
     """
     try:
         from varo_score_config import (
             get_score_criteria_df, get_weight_diagnostics,
             GRADE_THRESHOLDS, DEFAULT_VHS_WEIGHTS,
+            get_hybrid_score_math_definition,
+            build_hybrid_score_explanation_table,
         )
         from scenario_detector import adjust_weights_by_scenario, detect_scenario
     except ImportError:
         st.info("varo_score_config 모듈을 불러올 수 없습니다.")
         return
 
-    # 현재 적용 가중치 (결과 있으면 상황별 가중치, 없으면 기본값)
+    # 현재 적용 가중치
     active_weights = dict(DEFAULT_VHS_WEIGHTS)
     if final_recommendations is not None and not final_recommendations.empty:
         try:
@@ -2311,50 +2344,113 @@ def _render_hybrid_score_criteria(final_recommendations=None):
         except Exception:
             pass
 
-    # 가중치 기준표
-    st.markdown("**가중치 기준**")
-    criteria_df = get_score_criteria_df()
-    # 현재 가중치 컬럼 추가
-    def _w(name):
-        v = active_weights.get(name.replace(" ", ""), active_weights.get(name, None))
-        if v is None:
-            # 유사 키 매핑
-            mapping = {
-                "재고 위험":     "재고위험",
-                "판매 가능성":   "판매가능성",
-                "점포 이동 적합":"점포이동적합",
-                "비용 절감":     "비용절감",
-                "폐기 회피 이익":"폐기회피이익",
-                "실행 가능성":   "실행가능성",
-                "이력 보정":     "이력보정",
-            }
-            v = active_weights.get(mapping.get(name, name), None)
-        return f"{v:.1%}" if v is not None else "-"
+    # ── 수식 정의 ────────────────────────────────────────
+    st.markdown("**S(i) 수식**")
+    try:
+        formula_text = get_hybrid_score_math_definition()
+        st.code(formula_text, language=None)
+    except Exception:
+        st.caption("S(i) = Σ wk·fk(i)  |  0 ≤ fk ≤ 1, wk ≥ 0, Σwk = 1")
 
-    criteria_df["현재 가중치"] = criteria_df["항목"].apply(_w)
-    show_cols = ["항목", "현재 가중치", "반영 기준", "점수 방향"]
-    _safe_dataframe(criteria_df[show_cols], width="stretch")
+    # ── 수식 구성 항목 상세표 ────────────────────────────
+    st.markdown("**수식 구성 항목**")
+    try:
+        exp_df = build_hybrid_score_explanation_table()
+        # 현재 가중치 반영
+        _wmap = {
+            "재고 위험도": "재고위험", "판매 가능성": "판매가능성",
+            "점포 이동 적합": "점포이동적합", "비용 절감": "비용절감",
+            "폐기 회피 이익": "폐기회피이익", "실행 가능성": "실행가능성",
+            "이력 보정": "이력보정",
+        }
+        exp_df["현재 가중치"] = exp_df["항목"].apply(
+            lambda n: f'{active_weights.get(_wmap.get(n, n), 0):.1%}'
+        )
+        _safe_dataframe(exp_df[["기호","항목","의미","점수 방향","현재 가중치","정규화 방식"]],
+                        width="stretch")
+    except Exception:
+        criteria_df = get_score_criteria_df()
+        def _w(name):
+            mapping = {"재고 위험":"재고위험","판매 가능성":"판매가능성",
+                       "점포 이동 적합":"점포이동적합","비용 절감":"비용절감",
+                       "폐기 회피 이익":"폐기회피이익","실행 가능성":"실행가능성","이력 보정":"이력보정"}
+            v = active_weights.get(mapping.get(name, name.replace(" ","")), None)
+            return f"{v:.1%}" if v is not None else "-"
+        criteria_df["현재 가중치"] = criteria_df["항목"].apply(_w)
+        _safe_dataframe(criteria_df[["항목","현재 가중치","반영 기준","점수 방향"]], width="stretch")
 
-    # 추천 등급 기준
+    # ── 정규화 기준 ──────────────────────────────────────
+    st.markdown("**정규화 조건**")
+    norm_rows = [
+        {"조건": "0 ≤ fk(i) ≤ 1",   "의미": "각 항목 점수 정규화 범위"},
+        {"조건": "wk ≥ 0",            "의미": "가중치 비음수"},
+        {"조건": "Σ wk = 1",          "의미": "가중치 합계 = 1 (자동 정규화)"},
+        {"조건": "S(i) ∈ [0, 100]",  "의미": "최종 점수 범위"},
+        {"조건": "비용 항목 inverse", "의미": "낮은 비용 → 높은 점수 (역방향 정규화)"},
+        {"조건": "이력 보정 ±8점",    "의미": "DQN reward 기반 보정값"},
+    ]
+    _safe_dataframe(pd.DataFrame(norm_rows), width="stretch")
+
+    # ── 추천 등급 기준 ───────────────────────────────────
     st.markdown("**추천 등급 기준**")
     grade_rows = [
-        {"등급": "최적", "기준": f"{GRADE_THRESHOLDS['최적']}점 이상",  "설명": "즉각 처리 권장"},
-        {"등급": "권장", "기준": f"{GRADE_THRESHOLDS['권장']}점 이상",  "설명": "우선 검토"},
-        {"등급": "검토", "기준": f"{GRADE_THRESHOLDS['검토']}점 이상",  "설명": "상황 모니터링"},
-        {"등급": "보류", "기준": f"{GRADE_THRESHOLDS['검토']}점 미만", "설명": "후순위"},
+        {"등급": "최적", "범위": f"S ≥ {GRADE_THRESHOLDS['최적']}",  "설명": "즉각 처리 권장"},
+        {"등급": "권장", "범위": f"S ≥ {GRADE_THRESHOLDS['권장']}",  "설명": "우선 검토"},
+        {"등급": "검토", "범위": f"S ≥ {GRADE_THRESHOLDS['검토']}",  "설명": "상황 모니터링"},
+        {"등급": "보류", "범위": f"S < {GRADE_THRESHOLDS['검토']}",  "설명": "후순위"},
     ]
     _safe_dataframe(pd.DataFrame(grade_rows), width="stretch")
 
-    # 검증 정보
-    diag = get_weight_diagnostics(active_weights, final_recommendations)
+    # ── 가중치 검증 ──────────────────────────────────────
     st.markdown("**가중치 검증**")
-    d1, d2, d3, d4 = st.columns(4)
-    d1.metric("가중치 합계",        str(diag["가중치_합계"]))
-    d2.metric("정규화",             str(diag["정규화_여부"]))
-    d3.metric("설정",               str(diag["기본값_사용"]))
-    d4.metric("계산 후보 수",       f'{diag["계산_가능_후보_수"]}건')
-    if diag["fallback_컬럼_수"] > 0:
-        st.caption(f"fallback 처리: {diag['fallback_컬럼_수']}개 컬럼 (기본값 50점 적용)")
+    try:
+        diag = get_weight_diagnostics(active_weights, final_recommendations)
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("가중치 합계",  str(diag["가중치_합계"]))
+        d2.metric("정규화",       str(diag["정규화_여부"]))
+        d3.metric("설정",         str(diag["기본값_사용"]))
+        d4.metric("계산 후보 수", f'{diag["계산_가능_후보_수"]}건')
+        if diag["fallback_컬럼_수"] > 0:
+            st.caption(f"fallback 처리: {diag['fallback_컬럼_수']}개 컬럼 (기본값 50점 적용)")
+    except Exception:
+        w_sum = sum(active_weights.values())
+        st.caption(f"가중치 합계: {w_sum:.4f}")
+
+    # ── Pareto dominance 일관성 ──────────────────────────
+    with st.expander("Pareto dominance 일관성", expanded=False):
+        try:
+            from varo_score_config import (
+                get_pareto_dominance_definition, get_pareto_dominance_proof_text,
+                build_pareto_condition_table, build_score_direction_table,
+            )
+            st.markdown("**정의**")
+            st.code(get_pareto_dominance_definition(), language=None)
+            st.markdown("**증명 요약**")
+            st.code(get_pareto_dominance_proof_text(), language=None)
+            st.markdown("**성립 조건**")
+            _safe_dataframe(build_pareto_condition_table(), width="stretch")
+            st.markdown("**점수 방향 통일**")
+            _safe_dataframe(build_score_direction_table(), width="stretch")
+        except Exception as _pe:
+            st.caption(f"S(A) > S(B)  ← Pareto dominance 일관성 성립")
+
+    # ── argmax 최적성 기준 ────────────────────────────────
+    with st.expander("선택 기준 (argmax)", expanded=False):
+        try:
+            from varo_score_config import (
+                get_argmax_optimality_definition, get_argmax_optimality_proof_text,
+                build_argmax_selection_table, build_argmax_condition_table,
+            )
+            st.markdown("**선택 기준**")
+            st.code(get_argmax_optimality_definition(), language=None)
+            st.markdown("**증명 요약**")
+            st.code(get_argmax_optimality_proof_text(), language=None)
+            st.markdown("**기호 정의**")
+            _safe_dataframe(build_argmax_selection_table(), width="stretch")
+            st.markdown("**최적성 성립 조건**")
+            _safe_dataframe(build_argmax_condition_table(), width="stretch")
+        except Exception as _ae:
+            st.caption("i* = argmax S(i), i ∈ R  —  정의된 기준에서 후보 집합 내 최고 점수 후보 선택")
 
 
 def _render_dqn_comparison(final_recommendations):
@@ -2399,12 +2495,12 @@ def _render_dqn_comparison(final_recommendations):
     # DQN 모델 요약
     summary = load_latest_summary()
     if summary:
-        sc1, sc2, sc3, sc4, sc5 = st.columns(5)
-        sc1.metric("에피소드",    str(summary.get("episodes", "-")))
-        sc2.metric("최종 Loss",   _safe_loss(summary.get("final_loss", "-")))
-        sc3.metric("학습 샘플",   str(summary.get("training_samples", "-")))
-        sc4.metric("backend",     str(summary.get("backend", "-")))
-        sc5.metric("DQN 상태",    status_display)
+        sc1, sc2, sc3, sc4 = st.columns(4)
+        sc1.metric("에피소드",  str(summary.get("episodes", "-")))
+        sc2.metric("최종 Loss", _safe_loss(summary.get("final_loss", "-")))
+        sc3.metric("학습 샘플",str(summary.get("training_samples", "-")))
+        sc4.metric("DQN 상태", status_display[:6] if len(status_display) > 8 else status_display)
+        st.caption(f"backend: {summary.get('backend','-')} · DQN: {status_display}")
 
     # 비교 테이블 빌드
     with st.spinner("DQN 추론 중..."):
@@ -2572,6 +2668,14 @@ def _show_score_page(final_recommendations):
         # 민감도 분석 (접힌 영역)
         with st.expander("📉 민감도 분석", expanded=False):
             _render_sensitivity_analysis(score_source)
+
+        # 최적화 비교 (접힌 영역)
+        with st.expander("🔬 최적화 비교", expanded=False):
+            _render_optimality_gap(score_source)
+
+        # 가중치 최적화 (접힌 영역)
+        with st.expander("⚙️ 가중치 최적화", expanded=False):
+            _render_weight_optimizer(score_source)
 
         # 수요 분석 (접힌 영역)
         with st.expander("📦 수요 분석", expanded=False):
@@ -4206,12 +4310,10 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
                         continue
                     if greedy_act == rl_act:
                         badge = "🟢 **일치**"
-                        msg   = "현재 조건 기준의 Greedy 추천과 학습된 정책이 같은 방향을 제안합니다."
+                        msg   = "Greedy · RL 일치"
                     else:
                         badge = "🔴 **불일치**"
-                        msg   = (f"Greedy는 현재 점수 기준의 단기 최적 후보를 선택했지만, "
-                                 f"RL은 누적 학습된 보상 기준에서 다른 행동을 추천했습니다. "
-                                 f"(Greedy: `{greedy_act}` → RL: `{rl_act}`)")
+                        msg   = f"Greedy: `{greedy_act}` → RL: `{rl_act}`"
                     prod = row.get("product_name", "")
                     st.markdown(f"- **{prod}** {badge}: {msg}")
                 st.markdown("---")
@@ -6375,12 +6477,12 @@ def _show_dqn_validation_page(final_recommendations=None, inventory=None):
         match_cnt = int((valid["action"] == valid["dqn_action"]).sum())
         diff_cnt  = len(valid) - match_cnt
 
-    sc1, sc2, sc3, sc4, sc5 = st.columns(5)
-    sc1.metric("DQN 추천 후보 수",   f"{n_recs}개")
-    sc2.metric("평균 Reward",        f"{mean_reward:.2f}")
-    sc3.metric("최대 Reward",        f"{max_reward:.2f}")
-    sc4.metric("Greedy=DQN 일치",    f"{match_cnt}개")
-    sc5.metric("Greedy≠DQN 불일치",  f"{diff_cnt}개")
+    sc1, sc2, sc3, sc4 = st.columns(4)
+    sc1.metric("DQN 후보 수",   f"{n_recs}개")
+    sc2.metric("평균 Reward",   f"{mean_reward:.2f}")
+    sc3.metric("Greedy 일치",   f"{match_cnt}개")
+    sc4.metric("Greedy 불일치", f"{diff_cnt}개")
+    st.caption(f"최대 Reward: {max_reward:.2f}")
 
     # ── 2. 학습 요약 카드 ─────────────────────────────────
     if summary:
@@ -6480,9 +6582,8 @@ def _show_dqn_validation_page(final_recommendations=None, inventory=None):
                 ga = str(r.get("action", ""))
                 da = str(r.get("dqn_action", ""))
                 if ga == da:
-                    return "현재 조건 기준의 Greedy 추천과 DQN 학습 정책이 같은 방향을 제안합니다."
-                return (f"Greedy는 현재 점수 기준의 단기 최적 후보를 선택했지만, "
-                        f"DQN은 누적 학습된 보상 기준에서 다른 행동을 추천했습니다.")
+                    return "Greedy · DQN 일치"
+                return f"Greedy: {ga} / DQN: {da}"
             _tdf["해석"] = _tdf.apply(_interp, axis=1)
 
         # 표시 컬럼 선택 및 이름 변환
