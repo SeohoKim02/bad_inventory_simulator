@@ -28,6 +28,17 @@ def safe_format_percent(value, digits=1) -> str:
     if v is None: return "-"
     return f"{v:.{digits}f}%"
 
+def safe_format_currency_short(value) -> str:
+    """긴 금액을 만원/억원 단위로 축약 (카드 줄바꿈 방지)."""
+    v = safe_parse_number(value, None)
+    if v is None: return "-"
+    av = abs(v)
+    if av >= 100_000_000:
+        return f"{v/100_000_000:.1f}억원"
+    if av >= 10_000:
+        return f"{v/10_000:.1f}만원"
+    return f"{v:,.0f}원"
+
 def _col(df, *names, default=0.0):
     for n in names:
         if n in df.columns:
@@ -148,18 +159,47 @@ MONITOR_CSS = """
     margin-bottom: 4px;
 }
 .mcard-value {
-    font-size: 22px;
+    font-size: 30px;
     font-weight: 800;
     color: #111827;
-    line-height: 1.2;
-    word-break: break-word;
-    white-space: normal;
+    line-height: 1.15;
+    word-break: keep-all;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mcard-value.money {
+    font-size: 24px;
+    white-space: nowrap;
+}
+.mcard-ba {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 2px;
+}
+.mcard-ba-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    white-space: nowrap;
+}
+.mcard-ba-key {
+    font-size: 12px;
+    color: #6B7280;
+    font-weight: 600;
+}
+.mcard-ba-val {
+    font-size: 20px;
+    font-weight: 800;
+    color: #111827;
+    white-space: nowrap;
 }
 .mcard-sub {
-    font-size: 11px;
+    font-size: 12px;
     color: #6B7280;
     margin-top: 3px;
-    word-break: break-word;
+    word-break: keep-all;
 }
 .mcard-badge {
     display: inline-block;
@@ -171,9 +211,9 @@ MONITOR_CSS = """
     background: #F3F4F6;
     color: #374151;
 }
-.mcard-badge.green { background: #DCFCE7; color: #166534; }
-.mcard-badge.blue  { background: #DBEAFE; color: #1E40AF; }
-.mcard-badge.yellow{ background: #FEF9C3; color: #854D0E; }
+.mcard-badge.green { background: #FFF3BF; color: #111827; }
+.mcard-badge.blue  { background: #FFF3BF; color: #111827; }
+.mcard-badge.yellow{ background: #FFF3BF; color: #111827; }
 .mcard-badge.gray  { background: #F3F4F6; color: #374151; }
 .mbar-bg {
     background: #F3F4F6;
@@ -185,7 +225,7 @@ MONITOR_CSS = """
 .mbar-fill {
     height: 5px;
     border-radius: 4px;
-    background: #2F8F57;
+    background: #F1E3A3;
 }
 .maction-row {
     display: flex;
@@ -207,15 +247,31 @@ MONITOR_CSS = """
 """
 
 def _mcard(label: str, value: str, sub: str = "", badge: str = "",
-           badge_cls: str = "gray", bar_pct: float = None) -> str:
+           badge_cls: str = "gray", bar_pct: float = None,
+           value_cls: str = "") -> str:
     bar_html = ""
     if bar_pct is not None:
         pct = max(0.0, min(100.0, bar_pct))
         bar_html = f'<div class="mbar-bg"><div class="mbar-fill" style="width:{pct}%"></div></div>'
     badge_html = f'<span class="mcard-badge {badge_cls}">{badge}</span>' if badge else ""
     sub_html   = f'<div class="mcard-sub">{sub}</div>' if sub else ""
+    vcls = f"mcard-value {value_cls}".strip()
     return f"""<div class="mcard">
   <div class="mcard-label">{label}</div>
-  <div class="mcard-value">{value}</div>
+  <div class="{vcls}">{value}</div>
   {badge_html}{sub_html}{bar_html}
+</div>"""
+
+
+def _mcard_before_after(label: str, before_str: str, after_str: str,
+                        sub: str = "") -> str:
+    """Before/After 2줄 전용 카드 (줄바꿈 방지)."""
+    sub_html = f'<div class="mcard-sub">{sub}</div>' if sub else ""
+    return f"""<div class="mcard">
+  <div class="mcard-label">{label}</div>
+  <div class="mcard-ba">
+    <div class="mcard-ba-row"><span class="mcard-ba-key">Before</span><span class="mcard-ba-val">{before_str}</span></div>
+    <div class="mcard-ba-row"><span class="mcard-ba-key">After</span><span class="mcard-ba-val">{after_str}</span></div>
+  </div>
+  {sub_html}
 </div>"""

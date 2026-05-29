@@ -1116,6 +1116,110 @@ def _apply_page_style():
                     grid-template-columns: 1fr;
                 }
             }
+
+            /* ━━━ 전역 색상 통일 (연노랑/흰색/회색/검정) ━━━ */
+            /* 메인 배경: 연노랑 */
+            [data-testid="stApp"],
+            [data-testid="stAppViewContainer"],
+            [data-testid="stMain"],
+            section[data-testid="stMain"] > div,
+            .main .block-container {
+                background-color: #FFF9E6 !important;
+                color: #111827 !important;
+            }
+            /* 버튼: 흰색 배경 + 연회색 테두리 + 검정 글씨 */
+            .stButton > button {
+                background-color: #FFFFFF !important;
+                color: #111827 !important;
+                border: 1px solid #E5E7EB !important;
+                box-shadow: none !important;
+                font-weight: 600 !important;
+            }
+            .stButton > button:hover {
+                background-color: #FFF3BF !important;
+                border-color: #F1E3A3 !important;
+                color: #111827 !important;
+            }
+            .stButton > button:focus,
+            .stButton > button:active {
+                background-color: #FFEFA3 !important;
+                color: #111827 !important;
+                border-color: #F1E3A3 !important;
+                box-shadow: none !important;
+            }
+            /* 다운로드 버튼도 동일 */
+            .stDownloadButton > button {
+                background-color: #FFFFFF !important;
+                color: #111827 !important;
+                border: 1px solid #E5E7EB !important;
+                box-shadow: none !important;
+            }
+            .stDownloadButton > button:hover {
+                background-color: #FFF3BF !important;
+                border-color: #F1E3A3 !important;
+            }
+            /* 탭: 회색/검정 + 연노랑 underline */
+            .stTabs [data-baseweb="tab-list"] {
+                gap: 4px;
+                border-bottom: 1px solid #E5E7EB !important;
+            }
+            .stTabs [data-baseweb="tab"] {
+                color: #6B7280 !important;
+            }
+            .stTabs [aria-selected="true"] {
+                color: #111827 !important;
+                font-weight: 700 !important;
+            }
+            .stTabs [data-baseweb="tab-highlight"],
+            .stTabs [data-baseweb="tab-border"] {
+                background-color: #F1E3A3 !important;
+            }
+            /* 액션 필터 태그: 연노랑 통일 */
+            [data-baseweb="tag"] {
+                background-color: #FFF3BF !important;
+                color: #111827 !important;
+                border: 1px solid #F1E3A3 !important;
+            }
+            [data-baseweb="tag"] span {
+                color: #111827 !important;
+            }
+            /* 진행 바: 연노랑 */
+            .stProgress > div > div > div > div {
+                background-color: #F1E3A3 !important;
+            }
+            /* expander: 흰색 + 연회색 테두리 */
+            [data-testid="stExpander"] {
+                background-color: #FFFFFF !important;
+                border: 1px solid #E5E7EB !important;
+                border-radius: 8px !important;
+            }
+            /* metric 카드 값: 검정 통일 */
+            [data-testid="stMetricValue"] {
+                color: #111827 !important;
+            }
+            [data-testid="stMetricLabel"] {
+                color: #6B7280 !important;
+            }
+            /* selectbox / slider 강조색 → 연노랑 */
+            [data-baseweb="select"] [aria-selected="true"] {
+                background-color: #FFF3BF !important;
+            }
+            .stSlider [role="slider"] {
+                background-color: #C9A227 !important;
+            }
+            /* 모바일: 버튼 세로 정렬 시 간격/줄바꿈 */
+            @media (max-width: 640px) {
+                .stButton > button {
+                    font-size: 13px !important;
+                    padding: 6px 8px !important;
+                    white-space: normal !important;
+                    word-break: keep-all !important;
+                }
+                [data-testid="stMetricValue"] {
+                    font-size: 18px !important;
+                    word-break: break-word !important;
+                }
+            }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1134,20 +1238,28 @@ def _show_dashboard_home(
     promotion_result=None,
     transfer_path_result=None,
 ):
-    # ── 모니터링 대시보드 ─────────────────────────────────
+    # ── Varo 분석 결과 대시보드 ───────────────────────────
     try:
         from varo_dashboard_kpi import (
             calculate_before_after_costs, calculate_vhs_kpi,
-            calculate_action_summary, MONITOR_CSS, _mcard,
-            safe_format_currency, safe_format_percent,
+            calculate_action_summary, MONITOR_CSS, _mcard, _mcard_before_after,
+            safe_format_currency, safe_format_currency_short, safe_format_percent,
         )
         _kpi_ok = True
     except ImportError:
         _kpi_ok = False
 
     st.markdown('<div class="dash-page-box" style="padding-bottom:0">', unsafe_allow_html=True)
-    st.markdown("### 모니터링 대시보드")
-    st.caption("Varo 운영 현황")
+    _t1, _t2 = st.columns([4, 1])
+    with _t1:
+        st.markdown("### Varo 분석 결과")
+    with _t2:
+        try:
+            with st.popover("VHS 정보"):
+                st.markdown("**추천 결과 종합 점수**")
+                st.caption("VHS는 Varo 추천 결과를 종합한 운영 점수입니다.")
+        except Exception:
+            st.caption("VHS: 추천 결과 종합 점수")
 
     if _kpi_ok:
         st.markdown(MONITOR_CSS, unsafe_allow_html=True)
@@ -1187,27 +1299,32 @@ def _show_dashboard_home(
         else:
             st.metric("VHS 점수", sc_val)
 
-    # 카드 2: Before → After
+    # 카드 2: Before → After (2줄 레이아웃, 만원 단위 축약)
     before_v = costs.get("before")
     after_v  = costs.get("after")
-    ba_val   = f"{safe_format_currency(before_v)} → {safe_format_currency(after_v)}"                if (before_v is not None and after_v is not None) else "데이터 없음"
     with k2:
-        if _kpi_ok:
-            st.markdown(_mcard("Before → After", ba_val,
+        if _kpi_ok and before_v is not None and after_v is not None:
+            st.markdown(_mcard_before_after("Before → After",
+                safe_format_currency_short(before_v),
+                safe_format_currency_short(after_v),
                 sub="처리 비용 변화"), unsafe_allow_html=True)
+        elif _kpi_ok:
+            st.markdown(_mcard("Before → After", "데이터 없음",
+                sub="처리 비용 변화", value_cls="money"), unsafe_allow_html=True)
         else:
-            st.metric("Before → After", ba_val)
+            st.metric("Before → After", "데이터 없음")
 
-    # 카드 3: 절감액
+    # 카드 3: 절감액 (만원 단위 축약)
     sav    = costs.get("savings")
     sr     = costs.get("savings_rate")
-    sav_v  = safe_format_currency(sav) if sav is not None else "계산 불가"
+    sav_v  = safe_format_currency_short(sav) if sav is not None else "계산 불가"
     sav_sub= safe_format_percent(sr) + " 절감" if sr is not None else "-"
     sav_cls= "green" if (sav is not None and sav > 0) else "gray"
     with k3:
         if _kpi_ok:
             st.markdown(_mcard("예상 절감액", sav_v,
-                sub=sav_sub, badge_cls=sav_cls), unsafe_allow_html=True)
+                sub=sav_sub, badge_cls=sav_cls, value_cls="money"),
+                unsafe_allow_html=True)
         else:
             st.metric("예상 절감액", sav_v)
 
@@ -1241,20 +1358,7 @@ def _show_dashboard_home(
         # ── 네비게이션 ─────────────────────────────────────────
     st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
-    # 주요 4개 버튼
-    n1, n2 = st.columns(2)
-    with n1:
-        if st.button("🧠 최종 추천",      width="stretch", key="go_score"):    _go("score")
-    with n2:
-        if st.button("🗺 지도 & 시뮬레이션", width="stretch", key="go_movement"): _go("movement")
-
-    n3, n4 = st.columns(2)
-    with n3:
-        if st.button("📊 상세 분석",      width="stretch", key="go_algorithms"): _go("algorithms")
-    with n4:
-        if st.button("🤖 학습 관리",      width="stretch", key="go_rl_main"):    _go("rl")
-
-    # 데이터 주의사항
+    # 데이터 주의사항 (중요 경고만 한 줄, 상세는 접힘)
     _vw = st.session_state.get("_validation_warning")
     if _vw is not None:
         with st.expander("⚠️ 데이터 주의사항", expanded=False):
@@ -1264,44 +1368,59 @@ def _show_dashboard_home(
             except Exception:
                 pass
 
-    # 분석 도구
-    with st.expander("📐 분석 도구", expanded=False):
-        t1, t2 = st.columns(2)
-        with t1:
-            if st.button("🌐 최소비용 경로",     width="stretch", key="go_network"):  _go("network")
-        with t2:
-            if st.button("📦 배치 최적화",       width="stretch", key="go_batch"):    _go("batch")
-        t3, t4 = st.columns(2)
-        with t3:
-            if st.button("📊 Before/After",      width="stretch", key="go_effect"):   _go("effect")
-        with t4:
-            if st.button("🔮 What-if",           width="stretch", key="go_whatif_a"): _go("whatif")
-        t5, t6 = st.columns(2)
-        with t5:
-            if st.button("📈 그래프",            width="stretch", key="go_graph_a"):  _go("graph")
-        with t6:
-            if st.button("🧾 상세 데이터",       width="stretch", key="go_data_a"):   _go("data")
+    # 상위 메뉴 4개: 추천 / 분석 / 시뮬레이션 / 관리
+    nav_tabs = st.tabs(["📋 추천", "📊 분석", "🗺 시뮬레이션", "⚙️ 관리"])
 
-    # 관리 & 설정
-    with st.expander("⚙️ 관리", expanded=False):
+    with nav_tabs[0]:  # 추천
+        r1, r2 = st.columns(2)
+        with r1:
+            if st.button("🧠 최종 추천",   width="stretch", key="go_score"):    _go("score")
+        with r2:
+            if st.button("📈 그래프",       width="stretch", key="go_graph_a"):  _go("graph")
+
+    with nav_tabs[1]:  # 분석
+        a1, a2 = st.columns(2)
+        with a1:
+            if st.button("📊 상세 분석",    width="stretch", key="go_algorithms"): _go("algorithms")
+        with a2:
+            if st.button("📊 Before/After", width="stretch", key="go_effect"):     _go("effect")
+        a3, a4 = st.columns(2)
+        with a3:
+            if st.button("🌐 최소비용 경로", width="stretch", key="go_network"):    _go("network")
+        with a4:
+            if st.button("📦 배치 최적화",   width="stretch", key="go_batch"):      _go("batch")
+        a5, a6 = st.columns(2)
+        with a5:
+            if st.button("🔮 What-if",      width="stretch", key="go_whatif_a"):   _go("whatif")
+        with a6:
+            if st.button("🧾 상세 데이터",   width="stretch", key="go_data_a"):     _go("data")
+
+    with nav_tabs[2]:  # 시뮬레이션
+        s1, s2 = st.columns(2)
+        with s1:
+            if st.button("🗺 지도 & 시뮬레이션", width="stretch", key="go_movement"): _go("movement")
+        with s2:
+            if st.button("🎮 데모",              width="stretch", key="go_demo"):     _go("demo")
+
+    with nav_tabs[3]:  # 관리
         m1, m2 = st.columns(2)
         with m1:
-            if st.button("🔍 데이터 검증",       width="stretch", key="go_validator"):      _go("validator")
+            if st.button("🔍 데이터 검증",  width="stretch", key="go_validator"):      _go("validator")
         with m2:
-            if st.button("📚 가이드",            width="stretch", key="go_guide"):          _go("guide")
+            if st.button("🤖 학습 관리",    width="stretch", key="go_rl_main"):        _go("rl")
         m3, m4 = st.columns(2)
         with m3:
-            if st.button("🤖 DQN 검증",          width="stretch", key="go_dqn_validation"): _go("dqn_validation")
+            if st.button("🤖 DQN 검증",     width="stretch", key="go_dqn_validation"): _go("dqn_validation")
         with m4:
-            if st.button("📘 DQN 해석",          width="stretch", key="go_dqn_interpret"):  _go("dqn_interpret")
-        if st.button("🎮 데모",  width="stretch", key="go_demo"):  _go("demo")
+            if st.button("📘 DQN 해석",     width="stretch", key="go_dqn_interpret"):  _go("dqn_interpret")
+        if st.button("📚 가이드",           width="stretch", key="go_guide"):          _go("guide")
 
-    # ── 검증 리포트 ─────────────────────────────────────
-    with st.expander("🔎 검증 리포트", expanded=False):
-        _render_validation_report(
-            final_recommendations=final_recommendations,
-            stores=stores, products=products, inventory=inventory,
-        )
+        # 검증 리포트 (관리 탭 내부 접힌 영역)
+        with st.expander("🔎 검증 리포트", expanded=False):
+            _render_validation_report(
+                final_recommendations=final_recommendations,
+                stores=stores, products=products, inventory=inventory,
+            )
 
 
 # =========================
