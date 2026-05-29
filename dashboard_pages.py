@@ -1229,6 +1229,91 @@ def _apply_page_style():
 # =========================
 # 대시보드 메인
 # =========================
+def _render_dashboard_top5(final_recommendations):
+    """메인 대시보드 하단 추천 후보 TOP 5 요약 카드 + 선택."""
+    if final_recommendations is None or final_recommendations.empty:
+        return
+
+    df = _filter_positive_qty_recommendations(final_recommendations)
+    if df is None or df.empty:
+        st.markdown("---")
+        st.markdown("**추천 후보 TOP 5**")
+        st.caption("추천 후보 없음")
+        return
+
+    # 점수 기준 정렬 (vhs2 → heuristic_score)
+    score_col = next((c for c in ["vhs2","heuristic_score","total_score"]
+                      if c in df.columns), None)
+    if score_col:
+        top5 = df.sort_values(score_col, ascending=False).head(5)
+    else:
+        top5 = df.head(5)
+
+    sel_idx = st.session_state.get("dashboard_selected_candidate_index", None)
+
+    # TOP5 전용 CSS (연노랑/흰색/회색 통일)
+    st.markdown("""
+    <style>
+    .t5card { background:#FFFDF5; border:1px solid #E5E7EB; border-radius:9px;
+              padding:11px 13px; margin-bottom:6px; }
+    .t5card.sel { border:1px solid #F1E3A3; background:#FFEFA3; }
+    .t5rank { font-size:11px; font-weight:700; color:#6B7280; }
+    .t5name { font-size:15px; font-weight:800; color:#111827;
+              word-break:keep-all; }
+    .t5route{ font-size:12px; color:#6B7280; margin-top:1px; word-break:keep-all; }
+    .t5meta { font-size:12px; color:#374151; margin-top:4px; word-break:keep-all; }
+    .t5score{ font-size:18px; font-weight:800; color:#111827; }
+    .t5pill { display:inline-block; font-size:10px; font-weight:700;
+              padding:1px 7px; border-radius:10px; background:#FFF3BF;
+              color:#111827; border:1px solid #F1E3A3; margin-top:3px; }
+    .t5selmark { font-size:10px; font-weight:700; color:#854D0E; margin-left:6px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("**추천 후보 TOP 5**")
+
+    def _fmt_cost(v):
+        try:
+            f = float(v)
+            if f >= 10000: return f"{f/10000:.1f}만원"
+            return f"{f:,.0f}원"
+        except: return "-"
+
+    for rank, (orig_idx, row) in enumerate(top5.iterrows(), 1):
+        is_sel = (sel_idx is not None and str(sel_idx) == str(orig_idx))
+        name   = str(row.get("product_name","-"))
+        src    = str(row.get("source_store","-"))
+        tgt    = str(row.get("target_store","-"))
+        strat  = str(row.get("final_recommendation","") or row.get("vhs2_action","") or "-")[:14]
+        qty    = row.get("suggested_qty", row.get("move_qty","-"))
+        cost   = _fmt_cost(row.get("estimated_cost"))
+        score  = row.get(score_col) if score_col else None
+        score_s= f"{float(score):.1f}" if score is not None and pd.notna(score) else "-"
+        grade  = str(row.get("vhs2_grade","") or row.get("confidence_level","") or "")
+
+        c_card, c_btn = st.columns([5, 1])
+        with c_card:
+            sel_cls  = "t5card sel" if is_sel else "t5card"
+            sel_mark = '<span class="t5selmark">● 선택됨</span>' if is_sel else ""
+            pill = f'<span class="t5pill">{grade}</span>' if grade else ""
+            st.markdown(f"""<div class="{sel_cls}">
+  <div class="t5rank">{rank}순위{sel_mark}</div>
+  <div class="t5name">{name}</div>
+  <div class="t5route">{src} → {tgt}</div>
+  <div class="t5meta">{strat} · 수량 {qty} · {cost} · 점수 <b>{score_s}</b></div>
+  {pill}
+</div>""", unsafe_allow_html=True)
+        with c_btn:
+            if is_sel:
+                st.button("선택됨", key=f"t5_sel_{orig_idx}", disabled=True,
+                          width="stretch")
+            else:
+                if st.button("보기", key=f"t5_pick_{orig_idx}", width="stretch"):
+                    st.session_state["dashboard_selected_candidate_index"] = orig_idx
+                    st.rerun()
+
+
 def _show_dashboard_home(
     final_recommendations,
     final_rec_summary,
@@ -1354,6 +1439,10 @@ def _show_dashboard_home(
             col.metric(label, f"{num}건")
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── 추천 후보 TOP 5 (요약 카드 + 선택) ───────────────
+    _render_dashboard_top5(final_recommendations)
+
     st.markdown("---")
         # ── 네비게이션 ─────────────────────────────────────────
     st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
