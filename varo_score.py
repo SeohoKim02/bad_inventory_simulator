@@ -339,12 +339,22 @@ def run_all_algorithms(
     _inv_store_cache = {}
     if inventory_df is not None and not inventory_df.empty:
         _inv = inventory_df.copy()
-        if "store_name" in _inv.columns:
-            _inv = _inv.rename(columns={"store_name":"source_store"})
+        # store_name → source_store (단, source_store가 이미 있으면 rename 금지)
+        if "store_name" in _inv.columns and "source_store" not in _inv.columns:
+            _inv = _inv.rename(columns={"store_name": "source_store"})
+        # 중복 컬럼 제거 (groupby 2D 오류 방지)
+        if _inv.columns.duplicated().any():
+            _inv = _inv.loc[:, ~_inv.columns.duplicated()]
         if "avg_daily_sales" in _inv.columns and "source_store" in _inv.columns:
-            _inv_store_cache["daily"] = _inv.groupby("source_store")["avg_daily_sales"].sum()
+            try:
+                _inv_store_cache["daily"] = _inv.groupby("source_store")["avg_daily_sales"].sum()
+            except Exception:
+                pass
         if "stock_qty" in _inv.columns and "source_store" in _inv.columns:
-            _inv_store_cache["stock"] = _inv.groupby("source_store")["stock_qty"].sum()
+            try:
+                _inv_store_cache["stock"] = _inv.groupby("source_store")["stock_qty"].sum()
+            except Exception:
+                pass
 
     # ── 추가 알고리즘 (#19,#20,#21,#22,#23,#25,#27,#29,#30,#31,#32) ──
     try:

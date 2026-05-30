@@ -1229,6 +1229,144 @@ def _apply_page_style():
 # =========================
 # 대시보드 메인
 # =========================
+def _safe_parse_score(value):
+    """문자열/NaN/inf 포함 안전 점수 파싱."""
+    import math as _m
+    try:
+        s = str(value).replace("점","").replace("VHS","").replace("vhs","").strip()
+        f = float(s)
+        return None if (_m.isnan(f) or _m.isinf(f)) else f
+    except Exception:
+        return None
+
+
+def _resolve_grade(row):
+    """
+    추천 등급 결정: 등급 컬럼 우선 → 점수 기반 fallback → 데이터 없음.
+    반환: 최적/권장/검토/보류/데이터 없음
+    """
+    # 1) 등급 컬럼 직접 사용
+    grade_cols = ["vhs2_grade","recommendation_grade","vhs_grade","grade",
+                  "final_grade","score_grade","confidence_grade",
+                  "recommendation_level","final_level","추천등급","추천 등급","등급"]
+    for c in grade_cols:
+        try:
+            v = row.get(c)
+        except Exception:
+            v = None
+        if v is not None and str(v).strip() not in ("", "-", "nan", "None", "데이터 없음"):
+            gv = str(v).strip()
+            # 긴 라벨 정규화 (최우선 처리→최적 등)
+            _map = {"최우선 처리":"최적","우선 처리":"권장","검토 필요":"검토",
+                    "모니터링":"보류","후순위":"보류"}
+            return _map.get(gv, gv)
+
+    # 2) 점수 기반 fallback
+    score = None
+    for sc in ["vhs2","hybrid_score","vhs_score","total_score","final_score","vhs","score"]:
+        try:
+            v = row.get(sc)
+        except Exception:
+            v = None
+        s = _safe_parse_score(v)
+        if s is not None:
+            score = s
+            break
+
+    if score is None:
+        return "데이터 없음"
+
+    try:
+        from varo_score_config import assign_recommendation_grade
+        return assign_recommendation_grade(score)
+    except Exception:
+        if score >= 80: return "최적"
+        if score >= 65: return "권장"
+        if score >= 50: return "검토"
+        return "보류"
+
+
+def _render_selected_candidate_detail(final_recommendations):
+    """선택된 추천 후보 상세 대시보드 (기본: 1순위, 선택 시 해당 후보)."""
+    if final_recommendations is None or final_recommendations.empty:
+        return
+
+    row = _best_row(final_recommendations)
+    if row is None:
+        return
+
+    # 선택 후보의 순위 계산 (점수 기준)
+    df = _filter_positive_qty_recommendations(final_recommendations)
+    score_col = next((c for c in ["vhs2","heuristic_score","total_score"]
+                      if c in df.columns), None)
+    rank_label = "1순위"
+    try:
+        if score_col:
+            sorted_df = df.sort_values(score_col, ascending=False).reset_index()
+            match = sorted_df.index[sorted_df["index"] == row.name].tolist()
+            if match:
+                rank_label = f"{match[0] + 1}순위"
+    except Exception:
+        pass
+
+    def _fmt_cost(v):
+        try:
+            f = float(v)
+            if f >= 10000: return f"{f/10000:.1f}만원"
+            return f"{f:,.0f}원"
+        except: return "-"
+
+    name   = str(row.get("product_name","-"))
+    src    = str(row.get("source_store","-"))
+    tgt    = str(row.get("target_store","-"))
+    strat  = str(row.get("final_recommendation","") or row.get("vhs2_action","") or "-")
+    qty    = row.get("suggested_qty", row.get("move_qty","-"))
+    cost   = _fmt_cost(row.get("estimated_cost"))
+    score  = row.get(score_col) if score_col else None
+    score_s= f"{float(score):.1f}" if score is not None and pd.notna(score) else "-"
+    grade  = _resolve_grade(row)
+    conf   = str(row.get("confidence_level","") or "")
+
+    # CSS
+    st.markdown("""
+    <style>
+    .seldash { background:#FFFDF5; border:1px solid #F1E3A3; border-radius:11px;
+               padding:16px 18px; margin-bottom:6px; }
+    .seldash-rank { font-size:11px; font-weight:700; color:#854D0E;
+                    background:#FFF3BF; display:inline-block;
+                    padding:2px 9px; border-radius:11px; }
+    .seldash-name { font-size:22px; font-weight:800; color:#111827;
+                    margin-top:6px; word-break:keep-all; }
+    .seldash-route{ font-size:13px; color:#6B7280; margin-top:2px; word-break:keep-all; }
+    .seldash-grid { display:flex; flex-wrap:wrap; gap:18px; margin-top:12px; }
+    .seldash-item { min-width:80px; }
+    .seldash-k { font-size:11px; color:#6B7280; font-weight:600; }
+    .seldash-v { font-size:17px; font-weight:800; color:#111827;
+                 word-break:keep-all; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("**선택된 추천 후보**")
+    st.markdown(f"""<div class="seldash">
+  <span class="seldash-rank">{rank_label}</span>
+  <div class="seldash-name">{name}</div>
+  <div class="seldash-route">{src} → {tgt}</div>
+  <div class="seldash-grid">
+    <div class="seldash-item"><div class="seldash-k">추천 전략</div><div class="seldash-v">{strat}</div></div>
+    <div class="seldash-item"><div class="seldash-k">추천 수량</div><div class="seldash-v">{qty}</div></div>
+    <div class="seldash-item"><div class="seldash-k">예상 비용</div><div class="seldash-v">{cost}</div></div>
+    <div class="seldash-item"><div class="seldash-k">VHS 점수</div><div class="seldash-v">{score_s}</div></div>
+    <div class="seldash-item"><div class="seldash-k">추천 등급</div><div class="seldash-v">{grade}</div></div>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+    # 추천 근거 요약 (1줄 + 상세는 expander)
+    reason = str(row.get("confidence_reason","") or row.get("vhs2_reason","") or "")
+    if reason and reason not in ("-", "nan", "None"):
+        with st.expander("추천 근거 보기", expanded=False):
+            st.caption(reason[:300])
+
+
 def _render_dashboard_top5(final_recommendations):
     """메인 대시보드 하단 추천 후보 TOP 5 요약 카드 + 선택."""
     if final_recommendations is None or final_recommendations.empty:
@@ -1290,7 +1428,7 @@ def _render_dashboard_top5(final_recommendations):
         cost   = _fmt_cost(row.get("estimated_cost"))
         score  = row.get(score_col) if score_col else None
         score_s= f"{float(score):.1f}" if score is not None and pd.notna(score) else "-"
-        grade  = str(row.get("vhs2_grade","") or row.get("confidence_level","") or "")
+        grade  = _resolve_grade(row)
 
         c_card, c_btn = st.columns([5, 1])
         with c_card:
@@ -1439,6 +1577,9 @@ def _show_dashboard_home(
             col.metric(label, f"{num}건")
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── 선택된 추천 후보 상세 대시보드 ────────────────────
+    _render_selected_candidate_detail(final_recommendations)
 
     # ── 추천 후보 TOP 5 (요약 카드 + 선택) ───────────────
     _render_dashboard_top5(final_recommendations)
@@ -5680,57 +5821,49 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     grade_cnt   = summary.get("grade_counts", {})
 
     top_icon  = _ACTION_ICONS.get(top_action, "")
-    act_color = {"재배치 이동":"#1976d2","할인 판매":"#f57c00",
-                 "폐기":"#ef5350","보류":"#43a047"}.get(top_action, "#555")
 
-    def _gauge_color(s):
-        if s >= 80: return "#e57373"
-        if s >= 65: return "#e65100"
-        if s >= 50: return "#f9a825"
-        return "#43a047"
-
+    # 모든 등급/액션 badge 동일 스타일 (연노랑/회색)
     grade_bar = "".join(
-        f'<span style="display:inline-block;background:{["#ef5350","#e65100","#f9a825","#66bb6a","#aaa"][i]};'
-        f'color:#fff !important;padding:3px 10px;border-radius:4px;'
+        f'<span style="display:inline-block;background:#FFF3BF;'
+        f'color:#111827;padding:3px 10px;border-radius:10px;border:1px solid #F1E3A3;'
         f'font-size:12px;font-weight:700;margin:2px;">'
         f'{g} {grade_cnt.get(g,0)}건</span>'
-        for i, g in enumerate(["최우선 처리","우선 처리","검토 필요","모니터링","후순위"])
+        for g in ["최우선 처리","우선 처리","검토 필요","모니터링","후순위"]
     )
 
     act_chips = "".join(
-        f'<span style="display:inline-block;padding:4px 12px;border-radius:12px;'
-        f'font-size:13px;font-weight:700;margin:3px;'
-        f'background:{["#1565c0","#e65100","#e57373","#2e7d32"][i]};color:#fff !important;">'
+        f'<span style="display:inline-block;padding:4px 12px;border-radius:11px;'
+        f'font-size:13px;font-weight:700;margin:3px;border:1px solid #F1E3A3;'
+        f'background:#FFFDF5;color:#111827;">'
         f'{["🚚","🏷️","🗑️","⏸️"][i]} {a} {action_cnt.get(a,0)}건</span>'
         for i,a in enumerate(["재배치 이동","할인 판매","폐기","보류"])
     )
 
     st.markdown(
         f"""
-        <div style="background:linear-gradient(135deg,#60a5fa 0%,#93c5fd 60%,#3b82f6 100%);
-                    border-radius:20px;padding:24px 28px;margin-bottom:18px;
-                    box-shadow:0 4px 18px rgba(37,99,235,0.25);">
+        <div style="background:#FFFDF5;border:1px solid #F1E3A3;
+                    border-radius:16px;padding:22px 26px;margin-bottom:18px;">
             <div style="display:flex;gap:32px;flex-wrap:wrap;align-items:center;">
                 <div>
-                    <div style="font-size:10px;color:#bfdbfe !important;font-weight:900;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;opacity:1;">VARO HYBRID SCORE</div>
-                    <div style="font-size:48px;font-weight:900;color:#ffffff;line-height:1;text-shadow:0 2px 8px rgba(0,0,0,0.4);-webkit-text-fill-color:#fff;">
+                    <div style="font-size:10px;color:#6B7280;font-weight:800;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;">VARO HYBRID SCORE</div>
+                    <div style="font-size:44px;font-weight:900;color:#111827;line-height:1;">
                         {avg_vhs}
-                        <span style="font-size:18px;color:#dbeafe;"> 점</span>
+                        <span style="font-size:18px;color:#6B7280;"> 점</span>
                     </div>
-                    <div style="font-size:12px;color:#dbeafe;margin-top:4px;">전체 {summary.get("n_total",0)}건 평균
+                    <div style="font-size:12px;color:#6B7280;margin-top:4px;">전체 {summary.get("n_total",0)}건 평균
                     </div>
                 </div>
-                <div style="border-left:1px solid rgba(255,255,255,0.25);padding-left:24px;">
-                    <div style="font-size:10px;color:#bfdbfe;font-weight:900;letter-spacing:1px;margin-bottom:6px;">최우선 처리 상품</div>
-                    <div style="font-size:16px;font-weight:900;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.3);">{top_prod}</div>
-                    <div style="display:inline-block;background:{act_color};color:#fff !important;
-                                padding:5px 14px;border-radius:20px;font-size:14px;font-weight:800;margin-top:6px;">
+                <div style="border-left:1px solid #E5E7EB;padding-left:24px;">
+                    <div style="font-size:10px;color:#6B7280;font-weight:800;letter-spacing:1px;margin-bottom:6px;">최우선 처리 상품</div>
+                    <div style="font-size:16px;font-weight:900;color:#111827;">{top_prod}</div>
+                    <div style="display:inline-block;background:#FFF3BF;color:#111827;border:1px solid #F1E3A3;
+                                padding:5px 14px;border-radius:11px;font-size:14px;font-weight:800;margin-top:6px;">
                         {top_icon} {top_action}
                     </div>
-                    <div style="font-size:12px;color:#dbeafe;margin-top:4px;">VHS {top_vhs:.1f}점</div>
+                    <div style="font-size:12px;color:#6B7280;margin-top:4px;">VHS {top_vhs:.1f}점</div>
                 </div>
-                <div style="border-left:1px solid rgba(255,255,255,0.25);padding-left:24px;flex:1;">
-                    <div style="font-size:10px;color:#bfdbfe;font-weight:900;letter-spacing:1px;margin-bottom:8px;">처리 액션 분포</div>
+                <div style="border-left:1px solid #E5E7EB;padding-left:24px;flex:1;">
+                    <div style="font-size:10px;color:#6B7280;font-weight:800;letter-spacing:1px;margin-bottom:8px;">처리 액션 분포</div>
                     {act_chips}
                     <div style="margin-top:10px;">{grade_bar}</div>
                 </div>
@@ -5740,12 +5873,12 @@ def _show_algorithms_page(final_recommendations, inventory=None):
         unsafe_allow_html=True,
     )
 
-    # 상황 감지 뱃지
+    # 상황 감지 뱃지 (연노랑 통일)
     active_sits = {k: v for k, v in sit_cnt.items() if v > 0}
     if active_sits:
         badges = " ".join(
-            f'<span style="background:#fff3e0;border:1px solid #ffcc02;border-radius:20px;'
-            f'padding:4px 12px;font-size:12px;font-weight:700;color:#e65100;margin:2px;display:inline-block;">'
+            f'<span style="background:#FFFDF5;border:1px solid #F1E3A3;border-radius:11px;'
+            f'padding:4px 12px;font-size:12px;font-weight:700;color:#111827;margin:2px;display:inline-block;">'
             f'⚡ {k} {v}건</span>'
             for k, v in active_sits.items()
         )
@@ -5789,31 +5922,28 @@ def _show_algorithms_page(final_recommendations, inventory=None):
             for i, (_, row) in enumerate(top5.iterrows()):
                 vhs_v  = float(row.get("vhs2") or row.get("vhs", 0))
                 action = str(row.get("vhs2_action") or row.get("vhs_action", "-"))
-                ac     = {"재배치 이동":"#1976d2","할인 판매":"#f57c00",
-                          "폐기":"#ef5350","보류":"#43a047"}.get(action, "#555")
-                gauge  = _gauge_color(vhs_v)
                 icon   = _ACTION_ICONS.get(action, "")
                 with cols5[i]:
                     st.markdown(
                         f"""
-                        <div style="border:2px solid {ac};border-radius:14px;
+                        <div style="border:1px solid #E5E7EB;border-radius:12px;
                                     padding:14px 12px;text-align:center;
-                                    background:linear-gradient(160deg,#fff,#f8f9ff);">
-                            <div style="font-size:11px;color:#888;font-weight:700;
+                                    background:#FFFDF5;">
+                            <div style="font-size:11px;color:#6B7280;font-weight:700;
                                         overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                                 {str(row.get("product_name","-"))[:14]}
                             </div>
-                            <div style="font-size:28px;font-weight:900;color:{gauge};margin:6px 0;">
+                            <div style="font-size:28px;font-weight:900;color:#111827;margin:6px 0;">
                                 {vhs_v:.0f}
                             </div>
-                            <div style="height:5px;background:#eee;border-radius:3px;margin:6px 0;">
-                                <div style="width:{vhs_v}%;height:100%;background:{gauge};border-radius:3px;"></div>
+                            <div style="height:5px;background:#F3F4F6;border-radius:3px;margin:6px 0;">
+                                <div style="width:{max(0,min(100,vhs_v))}%;height:100%;background:#F1E3A3;border-radius:3px;"></div>
                             </div>
-                            <div style="background:{ac};color:#fff;border-radius:10px;
+                            <div style="background:#FFF3BF;color:#111827;border:1px solid #F1E3A3;border-radius:10px;
                                         padding:2px 8px;font-size:11px;font-weight:700;">
                                 {icon}{action}
                             </div>
-                            <div style="font-size:10px;color:#aaa;margin-top:4px;">
+                            <div style="font-size:10px;color:#6B7280;margin-top:4px;">
                                 {str(row.get("source_store","-"))[:8]}
                             </div>
                         </div>

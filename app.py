@@ -1753,6 +1753,8 @@ def show_excel_optimizer():
             )
         st.session_state[_state_key] = _result
         st.session_state[_hash_key]  = _file_hash
+        # 새 분석 결과 → 선택 후보를 1순위로 리셋
+        st.session_state.pop("dashboard_selected_candidate_index", None)
 
     analysis_result = st.session_state[_state_key]
 
