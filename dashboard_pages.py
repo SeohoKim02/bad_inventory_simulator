@@ -1193,12 +1193,22 @@ def _apply_page_style():
                 border: 1px solid #E5E7EB !important;
                 border-radius: 8px !important;
             }
-            /* metric 카드 값: 검정 통일 */
+            /* metric 카드 값: 검정 통일 + 글씨 잘림 방지 */
             [data-testid="stMetricValue"] {
                 color: #111827 !important;
+                overflow-wrap: break-word !important;
+                white-space: normal !important;
+                text-overflow: clip !important;
             }
             [data-testid="stMetricLabel"] {
                 color: #6B7280 !important;
+                overflow-wrap: break-word !important;
+                white-space: normal !important;
+            }
+            [data-testid="stMetricLabel"] p {
+                overflow: visible !important;
+                text-overflow: clip !important;
+                white-space: normal !important;
             }
             /* selectbox / slider 강조색 → 연노랑 */
             [data-baseweb="select"] [aria-selected="true"] {
@@ -1367,126 +1377,137 @@ def _render_selected_candidate_detail(final_recommendations):
             st.caption(reason[:300])
 
 
-_SIM_TEMPLATE = """<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+_SIM_TEMPLATE = """<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:#FFF9E6;}
-.sw{padding:12px;}
-.kpibar{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
-.kpi{flex:1;min-width:90px;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:9px;padding:8px 10px;}
-.kl{display:block;font-size:10px;color:#6B7280;font-weight:600;}
-.kv{display:block;font-size:17px;font-weight:800;color:#111827;margin-top:2px;white-space:nowrap;}
-.smap{position:relative;height:248px;background:#FFFDF5;border:1px solid #F1E3A3;border-radius:12px;overflow:hidden;}
-.paths{position:absolute;inset:0;width:100%;height:100%;z-index:1;}
-.statbadge{position:absolute;top:10px;left:12px;z-index:5;background:#FFFFFF;border:1px solid #F1E3A3;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:800;color:#111827;}
+body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:#FFF9E6;animation:fadeIn .35s ease;}
+@keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+.wrap{padding:10px;display:grid;grid-template-columns:128px 1fr;grid-template-rows:auto auto;gap:10px;max-width:100%;}
+.kpicol{grid-row:1;grid-column:1;display:flex;flex-direction:column;gap:8px;}
+.kc{background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:9px 11px;}
+.kc.hl{background:#FFFDF5;border-color:#F1E3A3;}
+.kc .kl{font-size:10px;color:#6B7280;font-weight:600;overflow-wrap:break-word;}
+.kc .kv{font-size:18px;font-weight:800;color:#111827;margin-top:2px;white-space:nowrap;}
+.kc.big .kv{font-size:21px;}
+.kc .ks{font-size:10px;color:#6B7280;margin-top:1px;}
+.smap{grid-row:1;grid-column:2;position:relative;width:100%;min-height:288px;border:1px solid #F1E3A3;border-radius:12px;overflow:hidden;background:#FFFDF5;background-image:linear-gradient(#F3E9C0 1px,transparent 1px),linear-gradient(90deg,#F3E9C0 1px,transparent 1px);background-size:30px 30px;background-position:-1px -1px;}
+.statbadge{position:absolute;top:9px;left:11px;z-index:6;background:#FFFFFF;border:1px solid #F1E3A3;border-radius:20px;padding:3px 11px;font-size:11px;font-weight:800;color:#111827;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .statbadge.ai{background:#FFEFA3;border-color:#E0C84A;}
-.statbadge .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#C9A227;margin-right:6px;vertical-align:middle;animation:pulse 1.1s infinite;}
+.statbadge .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#C9A227;margin-right:5px;vertical-align:middle;animation:pulse 1.1s infinite;}
 @keyframes pulse{0%{opacity:.35;}50%{opacity:1;}100%{opacity:.35;}}
-.evt{position:absolute;top:10px;right:12px;z-index:5;background:#FFFFFF;border:1px solid #E0C84A;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:800;color:#111827;opacity:0;transition:opacity .4s;max-width:60%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.evt{position:absolute;top:9px;right:11px;z-index:6;background:#FFFFFF;border:1px solid #E0C84A;border-radius:20px;padding:3px 11px;font-size:10px;font-weight:800;color:#111827;opacity:0;transition:opacity .4s;max-width:46%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .evt.show{opacity:1;}
-.node{position:absolute;transform:translate(-50%,-50%);width:104px;text-align:center;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:8px 5px;z-index:3;}
+.routes{position:absolute;inset:0;width:100%;height:100%;z-index:1;}
+.node{position:absolute;transform:translate(-50%,-50%);width:102px;text-align:center;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:7px 5px;z-index:3;transition:border-color .3s,background .3s;}
 .node.dc{border:1px solid #F1E3A3;background:#FFFDF5;}
-.node.idle{opacity:.78;}
 .node.alert{border:1px solid #E0C84A;background:#FFEFA3;}
-.ico{font-size:23px;}
-.nm{font-size:11px;font-weight:700;color:#111827;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.inv{font-size:13px;font-weight:800;color:#111827;margin-top:2px;}
-.invlbl{font-size:9px;color:#6B7280;font-weight:600;}
-.veh{position:absolute;transform:translate(-50%,-50%);font-size:22px;z-index:4;filter:drop-shadow(0 1px 1px rgba(0,0,0,.15));transition:opacity .3s;}
-#veh2{opacity:0;font-size:19px;}
-.prog{height:9px;background:#F3F4F6;border-radius:5px;overflow:hidden;margin:12px 0 6px;}
-.bar{height:100%;width:0%;background:#F1E3A3;border-radius:5px;transition:width .15s linear;}
-.proglbl{font-size:11px;color:#6B7280;font-weight:700;margin-bottom:10px;}
-.logp{background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:9px 12px;height:104px;overflow-y:auto;font-size:12px;color:#374151;}
-.lr{padding:2px 0;border-bottom:1px solid #F3F4F6;}
+.ico{font-size:20px;line-height:1.1;}
+.nm{font-size:11px;font-weight:700;color:#111827;margin-top:1px;overflow-wrap:break-word;word-break:keep-all;line-height:1.15;}
+.ninv{font-size:11px;font-weight:800;color:#111827;margin-top:2px;white-space:nowrap;}
+.ninv .a{color:#6B7280;font-weight:600;}
+.veh{position:absolute;left:0;top:0;font-size:22px;z-index:4;will-change:transform;transform:translate3d(0,0,0) translate(-50%,-50%);filter:drop-shadow(0 1px 1px rgba(0,0,0,.15));opacity:0;transition:opacity .3s;}
+.logarea{grid-row:2;grid-column:1 / -1;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:8px 12px;}
+.logttl{font-size:11px;color:#6B7280;font-weight:700;margin-bottom:4px;}
+.prog{height:7px;background:#F3F4F6;border-radius:5px;overflow:hidden;margin-bottom:7px;}
+.bar{height:100%;width:0%;background:#F1E3A3;border-radius:5px;will-change:width;}
+.logp{height:92px;overflow-y:auto;font-size:12px;color:#374151;-webkit-overflow-scrolling:touch;}
+.lr{padding:2px 0;border-bottom:1px solid #F3F4F6;overflow-wrap:break-word;}
 .lr.ev{color:#111827;font-weight:700;}
+.lr.last{background:#FFFDF5;}
 .lt{color:#6B7280;font-weight:700;margin-right:6px;}
-@media (max-width:520px){.smap{height:210px;}.node{width:74px;padding:5px 3px;}.ico{font-size:17px;}.nm{font-size:9px;}.inv{font-size:11px;}.kv{font-size:15px;}}
+@media (max-width:560px){.wrap{grid-template-columns:1fr;}.kpicol{grid-row:1;grid-column:1;flex-direction:row;flex-wrap:wrap;}.kc{flex:1 1 44%;}.smap{grid-row:2;grid-column:1;min-height:240px;}.logarea{grid-row:3;}.node{width:74px;padding:5px 3px;}.ico{font-size:16px;}.nm{font-size:9px;}.ninv{font-size:9px;}}
 </style></head><body>
-<div class="sw">
-  <div class="kpibar">
-    <div class="kpi"><span class="kl">처리 완료율</span><span class="kv" id="k1">0%</span></div>
-    <div class="kpi"><span class="kl">폐기 감소율</span><span class="kv" id="k2">0%</span></div>
-    <div class="kpi"><span class="kl">절감 비용</span><span class="kv" id="k3">₩0</span></div>
+<div class="wrap">
+  <div class="kpicol">
+    <div class="kc hl big"><div class="kl">예상 절감액</div><div class="kv" id="k3">₩0</div><div class="ks" id="k3r">&nbsp;</div></div>
+    <div class="kc"><div class="kl">폐기 감소율</div><div class="kv" id="k2">0%</div></div>
+    <div class="kc"><div class="kl">VHS 점수</div><div class="kv" id="kvhs">-</div></div>
+    <div class="kc"><div class="kl">처리 완료율</div><div class="kv" id="k1">0%</div></div>
   </div>
-  <div class="smap">
-    <svg class="paths" viewBox="0 0 100 100" preserveAspectRatio="none">
-      <line x1="16" y1="26" x2="50" y2="55" stroke="#D6C06A" stroke-width="0.5" stroke-dasharray="2 1.6"/>
-      <line x1="50" y1="55" x2="84" y2="33" stroke="#D6C06A" stroke-width="0.5" stroke-dasharray="2 1.6"/>
-      <line id="altpath" x1="50" y1="55" x2="30" y2="83" stroke="#E5E7EB" stroke-width="0.45" stroke-dasharray="1.6 1.6"/>
-    </svg>
-    <div class="statbadge" id="statbox"><span class="dot"></span><span id="stat">대기중</span></div>
-    <div class="evt" id="evt">⚠ 이벤트</div>
-    <div class="node" id="n1" style="left:16%;top:26%;"><div class="ico">🏪</div><div class="nm">__SRC__</div><div class="invlbl">재고</div><div class="inv" id="inv1">__SRC_STOCK__</div></div>
-    <div class="node dc" id="n2" style="left:50%;top:55%;"><div class="ico">🏭</div><div class="nm">__DC__</div><div class="invlbl">처리</div><div class="inv" id="inv2">대기</div></div>
-    <div class="node" id="n3" style="left:84%;top:33%;"><div class="ico">🏪</div><div class="nm">__TGT__</div><div class="invlbl">재고</div><div class="inv" id="inv3">__TGT_STOCK__</div></div>
-    <div class="node idle" id="n4" style="left:30%;top:83%;"><div class="ico">🏪</div><div class="nm">대기 점포</div><div class="invlbl">상태</div><div class="inv" id="inv4" style="font-size:11px;color:#6B7280;">정상</div></div>
-    <div class="veh" id="veh1" style="left:16%;top:26%;">__VEHICLE__</div>
-    <div class="veh" id="veh2" style="left:50%;top:55%;">__ALT__</div>
+  <div class="smap" id="smap">
+    <svg class="routes" id="routes" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+    <div class="statbadge" id="statbox"><span class="dot"></span><span id="stat">준비중</span></div>
+    <div class="evt" id="evt"></div>
+    <div class="veh" id="veh1">🚚</div>
   </div>
-  <div class="prog"><div class="bar" id="bar"></div></div>
-  <div class="proglbl" id="proglbl">준비중 0%</div>
-  <div class="logp" id="logp"></div>
+  <div class="logarea">
+    <div class="prog"><div class="bar" id="bar"></div></div>
+    <div class="logttl" id="logttl">운영 로그 · 준비중 0%</div>
+    <div class="logp" id="logp"></div>
+  </div>
 </div>
 <script>
-var QTY=__QTY__, srcStock=__SRC_STOCK__, tgtStock=__TGT_STOCK__;
-var DISP=__DISP__, SAV=__SAV__;
-var SRC="__SRC__", TGT="__TGT__", DC="__DC__", EVENT="__EVENT__";
-var veh1=document.getElementById('veh1'), veh2=document.getElementById('veh2');
-var bar=document.getElementById('bar'), proglbl=document.getElementById('proglbl');
-var statEl=document.getElementById('stat'), statbox=document.getElementById('statbox'), logp=document.getElementById('logp');
-var evtEl=document.getElementById('evt');
-var inv1=document.getElementById('inv1'), inv2=document.getElementById('inv2'), inv3=document.getElementById('inv3'), inv4=document.getElementById('inv4');
-var n2=document.getElementById('n2'), n4=document.getElementById('n4');
-var k1=document.getElementById('k1'), k2=document.getElementById('k2'), k3=document.getElementById('k3');
-var done={};
-function addLog(t,m,ev){if(done['log_'+m])return;done['log_'+m]=true;var d=document.createElement('div');d.className=ev?'lr ev':'lr';d.innerHTML='<span class="lt">'+t+'</span>'+m;logp.appendChild(d);logp.scrollTop=logp.scrollHeight;}
+(function(){
+try{
+var SC=__SCENARIO__;
+var mapEl=document.getElementById('smap'), veh=document.getElementById('veh1'), routes=document.getElementById('routes');
+var bar=document.getElementById('bar'), logttl=document.getElementById('logttl');
+var statEl=document.getElementById('stat'), statbox=document.getElementById('statbox');
+var evtEl=document.getElementById('evt'), logp=document.getElementById('logp');
+var k1=document.getElementById('k1'), k2=document.getElementById('k2'), k3=document.getElementById('k3'), k3r=document.getElementById('k3r'), kvhs=document.getElementById('kvhs');
+var done={}, lastRow=null;
 function won(v){return '₩'+Math.round(v).toLocaleString();}
-var WP=[[16,26],[50,55],[84,33]];
-var WP4=[50,55],TGT4=[30,83];
-// phase: start,end,fromWP,toWP,status,isAI
-var PH=[[0,1200,0,0,'상차중',0],[1200,3400,0,1,'이동중',0],[3400,4400,1,1,'AI 운영 재분석 중',1],[4400,6700,1,2,'이동중',0],[6700,7800,2,2,'하역중',0]];
-var TOT=7800, t0=Date.now();
 function lerp(a,b,p){return a+(b-a)*p;}
-function setInv(el,val){el.textContent=Math.round(val);}
-function step(){
-  var t=Date.now()-t0;
+function addLog(t,m,ev){if(done['L'+t+m])return;done['L'+t+m]=true;var d=document.createElement('div');d.className=ev?'lr ev':'lr';d.innerHTML='<span class="lt">'+t+'</span>'+m;if(lastRow)lastRow.classList.remove('last');d.classList.add('last');lastRow=d;logp.appendChild(d);logp.scrollTop=logp.scrollHeight;}
+kvhs.textContent=(SC.vhs!=null?SC.vhs:'-');
+var mapW=mapEl.clientWidth||600, mapH=mapEl.clientHeight||288;
+function measure(){mapW=mapEl.clientWidth||mapW;mapH=mapEl.clientHeight||mapH;}
+window.addEventListener('resize',measure);
+// 노드 생성 (재고 내부 표시)
+var NODES={}, INV={};
+(SC.nodes||[]).forEach(function(n){
+  var d=document.createElement('div');
+  d.className='node'+(n.type==='dc'?' dc':'');
+  d.id='nd_'+n.id; d.style.left=n.x+'%'; d.style.top=n.y+'%';
+  var invHtml='';
+  if(n.type==='dc'){invHtml='<div class="ninv">입고 +'+(n.dcIn||0)+' / 출고 -'+(n.dcOut||0)+'</div>';}
+  else{invHtml='<div class="ninv" id="inv_'+n.id+'">재고 '+(n.inv0||0)+' <span class="a">→ '+(n.inv0||0)+'</span></div>';INV[n.id]={f:n.inv0||0,t:(n.inv1!=null?n.inv1:n.inv0||0)};}
+  d.innerHTML='<div class="ico">'+(n.type==='dc'?'🏭':'🏪')+'</div><div class="nm">'+n.name+'</div>'+invHtml;
+  mapEl.appendChild(d);
+  NODES[n.id]={x:n.x,y:n.y};
+});
+function nd(id){return NODES[id];}
+// route 곡선 그리기 (활성/비활성)
+function curve(a,b){var mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2 - 6;return 'M '+a[0]+' '+a[1]+' Q '+mx+' '+my+' '+b[0]+' '+b[1];}
+var routePaths=[];
+(SC.stages||[]).forEach(function(s){if(s.move){var f=nd(s.move.fromId),via=nd(s.move.viaId),to=nd(s.move.toId);if(f&&via){addPath(f,via,s.move.fromId+'_'+s.move.viaId);}if(via&&to){addPath(via,to,s.move.viaId+'_'+s.move.toId);}}});
+function addPath(a,b,key){if(routePaths.indexOf(key)>=0)return;routePaths.push(key);var p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d',curve([a.x,a.y],[b.x,b.y]));p.setAttribute('fill','none');p.setAttribute('stroke','#D9D9D9');p.setAttribute('stroke-width','0.7');p.setAttribute('stroke-linecap','round');p.setAttribute('data-key',key);routes.appendChild(p);}
+function setActivePath(fromId,viaId,toId){var keys=[fromId+'_'+viaId,viaId+'_'+toId];for(var i=0;i<routes.children.length;i++){var c=routes.children[i];var k=c.getAttribute('data-key');if(keys.indexOf(k)>=0){c.setAttribute('stroke','#E0C84A');c.setAttribute('stroke-width','1.0');}else{c.setAttribute('stroke','#D9D9D9');c.setAttribute('stroke-width','0.7');}}}
+function moveVeh(xp,yp){var px=xp/100*mapW, py=yp/100*mapH;veh.style.transform='translate3d('+px+'px,'+py+'px,0) translate(-50%,-50%)';}
+var t0=null, TOT=SC.total||8000;
+function frame(ts){
+  if(t0===null)t0=ts;
+  var t=ts-t0;
   var p=Math.min(t/TOT,1);
-  var cur=PH[PH.length-1];
-  for(var i=0;i<PH.length;i++){if(t>=PH[i][0]&&t<PH[i][1]){cur=PH[i];break;}}
-  var seg=(t-cur[0])/Math.max(cur[1]-cur[0],1); seg=Math.max(0,Math.min(1,seg));
-  var a=WP[cur[2]], b=WP[cur[3]];
-  veh1.style.left=lerp(a[0],b[0],seg)+'%';
-  veh1.style.top=lerp(a[1],b[1],seg)+'%';
-  statEl.textContent=cur[4];
-  if(cur[5]){statbox.className='statbadge ai';statEl.textContent='🧠 '+cur[4];}else{statbox.className='statbadge';}
-  bar.style.width=Math.round(p*100)+'%';
-  proglbl.textContent=cur[4]+' '+Math.round(p*100)+'%';
-  // 실시간 KPI
-  k1.textContent=Math.round(p*100)+'%';
-  k2.textContent=Math.round(lerp(0,DISP,p))+'%';
-  k3.textContent=won(lerp(0,SAV,p));
-  // 재고 카운팅
-  if(t<=3400){var pp=Math.min(t/3400,1);setInv(inv1,lerp(srcStock,srcStock-QTY,pp));}else{setInv(inv1,srcStock-QTY);}
-  if(t>=6700){var qp=Math.min((t-6700)/1100,1);setInv(inv3,lerp(tgtStock,tgtStock+QTY,qp));}
-  // 2호차 (긴급) : 이벤트 후 DC -> 대기점포
-  if(t>=4400){
-    veh2.style.opacity='1';
-    var s2=Math.min((t-4400)/2300,1);
-    veh2.style.left=lerp(WP4[0],TGT4[0],s2)+'%';
-    veh2.style.top=lerp(WP4[1],TGT4[1],s2)+'%';
+  var cur=SC.stages[SC.stages.length-1], idx=SC.stages.length-1;
+  for(var i=0;i<SC.stages.length;i++){if(t>=SC.stages[i].start&&t<SC.stages[i].end){cur=SC.stages[i];idx=i;break;}}
+  statEl.textContent=cur.ai?('🧠 '+cur.status):cur.status;
+  statbox.className=cur.ai?'statbadge ai':'statbadge';
+  if(cur.event){evtEl.classList.add('show');evtEl.textContent='⚠ '+cur.event.text;var en=document.getElementById('nd_'+cur.event.nodeId);if(en)en.className='node alert';}
+  else{evtEl.classList.remove('show');}
+  if(cur.move){
+    veh.style.opacity='1';veh.textContent=cur.move.vehicle;
+    setActivePath(cur.move.fromId,cur.move.viaId,cur.move.toId);
+    var seg=(t-cur.start)/Math.max(cur.end-cur.start,1);seg=Math.max(0,Math.min(1,seg));
+    var f=nd(cur.move.fromId),via=nd(cur.move.viaId),to=nd(cur.move.toId);
+    if(f&&via&&to){var x,y;if(seg<0.5){var s=seg/0.5;x=lerp(f.x,via.x,s);y=lerp(f.y,via.y,s);}else{var s2=(seg-0.5)/0.5;x=lerp(via.x,to.x,s2);y=lerp(via.y,to.y,s2);}moveVeh(x,y);}
   }
-  // 운영 이벤트 + AI 재분석 로그
-  if(t>=0)addLog('09:00','상차 시작');
-  if(t>=1200)addLog('09:08',SRC+' 출발 (적재 '+QTY+'개)');
-  if(t>=3400){addLog('09:22',EVENT+' 감지',true);evtEl.classList.add('show');evtEl.textContent='⚠ '+EVENT;n4.className='node alert';inv4.textContent='수요↑';}
-  if(t>=3500)addLog('09:23','AI 경로 재분석 시작',true);
-  if(t>=4400){addLog('09:24','긴급 차량 배정 / 경로 재배치',true);inv2.textContent='입고 '+QTY;}
-  if(t>=5200)addLog('09:30','재분배 처리 완료');
-  if(t>=6700)addLog('09:42',TGT+' 하역중');
-  if(t>=7800){addLog('09:43','재고 반영 완료');inv2.innerHTML='입고 '+QTY+' / 출고 '+QTY;statEl.textContent='재고 반영 완료';statbox.className='statbadge';bar.style.width='100%';proglbl.textContent='완료 100%';k1.textContent='100%';k2.textContent=Math.round(DISP)+'%';k3.textContent=won(SAV);return;}
-  requestAnimationFrame(step);
+  // 재고 실시간 카운팅 (전체 진행 기준)
+  for(var id in INV){var el=document.getElementById('inv_'+id);if(el){var v=Math.round(lerp(INV[id].f,INV[id].t,p));el.innerHTML='재고 '+INV[id].f+' <span class="a">→ '+v+'</span>';}}
+  var prev=idx>0?SC.stages[idx-1].kpi:{done:0,disp:0,sav:0};
+  var sg=(t-cur.start)/Math.max(cur.end-cur.start,1);sg=Math.max(0,Math.min(1,sg));
+  k1.textContent=Math.round(lerp(prev.done,cur.kpi.done,sg))+'%';
+  k2.textContent=Math.round(lerp(prev.disp,cur.kpi.disp,sg))+'%';
+  var sv=lerp(prev.sav,cur.kpi.sav,sg);k3.textContent=won(sv);
+  bar.style.width=Math.round(p*100)+'%';
+  logttl.textContent='운영 로그 · '+cur.status+' '+Math.round(p*100)+'%';
+  (cur.logs||[]).forEach(function(l){addLog(l[0],l[1],l[2]);});
+  if(t>=TOT){k1.textContent='100%';k2.textContent=(SC.kpiFinal.disp)+'%';k3.textContent=won(SC.kpiFinal.sav);for(var id2 in INV){var e2=document.getElementById('inv_'+id2);if(e2)e2.innerHTML='재고 '+INV[id2].f+' <span class="a">→ '+INV[id2].t+'</span>';}bar.style.width='100%';logttl.textContent='운영 로그 · 완료 100%';statEl.textContent=SC.stages[SC.stages.length-1].status;statbox.className='statbadge';return;}
+  requestAnimationFrame(frame);
 }
-requestAnimationFrame(step);
+if(SC.nodes&&SC.nodes.length){var mv=(SC.stages.find(function(s){return s.move;})||{move:{fromId:SC.nodes[0].id}}).move;var fn=nd(mv.fromId)||NODES[SC.nodes[0].id];if(fn)moveVeh(fn.x,fn.y);}
+requestAnimationFrame(frame);
+}catch(e){var lp=document.getElementById('logp');if(lp)lp.textContent='시뮬레이션 표시 준비 중';}
+})();
 </script></body></html>"""
 
 
@@ -1593,23 +1614,182 @@ def _render_strategy_reasoning(final_recommendations):
         items.append(("🧠", "Hybrid Score 기준 최적 후보 선정"))
 
     rows_html = "".join(
-        f'<div style="padding:6px 0;border-bottom:1px solid #F3F4F6;font-size:13px;color:#374151;">'
-        f'<span style="margin-right:8px;">{ic}</span>{_html.escape(txt)}</div>'
+        f'<span style="display:inline-block;background:#FFFDF5;border:1px solid #F1E3A3;'
+        f'border-radius:11px;padding:5px 12px;margin:3px 4px 3px 0;font-size:13px;'
+        f'color:#111827;font-weight:600;overflow-wrap:break-word;word-break:keep-all;">'
+        f'{ic} {_html.escape(txt)}</span>'
         for ic, txt in items
     )
 
     st.markdown("**추천 이유 분석**")
     st.markdown(f"""
     <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;
-                padding:10px 14px;margin-bottom:6px;">
+                padding:11px 14px;margin-bottom:6px;line-height:1.9;">
       {rows_html}
     </div>
     """, unsafe_allow_html=True)
 
 
+def _build_operation_scenario(final_recommendations, max_moves=3):
+    """실제 추천/재고 데이터 기반 운영 시나리오 자동 생성 (JSON 직렬화용 dict)."""
+    df = _filter_positive_qty_recommendations(final_recommendations)
+    if df is None or df.empty:
+        return None
+    score_col = next((c for c in ["vhs2","heuristic_score","total_score"]
+                      if c in df.columns), None)
+    ordered = (df.sort_values(score_col, ascending=False)
+               if score_col else df).copy()
+
+    # 선택된 후보를 맨 앞으로 (추천 후보 더보기에서 전환)
+    sel_idx = st.session_state.get("dashboard_selected_candidate_index", None)
+    if sel_idx is not None:
+        try:
+            if sel_idx in ordered.index:
+                sel_rows = ordered.loc[[sel_idx]]
+                rest = ordered.drop(index=sel_idx)
+                ordered = pd.concat([sel_rows, rest])
+        except Exception:
+            pass
+
+    top = ordered.head(max_moves)
+    n = max(len(top), 1)
+
+    # 노드 배치 (DC 중앙 + 점포 코너)
+    nodes = [{"id": "dc", "name": "물류 DC", "x": 50, "y": 52, "type": "dc"}]
+    store_pos = [(16, 24), (84, 28), (22, 80), (82, 78)]
+    state = {"name2id": {}, "pi": 0}
+
+    def node_for(raw):
+        nm = (str(raw)[:8] if raw is not None else "점포") or "점포"
+        if nm in state["name2id"]:
+            return state["name2id"][nm]
+        idx = state["pi"]
+        x, y = store_pos[idx] if idx < len(store_pos) else store_pos[-1]
+        state["pi"] = idx + 1
+        nid = "s%d" % len(state["name2id"])
+        state["name2id"][nm] = nid
+        nodes.append({"id": nid, "name": nm, "x": x, "y": y, "type": "store"})
+        return nid
+
+    stages = []
+    t = 0
+    cum_disp = 0.0
+    cum_sav = 0.0
+    # 노드별 재고 추적 (실시간 표시용)
+    stock0 = {}        # node id → 초기 재고
+    delta = {}         # node id → 순변화
+    dc_in = 0
+    dc_out = 0
+    vhs_primary = None  # 첫(선택) 후보 점수
+
+    # 0단계: 운영 상황 분석
+    stages.append({
+        "start": 0, "end": 1000, "status": "운영 상황 분석", "ai": False,
+        "event": None, "move": None,
+        "logs": [["09:00", "운영 상황 분석 시작", False]],
+        "kpi": {"done": 5, "disp": 0, "sav": 0},
+    })
+    t = 1000
+
+    for i, (_, r) in enumerate(top.iterrows()):
+        srcnm = str(r.get("source_store", "출발점") or "출발점")[:8]
+        tgtnm = str(r.get("target_store", "도착점") or "도착점")[:8]
+        src = node_for(srcnm)
+        tgt = node_for(tgtnm)
+        qty = int(_safe_parse_score(r.get("suggested_qty") or r.get("move_qty")) or 0)
+
+        # 재고 추적: 출발 -qty, 도착 +qty, DC 통과
+        ss = int(_safe_parse_score(r.get("state_source_stock")
+                                   or r.get("current_stock") or r.get("source_stock")) or 0)
+        ts = int(_safe_parse_score(r.get("state_target_stock")
+                                   or r.get("target_stock") or r.get("dest_stock")) or 0)
+        stock0.setdefault(src, ss)
+        stock0.setdefault(tgt, ts)
+        delta[src] = delta.get(src, 0) - qty
+        delta[tgt] = delta.get(tgt, 0) + qty
+        dc_in += qty
+        dc_out += qty
+        if vhs_primary is None:
+            vhs_primary = _safe_parse_score(r.get("vhs2") or r.get("heuristic_score"))
+
+        cat   = str(r.get("category", "") or r.get("product_category", "") or "")
+        drisk = str(r.get("disposal_risk_grade", "") or "").upper()
+        drisk_sc = _safe_parse_score(r.get("disposal_risk_score"))
+        is_cold = any(k in cat for k in ["냉장", "냉동", "신선", "유제품"])
+        is_high = drisk in ("HIGH", "MED", "MEDIUM") or (drisk_sc is not None and drisk_sc >= 50)
+
+        if is_cold:
+            veh = "🚛"; vname = "냉장 탑차"; ev = "%s 냉장 상품 위험 증가" % srcnm
+        elif is_high:
+            veh = "🛵"; vname = "긴급 오토바이"; ev = "%s 폐기 위험 증가" % srcnm
+        else:
+            veh = "🚚"; vname = "트럭"; ev = "%s 수요 급증" % tgtnm
+
+        d = _safe_parse_score(r.get("disposal_avoidance_score")) or 0
+        s = _safe_parse_score(r.get("disposal_avoidance_profit")
+                              or r.get("avoided_disposal_cost")) or 0
+
+        # 직전 누적값 (AI 단계에서 표시 → 단조 증가 보장)
+        prev_disp = round(cum_disp)
+        prev_sav  = round(cum_sav)
+        ai_done   = int(5 + (i / n) * 90)
+
+        # 이동 완료 후 누적 증가
+        cum_sav += max(s, 0)
+        cum_disp = min(cum_disp + (d / n), 100)
+        move_done = int(5 + ((i + 1) / n) * 90)
+
+        hh = 22 + i * 5
+        # 이벤트 + AI 재판단 (직전 누적값)
+        stages.append({
+            "start": t, "end": t + 1000, "status": "AI 운영 재판단 중", "ai": True,
+            "event": {"text": ev, "nodeId": src}, "move": None,
+            "logs": [["09:%02d" % hh, ev + " 감지", True],
+                     ["09:%02d" % (hh + 1), "AI 재배치 분석 시작", True]],
+            "kpi": {"done": ai_done, "disp": prev_disp, "sav": prev_sav},
+        })
+        t += 1000
+        # 이동 (출발 → DC → 도착) — 누적 증가 반영
+        stages.append({
+            "start": t, "end": t + 2200, "status": "이동 처리중", "ai": False,
+            "event": None,
+            "move": {"vehicle": veh, "fromId": src, "viaId": "dc", "toId": tgt, "qty": qty},
+            "logs": [["09:%02d" % (hh + 2), vname + " 배정 완료", True],
+                     ["09:%02d" % (hh + 3), tgtnm + " 배송 시작", False]],
+            "kpi": {"done": move_done, "disp": round(cum_disp), "sav": round(cum_sav)},
+        })
+        t += 2200
+
+    # 종료 단계
+    hh = 22 + n * 5
+    stages.append({
+        "start": t, "end": t + 1000, "status": "폐기 감소 반영 완료", "ai": False,
+        "event": None, "move": None,
+        "logs": [["09:%02d" % hh, "폐기 감소 반영 완료", False]],
+        "kpi": {"done": 100, "disp": round(cum_disp), "sav": round(cum_sav)},
+    })
+    total = t + 1000
+
+    # 노드에 재고 정보 부착 (실시간 표시용)
+    for nd_ in nodes:
+        if nd_["type"] == "dc":
+            nd_["dcIn"] = dc_in
+            nd_["dcOut"] = dc_out
+        else:
+            s0 = stock0.get(nd_["id"], 0)
+            nd_["inv0"] = s0
+            nd_["inv1"] = max(s0 + delta.get(nd_["id"], 0), 0)
+
+    return {"nodes": nodes, "stages": stages, "total": total,
+            "vhs": round(vhs_primary, 1) if vhs_primary is not None else None,
+            "kpiFinal": {"disp": round(cum_disp), "sav": round(cum_sav)}}
+
+
 def _render_operation_simulation(final_recommendations):
-    """추천 운영 시뮬레이션 패널 (가상 물류 맵 + 트럭 이동 + 재고 변화 + 로그)."""
+    """AI 운영 시나리오 자동 생성 + 시뮬레이션 패널."""
     import html as _html
+    import json as _json
+    import base64 as _b64
     try:
         import streamlit.components.v1 as components
     except Exception:
@@ -1626,173 +1806,106 @@ def _render_operation_simulation(final_recommendations):
         st.info("표시할 시뮬레이션이 없습니다")
         return
 
-    row = _best_row(final_recommendations)
-    if row is None:
+    # 시뮬레이션 다시 시작 (nonce만 변경 → 버튼 클릭이 rerun 유발, 중복 rerun 방지)
+    if st.button("▶ 시뮬레이션 다시 시작", key="sim_restart"):
+        st.session_state["_sim_nonce"] = st.session_state.get("_sim_nonce", 0) + 1
+    nonce = st.session_state.get("_sim_nonce", 0)
+
+    with st.spinner("🧠 운영 시나리오 생성 중..."):
+        scenario = _build_operation_scenario(final_recommendations)
+    if scenario is None:
         st.info("표시할 시뮬레이션이 없습니다")
         return
 
-    # 데이터 추출 (안전 파싱)
-    def _int(v, d=0):
-        s = _safe_parse_score(v)
-        return int(s) if s is not None else d
-    src = _html.escape(str(row.get("source_store", "출발점") or "출발점"))[:10]
-    tgt = _html.escape(str(row.get("target_store", "도착점") or "도착점"))[:10]
-    dc  = "물류 DC"
-    qty = _int(row.get("suggested_qty") or row.get("move_qty"), 0)
-    src_stock = _int(row.get("state_source_stock") or row.get("current_stock")
-                     or row.get("source_stock"), 0)
-    tgt_stock = _int(row.get("state_target_stock") or row.get("target_stock")
-                     or row.get("dest_stock"), 0)
-
-    # 차량 타입 / 이벤트 자동 판단 (데이터 기반)
-    cat = str(row.get("category","") or row.get("product_category","") or "")
-    drisk = str(row.get("disposal_risk_grade","") or "").upper()
-    drisk_sc = _safe_parse_score(row.get("disposal_risk_score"))
-    is_cold = any(k in cat for k in ["냉장","냉동","신선","유제품"])
-    is_high = drisk in ("HIGH","MED","MEDIUM") or (drisk_sc is not None and drisk_sc >= 50)
-    if is_cold:
-        vehicle = "🚛"; event = f"{src} 냉장 상품 위험 증가"
-    elif is_high:
-        vehicle = "🚚"; event = f"{src} 재고 위험 증가"
-    else:
-        vehicle = "🚚"; event = f"{tgt} 수요 급증"
-    alt_vehicle = "🛵"   # 긴급 이동
-
-    # 실시간 KPI 목표값
-    disp = _safe_parse_score(row.get("disposal_avoidance_score"))
-    disp_v = int(min(disp, 100)) if disp is not None else 24
-    sav = _safe_parse_score(row.get("disposal_avoidance_profit")
-                            or row.get("avoided_disposal_cost"))
-    sav_v = int(sav) if sav and sav > 0 else 0
-
     if components is not None:
         try:
-            sim_html = (_SIM_TEMPLATE
-                .replace("__SRC__", src).replace("__TGT__", tgt).replace("__DC__", dc)
-                .replace("__QTY__", str(qty))
-                .replace("__SRC_STOCK__", str(src_stock))
-                .replace("__TGT_STOCK__", str(tgt_stock))
-                .replace("__VEHICLE__", vehicle).replace("__ALT__", alt_vehicle)
-                .replace("__EVENT__", event)
-                .replace("__DISP__", str(disp_v)).replace("__SAV__", str(sav_v)))
-            components.html(sim_html, height=560, scrolling=False)
+            sim_html = _SIM_TEMPLATE.replace(
+                "__SCENARIO__", _json.dumps(scenario, ensure_ascii=True))
+            sim_html = sim_html.replace("<body>", "<body><!--n%d-->" % nonce)
+            # data URL + iframe → st.components.v1.html 경고 제거, JS 애니메이션 유지
+            b64 = _b64.b64encode(sim_html.encode("utf-8")).decode("ascii")
+            data_url = "data:text/html;base64," + b64
+            try:
+                components.iframe(data_url, height=470, scrolling=False)
+            except Exception:
+                components.html(sim_html, height=470, scrolling=False)
         except Exception:
-            st.caption(f"{src} → {dc} → {tgt} · 이동 수량 {qty}개")
+            st.caption("운영 시나리오 생성됨")
     else:
-        st.caption(f"{src} → {dc} → {tgt} · 이동 수량 {qty}개")
+        st.caption("운영 시나리오 생성됨")
 
-    # ── 현재 운영 상태 패널 (실제 추천 데이터 기반) ───────
-    moving = int((df.get("final_recommendation", pd.Series([], dtype=str))
-                  .astype(str).str.contains("이동|재배치|transfer").sum())) if df is not None else 0
-    moving = max(moving, 1)
-    urgent = 0
-    risk_cnt = 0
-    if df is not None:
-        if "disposal_risk_grade" in df.columns:
-            g = df["disposal_risk_grade"].astype(str).str.upper()
-            urgent   = int(g.isin(["HIGH"]).sum())
-            risk_cnt = int(g.isin(["HIGH","MED","MEDIUM"]).sum())
-        elif "disposal_risk_score" in df.columns:
-            rs = pd.to_numeric(df["disposal_risk_score"], errors="coerce").fillna(0)
-            urgent   = int((rs >= 70).sum())
-            risk_cnt = int((rs >= 50).sum())
-    sav_total = None
-    for c in ["disposal_avoidance_profit", "avoided_disposal_cost"]:
-        if df is not None and c in df.columns:
-            sav_total = float(pd.to_numeric(df[c], errors="coerce").fillna(0).sum())
-            break
-    sav_disp = f"₩{sav_total:,.0f}" if sav_total else "데이터 없음"
-
-    st.markdown("**현재 운영 상태**")
-    o1, o2, o3, o4, o5 = st.columns(5)
-    o1.metric("이동 중 차량", f"{moving}대")
-    o2.metric("긴급 처리", f"{urgent}건")
-    o3.metric("위험 상품", f"{risk_cnt}개")
-    o4.metric("예상 절감", sav_disp)
-    o5.metric("AI 재분석", "완료")
+    # 추천 후보 더보기 (시뮬레이션 전환 후보 목록 — compact)
+    with st.expander("▼ 추천 후보 더보기", expanded=False):
+        _render_dashboard_top5(final_recommendations)
 
 
 def _render_dashboard_top5(final_recommendations):
-    """메인 대시보드 하단 추천 후보 TOP 5 요약 카드 + 선택."""
+    """추천 후보 더보기 — compact 리스트 (한 줄/후보, 작은 선택 버튼)."""
     if final_recommendations is None or final_recommendations.empty:
+        st.caption("추천 후보 없음")
         return
 
     df = _filter_positive_qty_recommendations(final_recommendations)
     if df is None or df.empty:
-        st.markdown("---")
-        st.markdown("**추천 후보 TOP 5**")
         st.caption("추천 후보 없음")
         return
 
-    # 점수 기준 정렬 (vhs2 → heuristic_score)
-    score_col = next((c for c in ["vhs2","heuristic_score","total_score"]
+    score_col = next((c for c in ["vhs2", "heuristic_score", "total_score"]
                       if c in df.columns), None)
-    if score_col:
-        top5 = df.sort_values(score_col, ascending=False).head(5)
-    else:
-        top5 = df.head(5)
-
+    top5 = (df.sort_values(score_col, ascending=False).head(5)
+            if score_col else df.head(5))
     sel_idx = st.session_state.get("dashboard_selected_candidate_index", None)
 
-    # TOP5 전용 CSS (연노랑/흰색/회색 통일)
     st.markdown("""
     <style>
-    .t5card { background:#FFFDF5; border:1px solid #E5E7EB; border-radius:9px;
-              padding:11px 13px; margin-bottom:6px; }
-    .t5card.sel { border:1px solid #F1E3A3; background:#FFEFA3; }
-    .t5rank { font-size:11px; font-weight:700; color:#6B7280; }
-    .t5name { font-size:15px; font-weight:800; color:#111827;
-              word-break:keep-all; }
-    .t5route{ font-size:12px; color:#6B7280; margin-top:1px; word-break:keep-all; }
-    .t5meta { font-size:12px; color:#374151; margin-top:4px; word-break:keep-all; }
-    .t5score{ font-size:18px; font-weight:800; color:#111827; }
-    .t5pill { display:inline-block; font-size:10px; font-weight:700;
-              padding:1px 7px; border-radius:10px; background:#FFF3BF;
-              color:#111827; border:1px solid #F1E3A3; margin-top:3px; }
-    .t5selmark { font-size:10px; font-weight:700; color:#854D0E; margin-left:6px; }
+    .t5row{font-size:12px;color:#374151;line-height:1.35;
+           overflow-wrap:break-word;word-break:keep-all;}
+    .t5row .rk{display:inline-block;min-width:16px;font-weight:800;color:#6B7280;}
+    .t5row .nm{font-weight:700;color:#111827;}
+    .t5row .rt{color:#6B7280;}
+    .t5row .sv{font-weight:700;color:#111827;}
+    .t5row .sel{font-size:10px;font-weight:700;color:#854D0E;
+                background:#FFF3BF;border:1px solid #F1E3A3;border-radius:8px;
+                padding:1px 6px;margin-left:4px;}
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown("**추천 후보 TOP 5**")
-
-    def _fmt_cost(v):
+    def _fmt(v):
         try:
             f = float(v)
-            if f >= 10000: return f"{f/10000:.1f}만원"
-            return f"{f:,.0f}원"
-        except: return "-"
+            if f >= 10000: return "%.1f만원" % (f / 10000)
+            return "%,.0f원" % f if False else ("%d원" % int(f))
+        except:
+            return "-"
 
     for rank, (orig_idx, row) in enumerate(top5.iterrows(), 1):
         is_sel = (sel_idx is not None and str(sel_idx) == str(orig_idx))
-        name   = str(row.get("product_name","-"))
-        src    = str(row.get("source_store","-"))
-        tgt    = str(row.get("target_store","-"))
-        strat  = str(row.get("final_recommendation","") or row.get("vhs2_action","") or "-")[:14]
-        qty    = row.get("suggested_qty", row.get("move_qty","-"))
-        cost   = _fmt_cost(row.get("estimated_cost"))
-        score  = row.get(score_col) if score_col else None
-        score_s= f"{float(score):.1f}" if score is not None and pd.notna(score) else "-"
-        grade  = _resolve_grade(row)
+        name = str(row.get("product_name", "-"))[:14]
+        src  = str(row.get("source_store", "-"))[:7]
+        tgt  = str(row.get("target_store", "-"))[:7]
+        sav  = row.get("disposal_avoidance_profit")
+        sc   = row.get(score_col) if score_col else None
+        if sav is not None and pd.notna(sav) and float(sav) > 0:
+            metric = _fmt(sav)
+        elif sc is not None and pd.notna(sc):
+            metric = "%.0f점" % float(sc)
+        else:
+            metric = "-"
 
-        c_card, c_btn = st.columns([5, 1])
-        with c_card:
-            sel_cls  = "t5card sel" if is_sel else "t5card"
-            sel_mark = '<span class="t5selmark">● 선택됨</span>' if is_sel else ""
-            pill = f'<span class="t5pill">{grade}</span>' if grade else ""
-            st.markdown(f"""<div class="{sel_cls}">
-  <div class="t5rank">{rank}순위{sel_mark}</div>
-  <div class="t5name">{name}</div>
-  <div class="t5route">{src} → {tgt}</div>
-  <div class="t5meta">{strat} · 수량 {qty} · {cost} · 점수 <b>{score_s}</b></div>
-  {pill}
-</div>""", unsafe_allow_html=True)
-        with c_btn:
+        c1, c2 = st.columns([6, 1])
+        with c1:
+            sel_tag = '<span class="sel">선택됨</span>' if is_sel else ""
+            st.markdown(
+                f'<div class="t5row"><span class="rk">{rank}</span> '
+                f'<span class="nm">{name}</span> · '
+                f'<span class="rt">{src}→{tgt}</span> · '
+                f'<span class="sv">{metric}</span>{sel_tag}</div>',
+                unsafe_allow_html=True)
+        with c2:
             if is_sel:
-                st.button("선택됨", key=f"t5_sel_{orig_idx}", disabled=True,
-                          width="stretch")
+                st.button("✓", key=f"t5_sel_{orig_idx}", disabled=True)
             else:
-                if st.button("보기", key=f"t5_pick_{orig_idx}", width="stretch"):
+                if st.button("선택", key=f"t5_pick_{orig_idx}"):
                     st.session_state["dashboard_selected_candidate_index"] = orig_idx
                     st.rerun()
 
