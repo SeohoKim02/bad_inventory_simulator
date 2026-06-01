@@ -1,11 +1,5 @@
 {
   "created_at": "20260601_125514",
-  "sample_no": "sample21",
-  "scenario_name": "final",
-  "learning_rate": 0.02,
-  "episodes": 500,
-  "candidate_count": 24,
-  "named_prefix": "dqn_sample21_final_lr0200_500x24",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -62,6 +56,64 @@
       "폐기",
       "보류"
     ],
-    "model_saved": false
+    "model_saved": true,
+    "saved_paths": {
+      "output_dir": "dqn_artifacts",
+      "model_file": "dqn_artifacts\\dqn_latest_model.npz",
+      "compare_file": "dqn_artifacts\\dqn_latest_recommendations.csv",
+      "history_file": "dqn_artifacts\\dqn_latest_history.csv",
+      "summary_file": "dqn_artifacts\\dqn_latest_summary.json",
+      "timestamp_model_file": "dqn_artifacts\\dqn_20260601_125514_model.npz",
+      "timestamp_compare_file": "dqn_artifacts\\dqn_20260601_125514_recommendations.csv",
+      "timestamp_history_file": "dqn_artifacts\\dqn_20260601_125514_history.csv",
+      "timestamp_summary_file": "dqn_artifacts\\dqn_20260601_125514_summary.json",
+      "named_prefix": "dqn_sample21_final_lr0200_500x24",
+      "named_model_file": "dqn_artifacts\\dqn_sample21_final_lr0200_500x24_model.npz",
+      "named_compare_file": "dqn_artifacts\\dqn_sample21_final_lr0200_500x24_recommendations.csv",
+      "named_history_file": "dqn_artifacts\\dqn_sample21_final_lr0200_500x24_history.csv",
+      "named_summary_file": "dqn_artifacts\\dqn_sample21_final_lr0200_500x24_summary.json",
+      "comparison_file": "dqn_artifacts\\dqn_training_comparison.csv",
+      "created_at": "20260601_125514"
+    },
+    "github_upload": {
+      "configured": true,
+      "github_dir": "dqn_artifacts",
+      "ok_count": 4,
+      "fail_count": 0,
+      "results": [
+        {
+          "ok": true,
+          "file": "dqn_artifacts\\dqn_latest_model.npz",
+          "github_path": "dqn_artifacts/dqn_latest_model.npz",
+          "sha": "97ee31ee39fe9f3a9d1c3ca647e65fc516052a1c",
+          "html_url": "https://github.com/SeohoKim02/bad_inventory_simulator/blob/main/dqn_artifacts/dqn_latest_model.npz",
+          "message": "uploaded"
+        },
+        {
+          "ok": true,
+          "file": "dqn_artifacts\\dqn_latest_recommendations.csv",
+          "github_path": "dqn_artifacts/dqn_latest_recommendations.csv",
+          "sha": "0dd0cd9a628373f88aa03328f2231bb0034308ca",
+          "html_url": "https://github.com/SeohoKim02/bad_inventory_simulator/blob/main/dqn_artifacts/dqn_latest_recommendations.csv",
+          "message": "uploaded"
+        },
+        {
+          "ok": true,
+          "file": "dqn_artifacts\\dqn_latest_history.csv",
+          "github_path": "dqn_artifacts/dqn_latest_history.csv",
+          "sha": "2e502bb7e953827187211cf2454c49d8c816a0ba",
+          "html_url": "https://github.com/SeohoKim02/bad_inventory_simulator/blob/main/dqn_artifacts/dqn_latest_history.csv",
+          "message": "uploaded"
+        },
+        {
+          "ok": true,
+          "file": "dqn_artifacts\\dqn_latest_summary.json",
+          "github_path": "dqn_artifacts/dqn_latest_summary.json",
+          "sha": "2f19a44ba49187e1501fa93dd70e84b7fa9cf8a3",
+          "html_url": "https://github.com/SeohoKim02/bad_inventory_simulator/blob/main/dqn_artifacts/dqn_latest_summary.json",
+          "message": "uploaded"
+        }
+      ]
+    }
   }
 }
