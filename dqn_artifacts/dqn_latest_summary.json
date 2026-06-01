@@ -1,11 +1,11 @@
 {
-  "created_at": "20260601_121717",
+  "created_at": "20260601_121903",
   "sample_no": "sample18",
   "scenario_name": "Logistics_Disruption",
-  "learning_rate": 0.005,
+  "learning_rate": 0.003,
   "episodes": 500,
   "candidate_count": 500,
-  "named_prefix": "dqn_sample18_logistics_disrup_lr0050_500x500",
+  "named_prefix": "dqn_sample18_logistics_disrup_lr0030_500x500",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -32,7 +32,7 @@
   "summary": {
     "training_samples": 500,
     "transition_count": 2000,
-    "final_loss": 26.793879474237677,
+    "final_loss": 40.7034388152081,
     "dqn_top_action": "재고 이동",
     "dqn_top_product": "농심 육개장사발면",
     "dqn_top_route": "잠원점 → 선릉점",
