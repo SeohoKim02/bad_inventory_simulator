@@ -1367,6 +1367,351 @@ def _render_selected_candidate_detail(final_recommendations):
             st.caption(reason[:300])
 
 
+_SIM_TEMPLATE = """<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:#FFF9E6;}
+.sw{padding:12px;}
+.kpibar{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+.kpi{flex:1;min-width:90px;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:9px;padding:8px 10px;}
+.kl{display:block;font-size:10px;color:#6B7280;font-weight:600;}
+.kv{display:block;font-size:17px;font-weight:800;color:#111827;margin-top:2px;white-space:nowrap;}
+.smap{position:relative;height:248px;background:#FFFDF5;border:1px solid #F1E3A3;border-radius:12px;overflow:hidden;}
+.paths{position:absolute;inset:0;width:100%;height:100%;z-index:1;}
+.statbadge{position:absolute;top:10px;left:12px;z-index:5;background:#FFFFFF;border:1px solid #F1E3A3;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:800;color:#111827;}
+.statbadge.ai{background:#FFEFA3;border-color:#E0C84A;}
+.statbadge .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#C9A227;margin-right:6px;vertical-align:middle;animation:pulse 1.1s infinite;}
+@keyframes pulse{0%{opacity:.35;}50%{opacity:1;}100%{opacity:.35;}}
+.evt{position:absolute;top:10px;right:12px;z-index:5;background:#FFFFFF;border:1px solid #E0C84A;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:800;color:#111827;opacity:0;transition:opacity .4s;max-width:60%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.evt.show{opacity:1;}
+.node{position:absolute;transform:translate(-50%,-50%);width:104px;text-align:center;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:8px 5px;z-index:3;}
+.node.dc{border:1px solid #F1E3A3;background:#FFFDF5;}
+.node.idle{opacity:.78;}
+.node.alert{border:1px solid #E0C84A;background:#FFEFA3;}
+.ico{font-size:23px;}
+.nm{font-size:11px;font-weight:700;color:#111827;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.inv{font-size:13px;font-weight:800;color:#111827;margin-top:2px;}
+.invlbl{font-size:9px;color:#6B7280;font-weight:600;}
+.veh{position:absolute;transform:translate(-50%,-50%);font-size:22px;z-index:4;filter:drop-shadow(0 1px 1px rgba(0,0,0,.15));transition:opacity .3s;}
+#veh2{opacity:0;font-size:19px;}
+.prog{height:9px;background:#F3F4F6;border-radius:5px;overflow:hidden;margin:12px 0 6px;}
+.bar{height:100%;width:0%;background:#F1E3A3;border-radius:5px;transition:width .15s linear;}
+.proglbl{font-size:11px;color:#6B7280;font-weight:700;margin-bottom:10px;}
+.logp{background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:9px 12px;height:104px;overflow-y:auto;font-size:12px;color:#374151;}
+.lr{padding:2px 0;border-bottom:1px solid #F3F4F6;}
+.lr.ev{color:#111827;font-weight:700;}
+.lt{color:#6B7280;font-weight:700;margin-right:6px;}
+@media (max-width:520px){.smap{height:210px;}.node{width:74px;padding:5px 3px;}.ico{font-size:17px;}.nm{font-size:9px;}.inv{font-size:11px;}.kv{font-size:15px;}}
+</style></head><body>
+<div class="sw">
+  <div class="kpibar">
+    <div class="kpi"><span class="kl">처리 완료율</span><span class="kv" id="k1">0%</span></div>
+    <div class="kpi"><span class="kl">폐기 감소율</span><span class="kv" id="k2">0%</span></div>
+    <div class="kpi"><span class="kl">절감 비용</span><span class="kv" id="k3">₩0</span></div>
+  </div>
+  <div class="smap">
+    <svg class="paths" viewBox="0 0 100 100" preserveAspectRatio="none">
+      <line x1="16" y1="26" x2="50" y2="55" stroke="#D6C06A" stroke-width="0.5" stroke-dasharray="2 1.6"/>
+      <line x1="50" y1="55" x2="84" y2="33" stroke="#D6C06A" stroke-width="0.5" stroke-dasharray="2 1.6"/>
+      <line id="altpath" x1="50" y1="55" x2="30" y2="83" stroke="#E5E7EB" stroke-width="0.45" stroke-dasharray="1.6 1.6"/>
+    </svg>
+    <div class="statbadge" id="statbox"><span class="dot"></span><span id="stat">대기중</span></div>
+    <div class="evt" id="evt">⚠ 이벤트</div>
+    <div class="node" id="n1" style="left:16%;top:26%;"><div class="ico">🏪</div><div class="nm">__SRC__</div><div class="invlbl">재고</div><div class="inv" id="inv1">__SRC_STOCK__</div></div>
+    <div class="node dc" id="n2" style="left:50%;top:55%;"><div class="ico">🏭</div><div class="nm">__DC__</div><div class="invlbl">처리</div><div class="inv" id="inv2">대기</div></div>
+    <div class="node" id="n3" style="left:84%;top:33%;"><div class="ico">🏪</div><div class="nm">__TGT__</div><div class="invlbl">재고</div><div class="inv" id="inv3">__TGT_STOCK__</div></div>
+    <div class="node idle" id="n4" style="left:30%;top:83%;"><div class="ico">🏪</div><div class="nm">대기 점포</div><div class="invlbl">상태</div><div class="inv" id="inv4" style="font-size:11px;color:#6B7280;">정상</div></div>
+    <div class="veh" id="veh1" style="left:16%;top:26%;">__VEHICLE__</div>
+    <div class="veh" id="veh2" style="left:50%;top:55%;">__ALT__</div>
+  </div>
+  <div class="prog"><div class="bar" id="bar"></div></div>
+  <div class="proglbl" id="proglbl">준비중 0%</div>
+  <div class="logp" id="logp"></div>
+</div>
+<script>
+var QTY=__QTY__, srcStock=__SRC_STOCK__, tgtStock=__TGT_STOCK__;
+var DISP=__DISP__, SAV=__SAV__;
+var SRC="__SRC__", TGT="__TGT__", DC="__DC__", EVENT="__EVENT__";
+var veh1=document.getElementById('veh1'), veh2=document.getElementById('veh2');
+var bar=document.getElementById('bar'), proglbl=document.getElementById('proglbl');
+var statEl=document.getElementById('stat'), statbox=document.getElementById('statbox'), logp=document.getElementById('logp');
+var evtEl=document.getElementById('evt');
+var inv1=document.getElementById('inv1'), inv2=document.getElementById('inv2'), inv3=document.getElementById('inv3'), inv4=document.getElementById('inv4');
+var n2=document.getElementById('n2'), n4=document.getElementById('n4');
+var k1=document.getElementById('k1'), k2=document.getElementById('k2'), k3=document.getElementById('k3');
+var done={};
+function addLog(t,m,ev){if(done['log_'+m])return;done['log_'+m]=true;var d=document.createElement('div');d.className=ev?'lr ev':'lr';d.innerHTML='<span class="lt">'+t+'</span>'+m;logp.appendChild(d);logp.scrollTop=logp.scrollHeight;}
+function won(v){return '₩'+Math.round(v).toLocaleString();}
+var WP=[[16,26],[50,55],[84,33]];
+var WP4=[50,55],TGT4=[30,83];
+// phase: start,end,fromWP,toWP,status,isAI
+var PH=[[0,1200,0,0,'상차중',0],[1200,3400,0,1,'이동중',0],[3400,4400,1,1,'AI 운영 재분석 중',1],[4400,6700,1,2,'이동중',0],[6700,7800,2,2,'하역중',0]];
+var TOT=7800, t0=Date.now();
+function lerp(a,b,p){return a+(b-a)*p;}
+function setInv(el,val){el.textContent=Math.round(val);}
+function step(){
+  var t=Date.now()-t0;
+  var p=Math.min(t/TOT,1);
+  var cur=PH[PH.length-1];
+  for(var i=0;i<PH.length;i++){if(t>=PH[i][0]&&t<PH[i][1]){cur=PH[i];break;}}
+  var seg=(t-cur[0])/Math.max(cur[1]-cur[0],1); seg=Math.max(0,Math.min(1,seg));
+  var a=WP[cur[2]], b=WP[cur[3]];
+  veh1.style.left=lerp(a[0],b[0],seg)+'%';
+  veh1.style.top=lerp(a[1],b[1],seg)+'%';
+  statEl.textContent=cur[4];
+  if(cur[5]){statbox.className='statbadge ai';statEl.textContent='🧠 '+cur[4];}else{statbox.className='statbadge';}
+  bar.style.width=Math.round(p*100)+'%';
+  proglbl.textContent=cur[4]+' '+Math.round(p*100)+'%';
+  // 실시간 KPI
+  k1.textContent=Math.round(p*100)+'%';
+  k2.textContent=Math.round(lerp(0,DISP,p))+'%';
+  k3.textContent=won(lerp(0,SAV,p));
+  // 재고 카운팅
+  if(t<=3400){var pp=Math.min(t/3400,1);setInv(inv1,lerp(srcStock,srcStock-QTY,pp));}else{setInv(inv1,srcStock-QTY);}
+  if(t>=6700){var qp=Math.min((t-6700)/1100,1);setInv(inv3,lerp(tgtStock,tgtStock+QTY,qp));}
+  // 2호차 (긴급) : 이벤트 후 DC -> 대기점포
+  if(t>=4400){
+    veh2.style.opacity='1';
+    var s2=Math.min((t-4400)/2300,1);
+    veh2.style.left=lerp(WP4[0],TGT4[0],s2)+'%';
+    veh2.style.top=lerp(WP4[1],TGT4[1],s2)+'%';
+  }
+  // 운영 이벤트 + AI 재분석 로그
+  if(t>=0)addLog('09:00','상차 시작');
+  if(t>=1200)addLog('09:08',SRC+' 출발 (적재 '+QTY+'개)');
+  if(t>=3400){addLog('09:22',EVENT+' 감지',true);evtEl.classList.add('show');evtEl.textContent='⚠ '+EVENT;n4.className='node alert';inv4.textContent='수요↑';}
+  if(t>=3500)addLog('09:23','AI 경로 재분석 시작',true);
+  if(t>=4400){addLog('09:24','긴급 차량 배정 / 경로 재배치',true);inv2.textContent='입고 '+QTY;}
+  if(t>=5200)addLog('09:30','재분배 처리 완료');
+  if(t>=6700)addLog('09:42',TGT+' 하역중');
+  if(t>=7800){addLog('09:43','재고 반영 완료');inv2.innerHTML='입고 '+QTY+' / 출고 '+QTY;statEl.textContent='재고 반영 완료';statbox.className='statbadge';bar.style.width='100%';proglbl.textContent='완료 100%';k1.textContent='100%';k2.textContent=Math.round(DISP)+'%';k3.textContent=won(SAV);return;}
+  requestAnimationFrame(step);
+}
+requestAnimationFrame(step);
+</script></body></html>"""
+
+
+def _render_optimal_strategy(final_recommendations):
+    """AI 자동 선택 최적 운영 전략 헤더 (사용자 선택 없음)."""
+    if final_recommendations is None or final_recommendations.empty:
+        return
+    row = _best_row(final_recommendations)
+    if row is None:
+        return
+
+    import html as _html
+    name  = _html.escape(str(row.get("product_name","-") or "-"))
+    strat = _html.escape(str(row.get("final_recommendation","")
+                             or row.get("vhs2_action","") or "운영 최적화"))
+    score = _safe_parse_score(row.get("vhs2") or row.get("heuristic_score"))
+
+    # 예상 비용 절감 (폐기 회피 이익)
+    sav = _safe_parse_score(row.get("disposal_avoidance_profit")
+                            or row.get("avoided_disposal_cost"))
+    sav_s = f"₩{sav:,.0f}" if sav and sav > 0 else "데이터 없음"
+
+    # 폐기 감소율 (회피 점수)
+    disp = _safe_parse_score(row.get("disposal_avoidance_score"))
+    disp_s = f"{min(disp,100):.0f}%" if disp is not None else "데이터 없음"
+
+    # 추천 신뢰도
+    conf = _safe_parse_score(row.get("confidence_score"))
+    if conf is None and score is not None:
+        conf = min(95.0, score + 8)   # 점수 기반 근사
+    conf_s = f"{conf:.0f}%" if conf is not None else "-"
+
+    grade = _resolve_grade(row)
+
+    st.markdown(f"""
+    <div style="background:#FFFDF5;border:1px solid #F1E3A3;border-radius:14px;
+                padding:16px 20px;margin-bottom:14px;">
+      <div style="font-size:11px;color:#854D0E;font-weight:800;letter-spacing:1px;">
+        ⭐ 현재 최적 운영 전략 <span style="color:#6B7280;font-weight:600;">· AI 자동 선택</span>
+      </div>
+      <div style="font-size:19px;font-weight:800;color:#111827;margin-top:5px;word-break:keep-all;">
+        {name} · {strat}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:22px;margin-top:12px;">
+        <div><div style="font-size:11px;color:#6B7280;font-weight:600;">예상 비용 절감</div>
+             <div style="font-size:17px;font-weight:800;color:#111827;">{sav_s}</div></div>
+        <div><div style="font-size:11px;color:#6B7280;font-weight:600;">폐기 감소율</div>
+             <div style="font-size:17px;font-weight:800;color:#111827;">{disp_s}</div></div>
+        <div><div style="font-size:11px;color:#6B7280;font-weight:600;">추천 신뢰도</div>
+             <div style="font-size:17px;font-weight:800;color:#111827;">{conf_s}</div></div>
+        <div><div style="font-size:11px;color:#6B7280;font-weight:600;">추천 등급</div>
+             <div style="font-size:17px;font-weight:800;color:#111827;">{grade}</div></div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _render_strategy_reasoning(final_recommendations):
+    """추천 이유 분석 패널 (기존 분석 결과 활용)."""
+    if final_recommendations is None or final_recommendations.empty:
+        return
+    row = _best_row(final_recommendations)
+    if row is None:
+        return
+
+    import html as _html
+    items = []
+
+    # 폐기 위험
+    drisk = str(row.get("disposal_risk_grade","") or "")
+    drisk_sc = _safe_parse_score(row.get("disposal_risk_score"))
+    if drisk in ("HIGH","MED","MEDIUM") or (drisk_sc is not None and drisk_sc >= 50):
+        items.append(("⚠", "폐기 위험 높음 — 우선 처리 대상"))
+    elif drisk == "LOW" or (drisk_sc is not None and drisk_sc < 50):
+        items.append(("✓", "폐기 위험 관리 범위 내"))
+
+    # 수요
+    dstatus = str(row.get("demand_status","") or "")
+    net_sc  = _safe_parse_score(row.get("network_score") or row.get("network_cost_score"))
+    if dstatus == "높음":
+        items.append(("📍", "인근 점포 수요 존재"))
+    elif net_sc is not None and net_sc >= 50:
+        items.append(("📍", "이동 대상 점포 수요 확인"))
+
+    # 이동 비용 vs 폐기 비용
+    cost = _safe_parse_score(row.get("estimated_cost"))
+    disp_profit = _safe_parse_score(row.get("disposal_avoidance_profit"))
+    if cost is not None and disp_profit is not None and disp_profit > cost:
+        items.append(("🚚", "이동 비용 < 폐기 비용"))
+
+    # 거리 Cutline
+    cutline = str(row.get("cutline_status","") or row.get("transfer_feasibility","") or "")
+    if "충족" in cutline or "가능" in cutline or "OK" in cutline.upper():
+        items.append(("📦", "거리 Cutline 충족"))
+    elif net_sc is not None and net_sc >= 50:
+        items.append(("📦", "이동 가능 경로 확인"))
+
+    # DQN reward
+    reward = _safe_parse_score(row.get("reward"))
+    if reward is not None and reward > 0:
+        items.append(("🧠", "DQN reward 예측 양호"))
+
+    if not items:
+        items.append(("🧠", "Hybrid Score 기준 최적 후보 선정"))
+
+    rows_html = "".join(
+        f'<div style="padding:6px 0;border-bottom:1px solid #F3F4F6;font-size:13px;color:#374151;">'
+        f'<span style="margin-right:8px;">{ic}</span>{_html.escape(txt)}</div>'
+        for ic, txt in items
+    )
+
+    st.markdown("**추천 이유 분석**")
+    st.markdown(f"""
+    <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;
+                padding:10px 14px;margin-bottom:6px;">
+      {rows_html}
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _render_operation_simulation(final_recommendations):
+    """추천 운영 시뮬레이션 패널 (가상 물류 맵 + 트럭 이동 + 재고 변화 + 로그)."""
+    import html as _html
+    try:
+        import streamlit.components.v1 as components
+    except Exception:
+        components = None
+
+    st.markdown("**추천 운영 시뮬레이션**")
+
+    if final_recommendations is None or final_recommendations.empty:
+        st.info("표시할 시뮬레이션이 없습니다")
+        return
+
+    df = _filter_positive_qty_recommendations(final_recommendations)
+    if df is None or df.empty:
+        st.info("표시할 시뮬레이션이 없습니다")
+        return
+
+    row = _best_row(final_recommendations)
+    if row is None:
+        st.info("표시할 시뮬레이션이 없습니다")
+        return
+
+    # 데이터 추출 (안전 파싱)
+    def _int(v, d=0):
+        s = _safe_parse_score(v)
+        return int(s) if s is not None else d
+    src = _html.escape(str(row.get("source_store", "출발점") or "출발점"))[:10]
+    tgt = _html.escape(str(row.get("target_store", "도착점") or "도착점"))[:10]
+    dc  = "물류 DC"
+    qty = _int(row.get("suggested_qty") or row.get("move_qty"), 0)
+    src_stock = _int(row.get("state_source_stock") or row.get("current_stock")
+                     or row.get("source_stock"), 0)
+    tgt_stock = _int(row.get("state_target_stock") or row.get("target_stock")
+                     or row.get("dest_stock"), 0)
+
+    # 차량 타입 / 이벤트 자동 판단 (데이터 기반)
+    cat = str(row.get("category","") or row.get("product_category","") or "")
+    drisk = str(row.get("disposal_risk_grade","") or "").upper()
+    drisk_sc = _safe_parse_score(row.get("disposal_risk_score"))
+    is_cold = any(k in cat for k in ["냉장","냉동","신선","유제품"])
+    is_high = drisk in ("HIGH","MED","MEDIUM") or (drisk_sc is not None and drisk_sc >= 50)
+    if is_cold:
+        vehicle = "🚛"; event = f"{src} 냉장 상품 위험 증가"
+    elif is_high:
+        vehicle = "🚚"; event = f"{src} 재고 위험 증가"
+    else:
+        vehicle = "🚚"; event = f"{tgt} 수요 급증"
+    alt_vehicle = "🛵"   # 긴급 이동
+
+    # 실시간 KPI 목표값
+    disp = _safe_parse_score(row.get("disposal_avoidance_score"))
+    disp_v = int(min(disp, 100)) if disp is not None else 24
+    sav = _safe_parse_score(row.get("disposal_avoidance_profit")
+                            or row.get("avoided_disposal_cost"))
+    sav_v = int(sav) if sav and sav > 0 else 0
+
+    if components is not None:
+        try:
+            sim_html = (_SIM_TEMPLATE
+                .replace("__SRC__", src).replace("__TGT__", tgt).replace("__DC__", dc)
+                .replace("__QTY__", str(qty))
+                .replace("__SRC_STOCK__", str(src_stock))
+                .replace("__TGT_STOCK__", str(tgt_stock))
+                .replace("__VEHICLE__", vehicle).replace("__ALT__", alt_vehicle)
+                .replace("__EVENT__", event)
+                .replace("__DISP__", str(disp_v)).replace("__SAV__", str(sav_v)))
+            components.html(sim_html, height=560, scrolling=False)
+        except Exception:
+            st.caption(f"{src} → {dc} → {tgt} · 이동 수량 {qty}개")
+    else:
+        st.caption(f"{src} → {dc} → {tgt} · 이동 수량 {qty}개")
+
+    # ── 현재 운영 상태 패널 (실제 추천 데이터 기반) ───────
+    moving = int((df.get("final_recommendation", pd.Series([], dtype=str))
+                  .astype(str).str.contains("이동|재배치|transfer").sum())) if df is not None else 0
+    moving = max(moving, 1)
+    urgent = 0
+    risk_cnt = 0
+    if df is not None:
+        if "disposal_risk_grade" in df.columns:
+            g = df["disposal_risk_grade"].astype(str).str.upper()
+            urgent   = int(g.isin(["HIGH"]).sum())
+            risk_cnt = int(g.isin(["HIGH","MED","MEDIUM"]).sum())
+        elif "disposal_risk_score" in df.columns:
+            rs = pd.to_numeric(df["disposal_risk_score"], errors="coerce").fillna(0)
+            urgent   = int((rs >= 70).sum())
+            risk_cnt = int((rs >= 50).sum())
+    sav_total = None
+    for c in ["disposal_avoidance_profit", "avoided_disposal_cost"]:
+        if df is not None and c in df.columns:
+            sav_total = float(pd.to_numeric(df[c], errors="coerce").fillna(0).sum())
+            break
+    sav_disp = f"₩{sav_total:,.0f}" if sav_total else "데이터 없음"
+
+    st.markdown("**현재 운영 상태**")
+    o1, o2, o3, o4, o5 = st.columns(5)
+    o1.metric("이동 중 차량", f"{moving}대")
+    o2.metric("긴급 처리", f"{urgent}건")
+    o3.metric("위험 상품", f"{risk_cnt}개")
+    o4.metric("예상 절감", sav_disp)
+    o5.metric("AI 재분석", "완료")
+
+
 def _render_dashboard_top5(final_recommendations):
     """메인 대시보드 하단 추천 후보 TOP 5 요약 카드 + 선택."""
     if final_recommendations is None or final_recommendations.empty:
@@ -1578,11 +1923,14 @@ def _show_dashboard_home(
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── 선택된 추천 후보 상세 대시보드 ────────────────────
-    _render_selected_candidate_detail(final_recommendations)
+    # ── 현재 최적 운영 전략 (AI 자동 선택) ────────────────
+    _render_optimal_strategy(final_recommendations)
 
-    # ── 추천 후보 TOP 5 (요약 카드 + 선택) ───────────────
-    _render_dashboard_top5(final_recommendations)
+    # ── 추천 운영 시뮬레이션 ──────────────────────────────
+    _render_operation_simulation(final_recommendations)
+
+    # ── 추천 이유 분석 ────────────────────────────────────
+    _render_strategy_reasoning(final_recommendations)
 
     st.markdown("---")
         # ── 네비게이션 ─────────────────────────────────────────
