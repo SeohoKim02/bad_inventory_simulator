@@ -1,11 +1,11 @@
 {
-  "created_at": "20260601_125431",
+  "created_at": "20260601_125452",
   "sample_no": "sample21",
   "scenario_name": "final",
-  "learning_rate": 0.005,
+  "learning_rate": 0.003,
   "episodes": 500,
   "candidate_count": 24,
-  "named_prefix": "dqn_sample21_final_lr0050_500x24",
+  "named_prefix": "dqn_sample21_final_lr0030_500x24",
   "action_labels": [
     "재고 이동",
     "할인",
@@ -32,8 +32,8 @@
   "summary": {
     "training_samples": 24,
     "transition_count": 96,
-    "final_loss": 12.212457584015254,
-    "dqn_top_action": "재고 이동",
+    "final_loss": 17.51577751518723,
+    "dqn_top_action": "할인",
     "dqn_top_product": "서울우유 딸기우유",
     "dqn_top_route": "잠실점 → 문래점",
     "greedy_top_action": "할인",
