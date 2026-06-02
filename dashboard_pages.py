@@ -4,6 +4,49 @@ import html as html_lib
 import pandas as pd
 import streamlit as st
 
+# ── Streamlit components.v1 deprecation 경고(터미널) 억제 ──────────────
+#    대체 API(st.iframe)가 현재 런타임에 없을 수 있어 components.html 을
+#    계속 사용해야 하므로, 콘솔에 반복 출력되는 deprecation 안내만 제거한다.
+import logging as _logging
+import warnings as _warnings
+
+_warnings.filterwarnings("ignore", message=r".*components\.v1\.(html|iframe).*")
+
+
+class _SuppressComponentsDeprecation(_logging.Filter):
+    def filter(self, record):  # noqa: A003
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        return not ("components.v1" in msg and "will be removed" in msg)
+
+
+def _suppress_streamlit_deprecation():
+    """root + streamlit 로거/핸들러에 deprecation 필터를 설치 (중복 방지)."""
+    flt_cls = _SuppressComponentsDeprecation
+    names = [""]
+    try:
+        names += [n for n in _logging.root.manager.loggerDict
+                  if isinstance(n, str) and n.startswith("streamlit")]
+    except Exception:
+        pass
+    for n in names:
+        try:
+            lg = _logging.getLogger(n)
+            if not any(isinstance(f, flt_cls) for f in lg.filters):
+                lg.addFilter(flt_cls())
+            for h in list(lg.handlers):
+                if not any(isinstance(f, flt_cls) for f in h.filters):
+                    h.addFilter(flt_cls())
+        except Exception:
+            pass
+
+
+_suppress_streamlit_deprecation()
+# ───────────────────────────────────────────────────────────────────────
+
+
 try:
     from kakao_map_viewer import show_kakao_map, show_kakao_map_with_highlights, show_store_matching_map
 except ImportError:
@@ -1379,60 +1422,117 @@ def _render_selected_candidate_detail(final_recommendations):
 
 _SIM_TEMPLATE = """<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:#FFF9E6;animation:fadeIn .35s ease;}
+body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:transparent;animation:fadeIn .35s ease;}
 @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
-.wrap{padding:10px;display:grid;grid-template-columns:128px 1fr;grid-template-rows:auto auto;gap:10px;max-width:100%;}
-.kpicol{grid-row:1;grid-column:1;display:flex;flex-direction:column;gap:8px;}
-.kc{background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:9px 11px;}
-.kc.hl{background:#FFFDF5;border-color:#F1E3A3;}
-.kc .kl{font-size:10px;color:#6B7280;font-weight:600;overflow-wrap:break-word;}
-.kc .kv{font-size:18px;font-weight:800;color:#111827;margin-top:2px;white-space:nowrap;}
-.kc.big .kv{font-size:21px;}
-.kc .ks{font-size:10px;color:#6B7280;margin-top:1px;}
-.smap{grid-row:1;grid-column:2;position:relative;width:100%;min-height:288px;border:1px solid #F1E3A3;border-radius:12px;overflow:hidden;background:#FFFDF5;background-image:linear-gradient(#F3E9C0 1px,transparent 1px),linear-gradient(90deg,#F3E9C0 1px,transparent 1px);background-size:30px 30px;background-position:-1px -1px;}
-.statbadge{position:absolute;top:9px;left:11px;z-index:6;background:#FFFFFF;border:1px solid #F1E3A3;border-radius:20px;padding:3px 11px;font-size:11px;font-weight:800;color:#111827;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.wrap{display:grid;grid-template-columns:1fr 286px;gap:12px;max-width:100%;align-items:stretch;}
+/* ── 운영 맵 ── */
+.smap{position:relative;width:100%;min-height:392px;border:1px solid #EFE6C2;border-radius:16px;overflow:hidden;
+  background:
+    radial-gradient(130% 95% at 50% 12%, #FFFFFF 0%, #FFFDF5 44%, #FBF3D6 100%),
+    radial-gradient(55% 45% at 50% 56%, rgba(224,200,74,.10) 0%, rgba(224,200,74,0) 72%);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.55), inset 0 16px 44px rgba(201,162,39,.06);}
+.smap::before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;
+  background-image:linear-gradient(rgba(201,162,39,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(201,162,39,.05) 1px,transparent 1px);
+  background-size:32px 32px;background-position:-1px -1px;
+  -webkit-mask-image:radial-gradient(135% 100% at 50% 42%,#000 55%,transparent 100%);
+  mask-image:radial-gradient(135% 100% at 50% 42%,#000 55%,transparent 100%);}
+.statbadge{position:absolute;top:11px;left:13px;z-index:6;background:rgba(255,255,255,.92);backdrop-filter:blur(3px);border:1px solid #EFE6C2;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:800;color:#111827;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-shadow:0 1px 3px rgba(17,24,39,.06);}
 .statbadge.ai{background:#FFEFA3;border-color:#E0C84A;}
-.statbadge .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#C9A227;margin-right:5px;vertical-align:middle;animation:pulse 1.1s infinite;}
-@keyframes pulse{0%{opacity:.35;}50%{opacity:1;}100%{opacity:.35;}}
-.evt{position:absolute;top:9px;right:11px;z-index:6;background:#FFFFFF;border:1px solid #E0C84A;border-radius:20px;padding:3px 11px;font-size:10px;font-weight:800;color:#111827;opacity:0;transition:opacity .4s;max-width:46%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.evt.show{opacity:1;}
+.statbadge .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#2Fae66;margin-right:6px;vertical-align:middle;animation:pulse 1.2s infinite;}
+.statbadge .stg{color:#6B7280;font-weight:700;margin-left:6px;border-left:1px solid #E5E0CC;padding-left:8px;}
+@keyframes pulse{0%{opacity:.4;}50%{opacity:1;}100%{opacity:.4;}}
+.allroute{position:absolute;top:11px;right:13px;z-index:6;background:rgba(255,255,255,.92);border:1px solid #ECECEC;border-radius:9px;padding:4px 10px;font-size:11px;font-weight:700;color:#6B7280;}
+.evt{position:absolute;top:42px;right:13px;z-index:6;background:rgba(255,255,255,.95);border:1px solid #E0C84A;border-radius:20px;padding:3px 11px;font-size:10px;font-weight:800;color:#111827;opacity:0;transform:translateY(-3px);transition:opacity .35s,transform .35s;max-width:46%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 2px 6px rgba(201,162,39,.14);}
+.evt.show{opacity:1;transform:translateY(0);}
 .routes{position:absolute;inset:0;width:100%;height:100%;z-index:1;}
-.node{position:absolute;transform:translate(-50%,-50%);width:102px;text-align:center;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:7px 5px;z-index:3;transition:border-color .3s,background .3s;}
-.node.dc{border:1px solid #F1E3A3;background:#FFFDF5;}
-.node.alert{border:1px solid #E0C84A;background:#FFEFA3;}
-.ico{font-size:20px;line-height:1.1;}
-.nm{font-size:11px;font-weight:700;color:#111827;margin-top:1px;overflow-wrap:break-word;word-break:keep-all;line-height:1.15;}
-.ninv{font-size:11px;font-weight:800;color:#111827;margin-top:2px;white-space:nowrap;}
-.ninv .a{color:#6B7280;font-weight:600;}
-.veh{position:absolute;left:0;top:0;font-size:22px;z-index:4;will-change:transform;transform:translate3d(0,0,0) translate(-50%,-50%);filter:drop-shadow(0 1px 1px rgba(0,0,0,.15));opacity:0;transition:opacity .3s;}
-.logarea{grid-row:2;grid-column:1 / -1;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:8px 12px;}
-.logttl{font-size:11px;color:#6B7280;font-weight:700;margin-bottom:4px;}
-.prog{height:7px;background:#F3F4F6;border-radius:5px;overflow:hidden;margin-bottom:7px;}
-.bar{height:100%;width:0%;background:#F1E3A3;border-radius:5px;will-change:width;}
-.logp{height:92px;overflow-y:auto;font-size:12px;color:#374151;-webkit-overflow-scrolling:touch;}
-.lr{padding:2px 0;border-bottom:1px solid #F3F4F6;overflow-wrap:break-word;}
-.lr.ev{color:#111827;font-weight:700;}
-.lr.last{background:#FFFDF5;}
-.lt{color:#6B7280;font-weight:700;margin-right:6px;}
-@media (max-width:560px){.wrap{grid-template-columns:1fr;}.kpicol{grid-row:1;grid-column:1;flex-direction:row;flex-wrap:wrap;}.kc{flex:1 1 44%;}.smap{grid-row:2;grid-column:1;min-height:240px;}.logarea{grid-row:3;}.node{width:74px;padding:5px 3px;}.ico{font-size:16px;}.nm{font-size:9px;}.ninv{font-size:9px;}}
+.routes .flow{stroke-dasharray:2 3;animation:dash 1.1s linear infinite;}
+@keyframes dash{to{stroke-dashoffset:-10;}}
+.node{position:absolute;transform:translate(-50%,-50%);width:118px;text-align:center;background:#FFFFFF;border:1px solid #ECECEC;border-radius:13px;padding:9px 7px;z-index:3;
+  box-shadow:0 3px 12px rgba(17,24,39,.09);transition:border-color .3s,background .3s,box-shadow .3s,transform .3s;}
+.node.dc{border:1px solid #F1E3A3;background:linear-gradient(180deg,#FFFDF5,#FFF7DE);width:132px;box-shadow:0 6px 18px rgba(201,162,39,.16);}
+.node.alert{border:1px solid #E0C84A;background:#FFEFA3;box-shadow:0 5px 16px rgba(201,162,39,.22);}
+.node.active{transform:translate(-50%,-50%) translateY(-2px);box-shadow:0 9px 22px rgba(201,162,39,.20);}
+.ico{font-size:22px;line-height:1.1;}
+.node.dc .ico{font-size:25px;}
+.nm{font-size:11.5px;font-weight:700;color:#111827;margin-top:2px;overflow-wrap:break-word;word-break:keep-all;line-height:1.18;}
+.ninv{font-size:11px;font-weight:800;color:#111827;margin-top:3px;white-space:nowrap;}
+.ninv .a{font-weight:700;}
+.ninv .dn{color:#C0392B;}
+.ninv .up{color:#2E7D32;}
+.veh{position:absolute;left:0;top:0;font-size:24px;z-index:4;will-change:transform;transform:translate3d(0,0,0) translate(-50%,-50%);filter:drop-shadow(0 2px 3px rgba(17,24,39,.22));opacity:0;transition:opacity .3s;}
+/* 재고 상태 범례 */
+.legend{position:absolute;left:13px;bottom:13px;z-index:5;background:rgba(255,255,255,.92);border:1px solid #ECECEC;border-radius:11px;padding:8px 11px;font-size:11px;color:#374151;box-shadow:0 2px 6px rgba(17,24,39,.06);}
+.legend .lh{font-weight:800;color:#111827;margin-bottom:4px;font-size:11px;}
+.legend .li{display:flex;align-items:center;gap:6px;margin:2px 0;}
+.legend .d{width:8px;height:8px;border-radius:50%;}
+/* 실시간 재고 변화 strip */
+.invstrip{position:absolute;left:50%;bottom:13px;transform:translateX(-50%);z-index:5;background:rgba(255,255,255,.94);border:1px solid #ECECEC;border-radius:12px;padding:8px 14px;box-shadow:0 3px 10px rgba(17,24,39,.08);display:flex;align-items:center;gap:10px;max-width:60%;}
+.invstrip .t{font-size:10px;color:#6B7280;font-weight:700;margin-right:2px;white-space:nowrap;}
+.invstrip .it{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#111827;white-space:nowrap;}
+.invstrip .iv{font-weight:800;}
+.invstrip .arr{color:#C9A227;font-weight:800;}
+/* ── 오른쪽 패널 ── */
+.rightcol{grid-column:2;display:flex;flex-direction:column;gap:12px;min-width:0;}
+.card{background:#FFFFFF;border:1px solid #ECECEC;border-radius:14px;padding:13px 15px;box-shadow:0 1px 2px rgba(17,24,39,.04);}
+.card .ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;}
+.card .ct{font-size:12.5px;font-weight:800;color:#111827;}
+.card .cs{font-size:11px;font-weight:700;color:#2Fae66;}
+.card .cs .d{display:inline-block;width:7px;height:7px;border-radius:50%;background:#2Fae66;margin-right:5px;vertical-align:middle;animation:pulse 1.2s infinite;}
+.srow{display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F5F2E8;font-size:12px;}
+.srow:last-child{border-bottom:none;}
+.srow .k{color:#6B7280;font-weight:600;}
+.srow .v{color:#111827;font-weight:800;}
+.srow .v.cold{color:#2563EB;}
+.srow .v.ok{color:#2E7D32;}
+.logp{max-height:188px;overflow-y:auto;font-size:12px;color:#374151;-webkit-overflow-scrolling:touch;padding-right:2px;}
+.logp::-webkit-scrollbar{width:6px;}.logp::-webkit-scrollbar-thumb{background:#E5E0CC;border-radius:3px;}
+.lr{padding:4px 2px;border-bottom:1px solid #F5F2E8;overflow-wrap:break-word;display:flex;align-items:flex-start;gap:7px;}
+.lr:last-child{border-bottom:none;}
+.lr .li{flex:0 0 auto;}
+.lr.ev{font-weight:700;}
+.lr.last{background:#FFFBEA;border-radius:7px;border-bottom-color:transparent;}
+.lt{color:#9CA3AF;font-weight:700;margin-right:5px;}
+.prog{height:6px;background:#F3F0E4;border-radius:5px;overflow:hidden;margin-top:10px;}
+.bar{height:100%;width:0%;background:linear-gradient(90deg,#F1E3A3,#E0C84A);border-radius:5px;will-change:width;}
+@media (max-width:680px){.wrap{grid-template-columns:1fr;}.smap{grid-column:1;min-height:300px;}.rightcol{grid-column:1;}.node{width:84px;padding:6px 4px;}.node.dc{width:92px;}.ico{font-size:17px;}.nm{font-size:9.5px;}.ninv{font-size:9px;}.invstrip{max-width:80%;}}
 </style></head><body>
 <div class="wrap">
-  <div class="kpicol">
-    <div class="kc hl big"><div class="kl">예상 절감액</div><div class="kv" id="k3">₩0</div><div class="ks" id="k3r">&nbsp;</div></div>
-    <div class="kc"><div class="kl">폐기 감소율</div><div class="kv" id="k2">0%</div></div>
-    <div class="kc"><div class="kl">VHS 점수</div><div class="kv" id="kvhs">-</div></div>
-    <div class="kc"><div class="kl">처리 완료율</div><div class="kv" id="k1">0%</div></div>
-  </div>
   <div class="smap" id="smap">
     <svg class="routes" id="routes" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
-    <div class="statbadge" id="statbox"><span class="dot"></span><span id="stat">준비중</span></div>
+    <div class="statbadge" id="statbox"><span class="dot"></span><span id="stat">준비중</span><span class="stg" id="stg">1/1단계</span></div>
+    <div class="allroute">전체 경로 보기</div>
     <div class="evt" id="evt"></div>
     <div class="veh" id="veh1">🚚</div>
+    <div class="legend">
+      <div class="lh">재고 상태</div>
+      <div class="li"><span class="d" style="background:#E74C3C;"></span>부족</div>
+      <div class="li"><span class="d" style="background:#E0C84A;"></span>보통</div>
+      <div class="li"><span class="d" style="background:#2E7D32;"></span>충분</div>
+    </div>
+    <div class="invstrip" id="invstrip">
+      <span class="t">실시간 재고 변화</span>
+      <span class="it" id="is_src">출발 <span class="iv">-</span></span>
+      <span class="arr">→</span>
+      <span class="it" id="is_dc">DC <span class="iv">-</span></span>
+      <span class="arr">→</span>
+      <span class="it" id="is_tgt">도착 <span class="iv">-</span></span>
+    </div>
   </div>
-  <div class="logarea">
-    <div class="prog"><div class="bar" id="bar"></div></div>
-    <div class="logttl" id="logttl">운영 로그 · 준비중 0%</div>
-    <div class="logp" id="logp"></div>
+  <div class="rightcol">
+    <div class="card">
+      <div class="ch"><span class="ct">운영 진행 현황</span><span class="cs" id="cstat"><span class="d"></span>운영 중</span></div>
+      <div class="srow"><span class="k">경과 시간</span><span class="v" id="r_elapsed">00:00</span></div>
+      <div class="srow"><span class="k">이동 거리</span><span class="v" id="r_dist">- km</span></div>
+      <div class="srow"><span class="k">예상 도착</span><span class="v" id="r_eta">--:--</span></div>
+      <div class="srow"><span class="k">이동 수단</span><span class="v" id="r_veh">-</span></div>
+      <div class="srow"><span class="k">온도 상태</span><span class="v" id="r_temp">-</span></div>
+      <div class="srow"><span class="k">배송 상태</span><span class="v ok" id="r_deliv">대기</span></div>
+      <div class="prog"><div class="bar" id="bar"></div></div>
+    </div>
+    <div class="card">
+      <div class="ch"><span class="ct">운영 로그</span></div>
+      <div class="logp" id="logp"></div>
+    </div>
   </div>
 </div>
 <script>
@@ -1440,39 +1540,73 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
 try{
 var SC=__SCENARIO__;
 var mapEl=document.getElementById('smap'), veh=document.getElementById('veh1'), routes=document.getElementById('routes');
-var bar=document.getElementById('bar'), logttl=document.getElementById('logttl');
-var statEl=document.getElementById('stat'), statbox=document.getElementById('statbox');
+var bar=document.getElementById('bar');
+var statEl=document.getElementById('stat'), statbox=document.getElementById('statbox'), stgEl=document.getElementById('stg');
 var evtEl=document.getElementById('evt'), logp=document.getElementById('logp');
-var k1=document.getElementById('k1'), k2=document.getElementById('k2'), k3=document.getElementById('k3'), k3r=document.getElementById('k3r'), kvhs=document.getElementById('kvhs');
+var r_elapsed=document.getElementById('r_elapsed'), r_dist=document.getElementById('r_dist'), r_eta=document.getElementById('r_eta');
+var r_veh=document.getElementById('r_veh'), r_temp=document.getElementById('r_temp'), r_deliv=document.getElementById('r_deliv'), cstat=document.getElementById('cstat');
+var is_src=document.getElementById('is_src'), is_dc=document.getElementById('is_dc'), is_tgt=document.getElementById('is_tgt');
 var done={}, lastRow=null;
-function won(v){return '₩'+Math.round(v).toLocaleString();}
 function lerp(a,b,p){return a+(b-a)*p;}
-function addLog(t,m,ev){if(done['L'+t+m])return;done['L'+t+m]=true;var d=document.createElement('div');d.className=ev?'lr ev':'lr';d.innerHTML='<span class="lt">'+t+'</span>'+m;if(lastRow)lastRow.classList.remove('last');d.classList.add('last');lastRow=d;logp.appendChild(d);logp.scrollTop=logp.scrollHeight;}
-kvhs.textContent=(SC.vhs!=null?SC.vhs:'-');
-var mapW=mapEl.clientWidth||600, mapH=mapEl.clientHeight||288;
+function mmss(sec){sec=Math.max(0,Math.round(sec));var m=Math.floor(sec/60),s=sec%60;return (m<10?'0':'')+m+':'+(s<10?'0':'')+s;}
+function logIcon(m){if(/감지|위험|부족|경고/.test(m))return '⚠';if(/배송|이동|배정|출발|상차|하역/.test(m))return '🚚';if(/AI|재분석|재판단|분석/.test(m))return '🧠';if(/완료|반영/.test(m))return '✅';return '•';}
+function addLog(t,m,ev){if(done['L'+t+m])return;done['L'+t+m]=true;var d=document.createElement('div');d.className=ev?'lr ev':'lr';d.innerHTML='<span class="li">'+logIcon(m)+'</span><span><span class="lt">'+t+'</span>'+m+'</span>';if(lastRow)lastRow.classList.remove('last');d.classList.add('last');lastRow=d;logp.appendChild(d);logp.scrollTop=logp.scrollHeight;}
+
+// 이동 수단 라벨 / 온도
+var VLABEL={'🚛':'냉장탑차','🛵':'오토바이','🚚':'소형트럭'};
+function vehLabel(e){return (VLABEL[e]||'트럭');}
+
+var mapW=mapEl.clientWidth||620, mapH=mapEl.clientHeight||392;
 function measure(){mapW=mapEl.clientWidth||mapW;mapH=mapEl.clientHeight||mapH;}
 window.addEventListener('resize',measure);
+
 // 노드 생성 (재고 내부 표시)
-var NODES={}, INV={};
+var NODES={}, INV={}, DCNODE=null;
 (SC.nodes||[]).forEach(function(n){
   var d=document.createElement('div');
   d.className='node'+(n.type==='dc'?' dc':'');
   d.id='nd_'+n.id; d.style.left=n.x+'%'; d.style.top=n.y+'%';
   var invHtml='';
-  if(n.type==='dc'){invHtml='<div class="ninv">입고 +'+(n.dcIn||0)+' / 출고 -'+(n.dcOut||0)+'</div>';}
+  if(n.type==='dc'){invHtml='<div class="ninv">입고 +'+(n.dcIn||0)+' / 출고 -'+(n.dcOut||0)+'</div>';DCNODE=n;}
   else{invHtml='<div class="ninv" id="inv_'+n.id+'">재고 '+(n.inv0||0)+' <span class="a">→ '+(n.inv0||0)+'</span></div>';INV[n.id]={f:n.inv0||0,t:(n.inv1!=null?n.inv1:n.inv0||0)};}
   d.innerHTML='<div class="ico">'+(n.type==='dc'?'🏭':'🏪')+'</div><div class="nm">'+n.name+'</div>'+invHtml;
   mapEl.appendChild(d);
-  NODES[n.id]={x:n.x,y:n.y};
+  NODES[n.id]={x:n.x,y:n.y,name:n.name};
 });
 function nd(id){return NODES[id];}
-// route 곡선 그리기 (활성/비활성)
-function curve(a,b){var mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2 - 6;return 'M '+a[0]+' '+a[1]+' Q '+mx+' '+my+' '+b[0]+' '+b[1];}
+
+// 첫 이동(주 경로) — 우측 패널/재고 strip 기준
+var firstMove=(SC.stages.find(function(s){return s.move;})||{}).move||null;
+// 총 이동 거리(노드 좌표 기반 → km 환산)
+function segLen(a,b){var dx=(a.x-b.x),dy=(a.y-b.y);return Math.sqrt(dx*dx+dy*dy);}
+var totalUnits=0;
+(SC.stages||[]).forEach(function(s){if(s.move){var f=nd(s.move.fromId),via=nd(s.move.viaId),to=nd(s.move.toId);if(f&&via)totalUnits+=segLen(f,via);if(via&&to)totalUnits+=segLen(via,to);}});
+var DIST_KM=Math.max(1,(totalUnits*0.18)).toFixed(1);
+var TOTAL_MIN=18;  // 전체 운영 ~18분(표시용)
+// 이동 수단/온도 초기값
+if(firstMove){r_veh.textContent=firstMove.vehicle+' '+vehLabel(firstMove.vehicle);r_temp.innerHTML=(firstMove.vehicle==='🚛')?'<span style="color:#2563EB;">❄ 2.3°C</span>':'정상';}
+r_dist.textContent=DIST_KM+' km';
+// 재고 strip 라벨
+(function(){
+  if(firstMove){
+    var f=nd(firstMove.fromId), t=nd(firstMove.toId);
+    if(f){is_src.innerHTML=f.name+' <span class="iv dn" id="iv_src">'+(INV[firstMove.fromId]?('-'+Math.abs((INV[firstMove.fromId].f-INV[firstMove.fromId].t))):'0')+'</span>';}
+    if(DCNODE){is_dc.innerHTML=DCNODE.name+' <span class="iv up">+'+(DCNODE.dcIn||0)+'</span>';}
+    if(t){is_tgt.innerHTML=t.name+' <span class="iv up" id="iv_tgt">+'+(INV[firstMove.toId]?Math.abs((INV[firstMove.toId].t-INV[firstMove.toId].f)):'0')+'</span>';}
+  }
+})();
+
+// route 곡선 (활성/비활성 + flow)
+function curve(a,b){var mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2 - 7;return 'M '+a[0]+' '+a[1]+' Q '+mx+' '+my+' '+b[0]+' '+b[1];}
 var routePaths=[];
 (SC.stages||[]).forEach(function(s){if(s.move){var f=nd(s.move.fromId),via=nd(s.move.viaId),to=nd(s.move.toId);if(f&&via){addPath(f,via,s.move.fromId+'_'+s.move.viaId);}if(via&&to){addPath(via,to,s.move.viaId+'_'+s.move.toId);}}});
-function addPath(a,b,key){if(routePaths.indexOf(key)>=0)return;routePaths.push(key);var p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d',curve([a.x,a.y],[b.x,b.y]));p.setAttribute('fill','none');p.setAttribute('stroke','#D9D9D9');p.setAttribute('stroke-width','0.7');p.setAttribute('stroke-linecap','round');p.setAttribute('data-key',key);routes.appendChild(p);}
-function setActivePath(fromId,viaId,toId){var keys=[fromId+'_'+viaId,viaId+'_'+toId];for(var i=0;i<routes.children.length;i++){var c=routes.children[i];var k=c.getAttribute('data-key');if(keys.indexOf(k)>=0){c.setAttribute('stroke','#E0C84A');c.setAttribute('stroke-width','1.0');}else{c.setAttribute('stroke','#D9D9D9');c.setAttribute('stroke-width','0.7');}}}
+function addPath(a,b,key){if(routePaths.indexOf(key)>=0)return;routePaths.push(key);
+  var base=document.createElementNS('http://www.w3.org/2000/svg','path');base.setAttribute('d',curve([a.x,a.y],[b.x,b.y]));base.setAttribute('fill','none');base.setAttribute('stroke','#DAD3BD');base.setAttribute('stroke-width','0.8');base.setAttribute('stroke-linecap','round');base.setAttribute('data-key',key);base.setAttribute('data-role','base');routes.appendChild(base);
+  var flow=document.createElementNS('http://www.w3.org/2000/svg','path');flow.setAttribute('d',curve([a.x,a.y],[b.x,b.y]));flow.setAttribute('fill','none');flow.setAttribute('stroke','#E0C84A');flow.setAttribute('stroke-width','1.5');flow.setAttribute('stroke-linecap','round');flow.setAttribute('data-key',key);flow.setAttribute('data-role','flow');flow.setAttribute('class','flow');flow.style.opacity='0';routes.appendChild(flow);}
+function setActivePath(fromId,viaId,toId){var keys=[fromId+'_'+viaId,viaId+'_'+toId];for(var i=0;i<routes.children.length;i++){var c=routes.children[i];var k=c.getAttribute('data-key');var role=c.getAttribute('data-role');var on=keys.indexOf(k)>=0;if(role==='flow'){c.style.opacity=on?'1':'0';}else{c.setAttribute('stroke',on?'#C9A227':'#DAD3BD');c.setAttribute('stroke-width',on?'1.0':'0.8');}}}
+function setActiveNodes(ids){for(var id in NODES){var el=document.getElementById('nd_'+id);if(!el)continue;if(ids.indexOf(id)>=0){el.classList.add('active');}else{el.classList.remove('active');}}}
 function moveVeh(xp,yp){var px=xp/100*mapW, py=yp/100*mapH;veh.style.transform='translate3d('+px+'px,'+py+'px,0) translate(-50%,-50%)';}
+
 var t0=null, TOT=SC.total||8000;
 function frame(ts){
   if(t0===null)t0=ts;
@@ -1482,26 +1616,34 @@ function frame(ts){
   for(var i=0;i<SC.stages.length;i++){if(t>=SC.stages[i].start&&t<SC.stages[i].end){cur=SC.stages[i];idx=i;break;}}
   statEl.textContent=cur.ai?('🧠 '+cur.status):cur.status;
   statbox.className=cur.ai?'statbadge ai':'statbadge';
+  stgEl.textContent=(idx+1)+'/'+SC.stages.length+'단계';
   if(cur.event){evtEl.classList.add('show');evtEl.textContent='⚠ '+cur.event.text;var en=document.getElementById('nd_'+cur.event.nodeId);if(en)en.className='node alert';}
   else{evtEl.classList.remove('show');}
   if(cur.move){
     veh.style.opacity='1';veh.textContent=cur.move.vehicle;
+    r_veh.textContent=cur.move.vehicle+' '+vehLabel(cur.move.vehicle);
+    r_temp.innerHTML=(cur.move.vehicle==='🚛')?'<span style="color:#2563EB;">❄ 2.3°C</span>':'정상';
     setActivePath(cur.move.fromId,cur.move.viaId,cur.move.toId);
+    setActiveNodes([cur.move.fromId,cur.move.viaId,cur.move.toId]);
     var seg=(t-cur.start)/Math.max(cur.end-cur.start,1);seg=Math.max(0,Math.min(1,seg));
     var f=nd(cur.move.fromId),via=nd(cur.move.viaId),to=nd(cur.move.toId);
     if(f&&via&&to){var x,y;if(seg<0.5){var s=seg/0.5;x=lerp(f.x,via.x,s);y=lerp(f.y,via.y,s);}else{var s2=(seg-0.5)/0.5;x=lerp(via.x,to.x,s2);y=lerp(via.y,to.y,s2);}moveVeh(x,y);}
-  }
-  // 재고 실시간 카운팅 (전체 진행 기준)
-  for(var id in INV){var el=document.getElementById('inv_'+id);if(el){var v=Math.round(lerp(INV[id].f,INV[id].t,p));el.innerHTML='재고 '+INV[id].f+' <span class="a">→ '+v+'</span>';}}
-  var prev=idx>0?SC.stages[idx-1].kpi:{done:0,disp:0,sav:0};
-  var sg=(t-cur.start)/Math.max(cur.end-cur.start,1);sg=Math.max(0,Math.min(1,sg));
-  k1.textContent=Math.round(lerp(prev.done,cur.kpi.done,sg))+'%';
-  k2.textContent=Math.round(lerp(prev.disp,cur.kpi.disp,sg))+'%';
-  var sv=lerp(prev.sav,cur.kpi.sav,sg);k3.textContent=won(sv);
+  } else { setActiveNodes([]); }
+  // 재고 카운팅 (노드 내부)
+  for(var id in INV){var el=document.getElementById('inv_'+id);if(el){var iv=INV[id];var v=Math.round(lerp(iv.f,iv.t,p));var cls=(iv.t<iv.f)?'dn':'up';el.innerHTML='재고 '+iv.f+' <span class="a '+cls+'">→ '+v+'</span>';}}
+  // 우측 패널 진행
+  r_elapsed.textContent=mmss(p*TOTAL_MIN*60);
+  r_eta.textContent=mmss((1-p)*TOTAL_MIN*60);
   bar.style.width=Math.round(p*100)+'%';
-  logttl.textContent='운영 로그 · '+cur.status+' '+Math.round(p*100)+'%';
+  r_deliv.textContent='정상 운행';
+  // 로그
   (cur.logs||[]).forEach(function(l){addLog(l[0],l[1],l[2]);});
-  if(t>=TOT){k1.textContent='100%';k2.textContent=(SC.kpiFinal.disp)+'%';k3.textContent=won(SC.kpiFinal.sav);for(var id2 in INV){var e2=document.getElementById('inv_'+id2);if(e2)e2.innerHTML='재고 '+INV[id2].f+' <span class="a">→ '+INV[id2].t+'</span>';}bar.style.width='100%';logttl.textContent='운영 로그 · 완료 100%';statEl.textContent=SC.stages[SC.stages.length-1].status;statbox.className='statbadge';return;}
+  if(t>=TOT){
+    for(var id2 in INV){var e2=document.getElementById('inv_'+id2);if(e2){var iv2=INV[id2];var c2=(iv2.t<iv2.f)?'dn':'up';e2.innerHTML='재고 '+iv2.f+' <span class="a '+c2+'">→ '+iv2.t+'</span>';}}
+    bar.style.width='100%';statEl.textContent=SC.stages[SC.stages.length-1].status;statbox.className='statbadge';stgEl.textContent=SC.stages.length+'/'+SC.stages.length+'단계';
+    r_elapsed.textContent=mmss(TOTAL_MIN*60);r_eta.textContent='00:00';r_deliv.textContent='운영 완료';cstat.innerHTML='<span class="d" style="background:#2E7D32;"></span>완료';
+    setActiveNodes([]);return;
+  }
   requestAnimationFrame(frame);
 }
 if(SC.nodes&&SC.nodes.length){var mv=(SC.stages.find(function(s){return s.move;})||{move:{fromId:SC.nodes[0].id}}).move;var fn=nd(mv.fromId)||NODES[SC.nodes[0].id];if(fn)moveVeh(fn.x,fn.y);}
@@ -1791,52 +1933,67 @@ def _render_operation_simulation(final_recommendations):
     import json as _json
     import base64 as _b64
     try:
-        import streamlit.components.v1 as components
+        import streamlit.components.v1 as _components
     except Exception:
-        components = None
-
-    st.markdown("**추천 운영 시뮬레이션**")
+        _components = None
 
     if final_recommendations is None or final_recommendations.empty:
-        st.info("표시할 시뮬레이션이 없습니다")
+        st.markdown("**추천 운영 시뮬레이션**")
+        st.info("표시할 운영 시뮬레이션이 없습니다")
         return
 
     df = _filter_positive_qty_recommendations(final_recommendations)
     if df is None or df.empty:
-        st.info("표시할 시뮬레이션이 없습니다")
+        st.markdown("**추천 운영 시뮬레이션**")
+        st.info("표시할 운영 시뮬레이션이 없습니다")
         return
 
-    # 시뮬레이션 다시 시작 (nonce만 변경 → 버튼 클릭이 rerun 유발, 중복 rerun 방지)
-    if st.button("▶ 시뮬레이션 다시 시작", key="sim_restart"):
-        st.session_state["_sim_nonce"] = st.session_state.get("_sim_nonce", 0) + 1
+    # 제목 + 실시간 운영 모드 배지 (재시작 버튼은 상단 타이틀 행으로 이동)
+    st.markdown(
+        '<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px 0;">'
+        '<span style="font-size:15px;font-weight:800;color:#111827;">추천 운영 시뮬레이션</span>'
+        '<span style="font-size:11px;font-weight:700;color:#7A5E12;background:#FFEFA3;'
+        'border:1px solid #F1E3A3;border-radius:11px;padding:2px 10px;">실시간 운영 모드</span>'
+        '</div>',
+        unsafe_allow_html=True)
     nonce = st.session_state.get("_sim_nonce", 0)
 
     with st.spinner("🧠 운영 시나리오 생성 중..."):
         scenario = _build_operation_scenario(final_recommendations)
     if scenario is None:
-        st.info("표시할 시뮬레이션이 없습니다")
+        st.info("표시할 운영 시뮬레이션이 없습니다")
         return
 
-    # 시뮬레이션 렌더: components.html(경고 발생) 미사용.
-    # HTML을 base64 data URL로 인코딩 → components.iframe(src=...)로 삽입.
-    # iframe 은 별도 문서로 로드되므로 트럭 이동/route/재고 변화/JS 정상 동작.
+    # 시나리오 → HTML (재시작용 nonce 주석 삽입)
+    sim_html = _SIM_TEMPLATE.replace(
+        "__SCENARIO__", _json.dumps(scenario, ensure_ascii=True))
+    sim_html = sim_html.replace("<body>", "<body><!--n%d-->" % nonce)
+
+    # 렌더 우선순위 (deprecation 경고 회피):
+    #  1) st.iframe(data URL) — components.v1.iframe 의 공식 대체 API. 경고 없음.
+    #     HTML을 base64 data URL로 인코딩해 iframe src에 넣으면 JS 애니메이션 정상 동작.
+    #  2) st.components.v1.html — st.iframe 이 없는 구버전 전용 최후 폴백.
+    #  3) 안내 메시지
     rendered = False
-    if components is not None and hasattr(components, "iframe"):
+    _iframe_fn = getattr(st, "iframe", None)
+    if callable(_iframe_fn):
         try:
-            sim_html = _SIM_TEMPLATE.replace(
-                "__SCENARIO__", _json.dumps(scenario, ensure_ascii=True))
-            sim_html = sim_html.replace("<body>", "<body><!--n%d-->" % nonce)
             b64 = _b64.b64encode(sim_html.encode("utf-8")).decode("ascii")
-            data_url = "data:text/html;base64," + b64
-            components.iframe(data_url, height=470, scrolling=False)
+            _iframe_fn("data:text/html;base64," + b64, height=486, scrolling=False)
+            rendered = True
+        except Exception:
+            rendered = False
+    if not rendered and _components is not None and hasattr(_components, "html"):
+        try:
+            _suppress_streamlit_deprecation()  # 콘솔 deprecation 경고 억제
+            _components.html(sim_html, height=486, scrolling=False)
             rendered = True
         except Exception:
             rendered = False
     if not rendered:
-        # 안전 fallback (components.html 미사용 — 경고 방지)
-        st.info("운영 시뮬레이션을 표시할 수 없습니다")
+        st.info("표시할 운영 시뮬레이션이 없습니다")
 
-    # 추천 후보 더보기 (시뮬레이션 전환 후보 목록 — compact)
+    # 추천 후보 더보기 (시뮬레이션 전환 후보 목록 — compact, 접힘 기본)
     with st.expander("▼ 추천 후보 더보기", expanded=False):
         _render_dashboard_top5(final_recommendations)
 
@@ -1912,55 +2069,121 @@ def _render_dashboard_top5(final_recommendations):
                     st.rerun()
 
 
+def _nav_box(key):
+    """키 있는 컨테이너 반환 (CSS 스코프용). 미지원 Streamlit이면 일반 컨테이너로 폴백."""
+    try:
+        return st.container(key=key)
+    except TypeError:
+        return st.container()
+    except Exception:
+        return st.container()
+
+
 def _render_icon_nav(final_recommendations=None, stores=None, products=None, inventory=None):
-    """좌측 세로 아이콘 사이드바 (대시보드/분석/시뮬레이션/관리)."""
+    """좌측 세로 아이콘 사이드바 — 5개 메뉴로 통합
+    (대시보드 / 분석 / 운영 시뮬레이션 / 강화학습 / 관리)."""
     cur = st.session_state.get("excel_dashboard_page", "dashboard")
+    # 현재 위치 → 어느 그룹이 활성인지 (5개 그룹)
+    _grp = {
+        "dashboard":"home",
+        "score":"analysis","algorithms":"analysis","effect":"analysis",
+        "graph":"analysis","network":"analysis","batch":"analysis","whatif":"analysis",
+        "movement":"sim","demo":"sim",
+        "rl":"rl","dqn_validation":"rl","dqn_interpret":"rl",
+        "validator":"manage","data":"manage","guide":"manage",
+    }.get(cur, "")
+    _active_key = {"home":"nav_home","analysis":"nav_grp_analysis","sim":"nav_grp_sim",
+                   "rl":"nav_grp_rl","manage":"nav_grp_manage"}.get(_grp, "")
+
     st.markdown("""
     <style>
-    .vnav-cur{font-size:9px;color:#854D0E;background:#FFF3BF;border:1px solid #F1E3A3;
-              border-radius:8px;padding:1px 6px;text-align:center;margin-bottom:6px;
-              font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    /* 좌측 아이콘 사이드바 — 앱 사이드바 느낌 (디자인 옵션 3) */
+    .vnav-cur{font-size:9px;color:#7A5E12;background:#FFF3BF;border:1px solid #F1E3A3;
+              border-radius:8px;padding:2px 6px;text-align:center;margin-bottom:8px;
+              font-weight:800;letter-spacing:.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    /* 상위 아이콘 버튼/팝오버 트리거 확대 */
+    div[class*="st-key-nav_home"] button,
+    div[class*="st-key-nav_grp_analysis"] button,
+    div[class*="st-key-nav_grp_sim"] button,
+    div[class*="st-key-nav_grp_rl"] button,
+    div[class*="st-key-nav_grp_manage"] button{
+        width:46px !important;height:46px !important;min-height:46px !important;
+        padding:0 !important;margin:0 auto 7px auto !important;display:flex !important;
+        align-items:center !important;justify-content:center !important;
+        font-size:20px !important;line-height:1 !important;
+        background:#FFFFFF !important;border:1px solid #ECECEC !important;border-radius:13px !important;
+        box-shadow:0 1px 3px rgba(17,24,39,.06) !important;
+        transition:transform .15s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease !important;
+    }
+    div[class*="st-key-nav_home"] button:hover,
+    div[class*="st-key-nav_grp_analysis"] button:hover,
+    div[class*="st-key-nav_grp_sim"] button:hover,
+    div[class*="st-key-nav_grp_rl"] button:hover,
+    div[class*="st-key-nav_grp_manage"] button:hover{
+        transform:translateY(-2px) scale(1.04) !important;
+        box-shadow:0 6px 16px rgba(201,162,39,.20) !important;
+        border-color:#F1E3A3 !important;background:#FFFDF5 !important;
+    }
+    /* 현재 선택 그룹 강조 (연노랑 배경 + 테두리) */
+    div[class*="st-key-%s"] button{
+        background:#FFEFA3 !important;border:1.5px solid #E0C84A !important;
+        box-shadow:0 4px 12px rgba(201,162,39,.22) !important;
+    }
+    /* 팝오버 내부 하위 메뉴 — compact (모바일에서 큰 노란 버튼 남발 방지) */
+    div[class*="st-key-nav_sub_"] button{
+        min-height:32px !important;height:32px !important;padding:2px 12px !important;
+        font-size:13px !important;font-weight:600 !important;
+        background:#FFFFFF !important;color:#374151 !important;
+        border:1px solid #ECECEC !important;border-radius:9px !important;
+        box-shadow:none !important;margin-bottom:4px !important;justify-content:flex-start !important;
+    }
+    div[class*="st-key-nav_sub_"] button:hover{
+        background:#FFFDF5 !important;border-color:#F1E3A3 !important;color:#111827 !important;
+    }
     </style>
-    """, unsafe_allow_html=True)
+    """ % (_active_key,), unsafe_allow_html=True)
 
-    # 현재 위치 표시
-    _label = {"dashboard":"홈","score":"분석","algorithms":"분석","effect":"분석",
-              "graph":"분석","network":"분석","batch":"분석","whatif":"분석","data":"분석",
-              "movement":"시뮬","demo":"시뮬","validator":"관리","rl":"관리",
-              "dqn_validation":"관리","dqn_interpret":"관리","guide":"관리"}.get(cur, "")
-    if _label:
-        st.markdown(f'<div class="vnav-cur">{_label}</div>', unsafe_allow_html=True)
+    # 현재 위치 라벨 텍스트는 표시하지 않음 (아이콘만 노출, 선택 강조는 버튼 배경으로).
+    # 선택 강조는 위 CSS(_active_key)로 처리.
 
     # 🏠 대시보드
     if st.button("🏠", key="nav_home", help="대시보드", width="stretch"):
         _go("dashboard")
 
-    # 📊 분석
-    with st.popover("📊", help="분석"):
-        st.caption("분석")
-        if st.button("최종 추천",     key="nav_score",      width="stretch"): _go("score")
-        if st.button("상세 분석",     key="nav_algorithms", width="stretch"): _go("algorithms")
-        if st.button("Before/After",  key="nav_effect",     width="stretch"): _go("effect")
-        if st.button("그래프",        key="nav_graph",      width="stretch"): _go("graph")
-        if st.button("최소비용 경로", key="nav_network",    width="stretch"): _go("network")
-        if st.button("배치 최적화",   key="nav_batch",      width="stretch"): _go("batch")
-        if st.button("What-if",       key="nav_whatif",     width="stretch"): _go("whatif")
-        if st.button("상세 데이터",   key="nav_data",       width="stretch"): _go("data")
+    # 📈 분석 (최종 추천 / 상세 분석 / Before·After / 그래프 / 경로·배치·시나리오 통합)
+    with _nav_box("nav_grp_analysis"):
+        with st.popover("📈", help="분석"):
+            st.caption("분석")
+            if st.button("최종 추천",     key="nav_sub_score",      width="stretch"): _go("score")
+            if st.button("상세 분석",     key="nav_sub_algorithms", width="stretch"): _go("algorithms")
+            if st.button("Before / After", key="nav_sub_effect",    width="stretch"): _go("effect")
+            if st.button("그래프",        key="nav_sub_graph",      width="stretch"): _go("graph")
+            if st.button("경로 최적화",   key="nav_sub_network",    width="stretch"): _go("network")
+            if st.button("배치 최적화",   key="nav_sub_batch",      width="stretch"): _go("batch")
+            if st.button("시나리오 분석", key="nav_sub_whatif",     width="stretch"): _go("whatif")
 
-    # 🚚 시뮬레이션
-    with st.popover("🚚", help="시뮬레이션"):
-        st.caption("시뮬레이션")
-        if st.button("지도 & 시뮬레이션", key="nav_movement", width="stretch"): _go("movement")
-        if st.button("데모",              key="nav_demo",     width="stretch"): _go("demo")
+    # 🚚 운영 시뮬레이션 (실시간 운영 / 데모 모드)
+    with _nav_box("nav_grp_sim"):
+        with st.popover("🚚", help="운영 시뮬레이션"):
+            st.caption("운영 시뮬레이션")
+            if st.button("실시간 운영", key="nav_sub_movement", width="stretch"): _go("movement")
+            if st.button("데모 모드",   key="nav_sub_demo",     width="stretch"): _go("demo")
 
-    # ⚙ 관리
-    with st.popover("⚙", help="관리"):
-        st.caption("관리")
-        if st.button("데이터 검증", key="nav_validator",      width="stretch"): _go("validator")
-        if st.button("학습 관리",   key="nav_rl",             width="stretch"): _go("rl")
-        if st.button("DQN 검증",    key="nav_dqn_validation", width="stretch"): _go("dqn_validation")
-        if st.button("DQN 해석",    key="nav_dqn_interpret",  width="stretch"): _go("dqn_interpret")
-        if st.button("가이드",      key="nav_guide",          width="stretch"): _go("guide")
+    # 🧠 강화학습 (학습 / 검증 / 정책 해석)
+    with _nav_box("nav_grp_rl"):
+        with st.popover("🧠", help="강화학습"):
+            st.caption("강화학습")
+            if st.button("학습 실행 · 결과", key="nav_sub_rl",             width="stretch"): _go("rl")
+            if st.button("검증",            key="nav_sub_dqn_validation", width="stretch"): _go("dqn_validation")
+            if st.button("정책 해석",        key="nav_sub_dqn_interpret",  width="stretch"): _go("dqn_interpret")
+
+    # ⚙ 관리 (데이터 검증 / 상세 데이터 / 가이드)
+    with _nav_box("nav_grp_manage"):
+        with st.popover("⚙", help="관리"):
+            st.caption("관리")
+            if st.button("데이터 검증", key="nav_sub_validator", width="stretch"): _go("validator")
+            if st.button("상세 데이터", key="nav_sub_data",      width="stretch"): _go("data")
+            if st.button("가이드",      key="nav_sub_guide",     width="stretch"): _go("guide")
 
 
 def _show_dashboard_home(
@@ -1984,21 +2207,26 @@ def _show_dashboard_home(
         _kpi_ok = False
 
     # ── 좌측 아이콘 사이드바 + 메인 (디자인 옵션 3) ──────
-    _navrail, _navmain = st.columns([1, 18])
+    _navrail, _navmain = st.columns([1.4, 18])
     with _navrail:
         _render_icon_nav(final_recommendations, stores, products, inventory)
     with _navmain:
-        st.markdown('<div class="dash-page-box" style="padding-bottom:0">', unsafe_allow_html=True)
-        _t1, _t2 = st.columns([4, 1])
+        _t1, _t2, _t3 = st.columns([6, 1.1, 1.2])
         with _t1:
-            st.markdown("### Varo 분석 결과")
+            st.markdown(
+                '<div style="font-size:19px;font-weight:800;color:#111827;'
+                'margin:2px 0 2px 0;">Varo 분석 결과</div>',
+                unsafe_allow_html=True)
         with _t2:
             try:
-                with st.popover("VHS 정보"):
+                with st.popover("ⓘ VHS"):
                     st.markdown("**추천 결과 종합 점수**")
                     st.caption("VHS는 Varo 추천 결과를 종합한 운영 점수입니다.")
             except Exception:
-                st.caption("VHS: 추천 결과 종합 점수")
+                st.caption("VHS")
+        with _t3:
+            if st.button("↻ 다시 시작", key="sim_restart", help="처음부터 다시 재생"):
+                st.session_state["_sim_nonce"] = st.session_state.get("_sim_nonce", 0) + 1
 
         if _kpi_ok:
             st.markdown(MONITOR_CSS, unsafe_allow_html=True)
@@ -2023,8 +2251,6 @@ def _show_dashboard_home(
         #    시뮬레이션 내부에 좌측 KPI(절감액/폐기감소율/VHS/처리완료율)+우측 맵
         #    +하단 로그+추천 후보가 모두 포함 → 첫 화면의 핵심으로 최상단 배치.
         _render_operation_simulation(final_recommendations)
-
-        st.markdown("</div>", unsafe_allow_html=True)
 
         # ── 보조 분석 (접힘 — 운영 시뮬레이션 중심 화면 유지) ──────
         #    기존 큰 KPI 카드/액션 현황/최적 전략/추천 이유/검증 리포트는
