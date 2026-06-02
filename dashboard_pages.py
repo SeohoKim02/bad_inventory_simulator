@@ -1817,22 +1817,24 @@ def _render_operation_simulation(final_recommendations):
         st.info("표시할 시뮬레이션이 없습니다")
         return
 
-    if components is not None:
+    # 시뮬레이션 렌더: components.html(경고 발생) 미사용.
+    # HTML을 base64 data URL로 인코딩 → components.iframe(src=...)로 삽입.
+    # iframe 은 별도 문서로 로드되므로 트럭 이동/route/재고 변화/JS 정상 동작.
+    rendered = False
+    if components is not None and hasattr(components, "iframe"):
         try:
             sim_html = _SIM_TEMPLATE.replace(
                 "__SCENARIO__", _json.dumps(scenario, ensure_ascii=True))
             sim_html = sim_html.replace("<body>", "<body><!--n%d-->" % nonce)
-            # data URL + iframe → st.components.v1.html 경고 제거, JS 애니메이션 유지
             b64 = _b64.b64encode(sim_html.encode("utf-8")).decode("ascii")
             data_url = "data:text/html;base64," + b64
-            try:
-                components.iframe(data_url, height=470, scrolling=False)
-            except Exception:
-                components.html(sim_html, height=470, scrolling=False)
+            components.iframe(data_url, height=470, scrolling=False)
+            rendered = True
         except Exception:
-            st.caption("운영 시나리오 생성됨")
-    else:
-        st.caption("운영 시나리오 생성됨")
+            rendered = False
+    if not rendered:
+        # 안전 fallback (components.html 미사용 — 경고 방지)
+        st.info("운영 시뮬레이션을 표시할 수 없습니다")
 
     # 추천 후보 더보기 (시뮬레이션 전환 후보 목록 — compact)
     with st.expander("▼ 추천 후보 더보기", expanded=False):
@@ -1910,6 +1912,57 @@ def _render_dashboard_top5(final_recommendations):
                     st.rerun()
 
 
+def _render_icon_nav(final_recommendations=None, stores=None, products=None, inventory=None):
+    """좌측 세로 아이콘 사이드바 (대시보드/분석/시뮬레이션/관리)."""
+    cur = st.session_state.get("excel_dashboard_page", "dashboard")
+    st.markdown("""
+    <style>
+    .vnav-cur{font-size:9px;color:#854D0E;background:#FFF3BF;border:1px solid #F1E3A3;
+              border-radius:8px;padding:1px 6px;text-align:center;margin-bottom:6px;
+              font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    </style>
+    """, unsafe_allow_html=True)
+
+    # 현재 위치 표시
+    _label = {"dashboard":"홈","score":"분석","algorithms":"분석","effect":"분석",
+              "graph":"분석","network":"분석","batch":"분석","whatif":"분석","data":"분석",
+              "movement":"시뮬","demo":"시뮬","validator":"관리","rl":"관리",
+              "dqn_validation":"관리","dqn_interpret":"관리","guide":"관리"}.get(cur, "")
+    if _label:
+        st.markdown(f'<div class="vnav-cur">{_label}</div>', unsafe_allow_html=True)
+
+    # 🏠 대시보드
+    if st.button("🏠", key="nav_home", help="대시보드", width="stretch"):
+        _go("dashboard")
+
+    # 📊 분석
+    with st.popover("📊", help="분석"):
+        st.caption("분석")
+        if st.button("최종 추천",     key="nav_score",      width="stretch"): _go("score")
+        if st.button("상세 분석",     key="nav_algorithms", width="stretch"): _go("algorithms")
+        if st.button("Before/After",  key="nav_effect",     width="stretch"): _go("effect")
+        if st.button("그래프",        key="nav_graph",      width="stretch"): _go("graph")
+        if st.button("최소비용 경로", key="nav_network",    width="stretch"): _go("network")
+        if st.button("배치 최적화",   key="nav_batch",      width="stretch"): _go("batch")
+        if st.button("What-if",       key="nav_whatif",     width="stretch"): _go("whatif")
+        if st.button("상세 데이터",   key="nav_data",       width="stretch"): _go("data")
+
+    # 🚚 시뮬레이션
+    with st.popover("🚚", help="시뮬레이션"):
+        st.caption("시뮬레이션")
+        if st.button("지도 & 시뮬레이션", key="nav_movement", width="stretch"): _go("movement")
+        if st.button("데모",              key="nav_demo",     width="stretch"): _go("demo")
+
+    # ⚙ 관리
+    with st.popover("⚙", help="관리"):
+        st.caption("관리")
+        if st.button("데이터 검증", key="nav_validator",      width="stretch"): _go("validator")
+        if st.button("학습 관리",   key="nav_rl",             width="stretch"): _go("rl")
+        if st.button("DQN 검증",    key="nav_dqn_validation", width="stretch"): _go("dqn_validation")
+        if st.button("DQN 해석",    key="nav_dqn_interpret",  width="stretch"): _go("dqn_interpret")
+        if st.button("가이드",      key="nav_guide",          width="stretch"): _go("guide")
+
+
 def _show_dashboard_home(
     final_recommendations,
     final_rec_summary,
@@ -1930,183 +1983,128 @@ def _show_dashboard_home(
     except ImportError:
         _kpi_ok = False
 
-    st.markdown('<div class="dash-page-box" style="padding-bottom:0">', unsafe_allow_html=True)
-    _t1, _t2 = st.columns([4, 1])
-    with _t1:
-        st.markdown("### Varo 분석 결과")
-    with _t2:
-        try:
-            with st.popover("VHS 정보"):
-                st.markdown("**추천 결과 종합 점수**")
-                st.caption("VHS는 Varo 추천 결과를 종합한 운영 점수입니다.")
-        except Exception:
-            st.caption("VHS: 추천 결과 종합 점수")
-
-    if _kpi_ok:
-        st.markdown(MONITOR_CSS, unsafe_allow_html=True)
-
-    # KPI 계산
-    vhs_kpi    = calculate_vhs_kpi(final_recommendations)    if _kpi_ok else {}
-    costs      = calculate_before_after_costs(final_recommendations) if _kpi_ok else {}
-    act_summ   = calculate_action_summary(final_recommendations)     if _kpi_ok else {}
-
-    # 검증 리포트
-    val_status = "-"
-    val_warn   = 0
-    try:
-        from varo_validation import build_validation_report
-        _vr = build_validation_report(final_recommendations, stores, products, inventory)
-        val_status = _vr.get("status", "-")
-        val_warn   = _vr.get("warning_count", 0)
-    except Exception:
-        pass
-
-    # ── KPI 카드 (4열) ───────────────────────────────────
-    k1, k2, k3, k4 = st.columns(4)
-
-    # 카드 1: VHS 점수
-    avg_sc = vhs_kpi.get("avg_score")
-    sc_val = f"{avg_sc:.1f}" if avg_sc is not None else "데이터 없음"
-    sc_bar = float(avg_sc) if avg_sc is not None else None
-    sc_badge_cls = "green" if avg_sc and avg_sc >= 65 else ("yellow" if avg_sc else "gray")
-    sc_badge = vhs_kpi.get("top_grade","-")
-
-    with k1:
-        if _kpi_ok:
-            st.markdown(_mcard("VHS 점수", sc_val,
-                sub="추천 결과 종합 점수",
-                badge=sc_badge, badge_cls=sc_badge_cls,
-                bar_pct=sc_bar), unsafe_allow_html=True)
-        else:
-            st.metric("VHS 점수", sc_val)
-
-    # 카드 2: Before → After (2줄 레이아웃, 만원 단위 축약)
-    before_v = costs.get("before")
-    after_v  = costs.get("after")
-    with k2:
-        if _kpi_ok and before_v is not None and after_v is not None:
-            st.markdown(_mcard_before_after("Before → After",
-                safe_format_currency_short(before_v),
-                safe_format_currency_short(after_v),
-                sub="처리 비용 변화"), unsafe_allow_html=True)
-        elif _kpi_ok:
-            st.markdown(_mcard("Before → After", "데이터 없음",
-                sub="처리 비용 변화", value_cls="money"), unsafe_allow_html=True)
-        else:
-            st.metric("Before → After", "데이터 없음")
-
-    # 카드 3: 절감액 (만원 단위 축약)
-    sav    = costs.get("savings")
-    sr     = costs.get("savings_rate")
-    sav_v  = safe_format_currency_short(sav) if sav is not None else "계산 불가"
-    sav_sub= safe_format_percent(sr) + " 절감" if sr is not None else "-"
-    sav_cls= "green" if (sav is not None and sav > 0) else "gray"
-    with k3:
-        if _kpi_ok:
-            st.markdown(_mcard("예상 절감액", sav_v,
-                sub=sav_sub, badge_cls=sav_cls, value_cls="money"),
-                unsafe_allow_html=True)
-        else:
-            st.metric("예상 절감액", sav_v)
-
-    # 카드 4: 데이터 품질
-    vs_map = {"정상":"green","확인 필요":"yellow","데이터 부족":"yellow","오류 가능":"gray"}
-    vs_cls = vs_map.get(val_status, "gray")
-    q_sub  = f"경고 {val_warn}건" if val_warn else ""
-    with k4:
-        if _kpi_ok:
-            st.markdown(_mcard("데이터 품질", val_status,
-                sub=q_sub, badge_cls=vs_cls), unsafe_allow_html=True)
-        else:
-            st.metric("데이터 품질", val_status)
-
-    # ── 액션 현황 (간단 리스트) ───────────────────────────
-    if act_summ:
-        st.markdown("---")
-        ac1, ac2, ac3, ac4, ac5 = st.columns(5)
-        ac_items = [
-            ("전체 후보",  act_summ.get("total", 0)),
-            ("이동 추천",  act_summ.get("이동",  0)),
-            ("할인 추천",  act_summ.get("할인",  0)),
-            ("폐기 검토",  act_summ.get("폐기",  0)),
-            ("보류",       act_summ.get("보류",  0)),
-        ]
-        for col, (label, num) in zip([ac1,ac2,ac3,ac4,ac5], ac_items):
-            col.metric(label, f"{num}건")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # ── 현재 최적 운영 전략 (AI 자동 선택) ────────────────
-    _render_optimal_strategy(final_recommendations)
-
-    # ── 추천 운영 시뮬레이션 ──────────────────────────────
-    _render_operation_simulation(final_recommendations)
-
-    # ── 추천 이유 분석 ────────────────────────────────────
-    _render_strategy_reasoning(final_recommendations)
-
-    st.markdown("---")
-        # ── 네비게이션 ─────────────────────────────────────────
-    st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
-
-    # 데이터 주의사항 (중요 경고만 한 줄, 상세는 접힘)
-    _vw = st.session_state.get("_validation_warning")
-    if _vw is not None:
-        with st.expander("⚠️ 데이터 주의사항", expanded=False):
+    # ── 좌측 아이콘 사이드바 + 메인 (디자인 옵션 3) ──────
+    _navrail, _navmain = st.columns([1, 18])
+    with _navrail:
+        _render_icon_nav(final_recommendations, stores, products, inventory)
+    with _navmain:
+        st.markdown('<div class="dash-page-box" style="padding-bottom:0">', unsafe_allow_html=True)
+        _t1, _t2 = st.columns([4, 1])
+        with _t1:
+            st.markdown("### Varo 분석 결과")
+        with _t2:
             try:
-                from sample_validator import render_validation_result
-                render_validation_result(_vw)
+                with st.popover("VHS 정보"):
+                    st.markdown("**추천 결과 종합 점수**")
+                    st.caption("VHS는 Varo 추천 결과를 종합한 운영 점수입니다.")
             except Exception:
-                pass
+                st.caption("VHS: 추천 결과 종합 점수")
 
-    # 상위 메뉴 4개: 추천 / 분석 / 시뮬레이션 / 관리
-    nav_tabs = st.tabs(["📋 추천", "📊 분석", "🗺 시뮬레이션", "⚙️ 관리"])
+        if _kpi_ok:
+            st.markdown(MONITOR_CSS, unsafe_allow_html=True)
 
-    with nav_tabs[0]:  # 추천
-        r1, r2 = st.columns(2)
-        with r1:
-            if st.button("🧠 최종 추천",   width="stretch", key="go_score"):    _go("score")
-        with r2:
-            if st.button("📈 그래프",       width="stretch", key="go_graph_a"):  _go("graph")
+        # KPI 계산
+        vhs_kpi    = calculate_vhs_kpi(final_recommendations)    if _kpi_ok else {}
+        costs      = calculate_before_after_costs(final_recommendations) if _kpi_ok else {}
+        act_summ   = calculate_action_summary(final_recommendations)     if _kpi_ok else {}
 
-    with nav_tabs[1]:  # 분석
-        a1, a2 = st.columns(2)
-        with a1:
-            if st.button("📊 상세 분석",    width="stretch", key="go_algorithms"): _go("algorithms")
-        with a2:
-            if st.button("📊 Before/After", width="stretch", key="go_effect"):     _go("effect")
-        a3, a4 = st.columns(2)
-        with a3:
-            if st.button("🌐 최소비용 경로", width="stretch", key="go_network"):    _go("network")
-        with a4:
-            if st.button("📦 배치 최적화",   width="stretch", key="go_batch"):      _go("batch")
-        a5, a6 = st.columns(2)
-        with a5:
-            if st.button("🔮 What-if",      width="stretch", key="go_whatif_a"):   _go("whatif")
-        with a6:
-            if st.button("🧾 상세 데이터",   width="stretch", key="go_data_a"):     _go("data")
+        # 검증 리포트
+        val_status = "-"
+        val_warn   = 0
+        try:
+            from varo_validation import build_validation_report
+            _vr = build_validation_report(final_recommendations, stores, products, inventory)
+            val_status = _vr.get("status", "-")
+            val_warn   = _vr.get("warning_count", 0)
+        except Exception:
+            pass
 
-    with nav_tabs[2]:  # 시뮬레이션
-        s1, s2 = st.columns(2)
-        with s1:
-            if st.button("🗺 지도 & 시뮬레이션", width="stretch", key="go_movement"): _go("movement")
-        with s2:
-            if st.button("🎮 데모",              width="stretch", key="go_demo"):     _go("demo")
+        # ── 추천 운영 시뮬레이션 (메인 / 디자인 옵션 3 화면 중심) ──
+        #    시뮬레이션 내부에 좌측 KPI(절감액/폐기감소율/VHS/처리완료율)+우측 맵
+        #    +하단 로그+추천 후보가 모두 포함 → 첫 화면의 핵심으로 최상단 배치.
+        _render_operation_simulation(final_recommendations)
 
-    with nav_tabs[3]:  # 관리
-        m1, m2 = st.columns(2)
-        with m1:
-            if st.button("🔍 데이터 검증",  width="stretch", key="go_validator"):      _go("validator")
-        with m2:
-            if st.button("🤖 학습 관리",    width="stretch", key="go_rl_main"):        _go("rl")
-        m3, m4 = st.columns(2)
-        with m3:
-            if st.button("🤖 DQN 검증",     width="stretch", key="go_dqn_validation"): _go("dqn_validation")
-        with m4:
-            if st.button("📘 DQN 해석",     width="stretch", key="go_dqn_interpret"):  _go("dqn_interpret")
-        if st.button("📚 가이드",           width="stretch", key="go_guide"):          _go("guide")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        # 검증 리포트 (관리 탭 내부 접힌 영역)
+        # ── 보조 분석 (접힘 — 운영 시뮬레이션 중심 화면 유지) ──────
+        #    기존 큰 KPI 카드/액션 현황/최적 전략/추천 이유/검증 리포트는
+        #    삭제하지 않고 접힘 영역으로 이동해 화면을 압축한다.
+        with st.expander("📊 운영 KPI 요약", expanded=False):
+            k1, k2, k3, k4 = st.columns(4)
+
+            # 카드 1: VHS 점수
+            avg_sc = vhs_kpi.get("avg_score")
+            sc_val = f"{avg_sc:.1f}" if avg_sc is not None else "데이터 없음"
+            sc_bar = float(avg_sc) if avg_sc is not None else None
+            sc_badge_cls = "green" if avg_sc and avg_sc >= 65 else ("yellow" if avg_sc else "gray")
+            sc_badge = vhs_kpi.get("top_grade","-")
+            with k1:
+                if _kpi_ok:
+                    st.markdown(_mcard("VHS 점수", sc_val,
+                        sub="추천 결과 종합 점수",
+                        badge=sc_badge, badge_cls=sc_badge_cls,
+                        bar_pct=sc_bar), unsafe_allow_html=True)
+                else:
+                    st.metric("VHS 점수", sc_val)
+
+            # 카드 2: Before → After
+            before_v = costs.get("before")
+            after_v  = costs.get("after")
+            with k2:
+                if _kpi_ok and before_v is not None and after_v is not None:
+                    st.markdown(_mcard_before_after("Before → After",
+                        safe_format_currency_short(before_v),
+                        safe_format_currency_short(after_v),
+                        sub="처리 비용 변화"), unsafe_allow_html=True)
+                elif _kpi_ok:
+                    st.markdown(_mcard("Before → After", "데이터 없음",
+                        sub="처리 비용 변화", value_cls="money"), unsafe_allow_html=True)
+                else:
+                    st.metric("Before → After", "데이터 없음")
+
+            # 카드 3: 절감액
+            sav    = costs.get("savings")
+            sr     = costs.get("savings_rate")
+            sav_v  = safe_format_currency_short(sav) if sav is not None else "계산 불가"
+            sav_sub= safe_format_percent(sr) + " 절감" if sr is not None else "-"
+            sav_cls= "green" if (sav is not None and sav > 0) else "gray"
+            with k3:
+                if _kpi_ok:
+                    st.markdown(_mcard("예상 절감액", sav_v,
+                        sub=sav_sub, badge_cls=sav_cls, value_cls="money"),
+                        unsafe_allow_html=True)
+                else:
+                    st.metric("예상 절감액", sav_v)
+
+            # 카드 4: 데이터 품질
+            vs_map = {"정상":"green","확인 필요":"yellow","데이터 부족":"yellow","오류 가능":"gray"}
+            vs_cls = vs_map.get(val_status, "gray")
+            q_sub  = f"경고 {val_warn}건" if val_warn else ""
+            with k4:
+                if _kpi_ok:
+                    st.markdown(_mcard("데이터 품질", val_status,
+                        sub=q_sub, badge_cls=vs_cls), unsafe_allow_html=True)
+                else:
+                    st.metric("데이터 품질", val_status)
+
+            # 액션 현황
+            if act_summ:
+                st.markdown("---")
+                ac1, ac2, ac3, ac4, ac5 = st.columns(5)
+                ac_items = [
+                    ("전체 후보",  act_summ.get("total", 0)),
+                    ("이동 추천",  act_summ.get("이동",  0)),
+                    ("할인 추천",  act_summ.get("할인",  0)),
+                    ("폐기 검토",  act_summ.get("폐기",  0)),
+                    ("보류",       act_summ.get("보류",  0)),
+                ]
+                for col, (label, num) in zip([ac1,ac2,ac3,ac4,ac5], ac_items):
+                    col.metric(label, f"{num}건")
+
+        with st.expander("⭐ 최적 운영 전략 / 추천 이유", expanded=False):
+            _render_optimal_strategy(final_recommendations)
+            _render_strategy_reasoning(final_recommendations)
+
         with st.expander("🔎 검증 리포트", expanded=False):
             _render_validation_report(
                 final_recommendations=final_recommendations,
