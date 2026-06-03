@@ -1436,6 +1436,9 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
   background-size:32px 32px;background-position:-1px -1px;
   -webkit-mask-image:radial-gradient(135% 100% at 50% 42%,#000 55%,transparent 100%);
   mask-image:radial-gradient(135% 100% at 50% 42%,#000 55%,transparent 100%);}
+.maplayer{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:.85;
+  -webkit-mask-image:radial-gradient(130% 100% at 50% 44%,#000 50%,transparent 100%);
+  mask-image:radial-gradient(130% 100% at 50% 44%,#000 50%,transparent 100%);}
 .statbadge{position:absolute;top:11px;left:13px;z-index:6;background:rgba(255,255,255,.92);backdrop-filter:blur(3px);border:1px solid #EFE6C2;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:800;color:#111827;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-shadow:0 1px 3px rgba(17,24,39,.06);}
 .statbadge.ai{background:#FFEFA3;border-color:#E0C84A;}
 .statbadge .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#2Fae66;margin-right:6px;vertical-align:middle;animation:pulse 1.2s infinite;}
@@ -1498,6 +1501,18 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
 </style></head><body>
 <div class="wrap">
   <div class="smap" id="smap">
+    <svg class="maplayer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M -4 70 C 18 60, 30 80, 48 72 S 78 58, 104 68 L 104 86 C 80 78, 64 92, 46 86 S 16 78, -4 88 Z" fill="#DCEBF5" opacity="0.55"></path>
+      <path d="M -4 70 C 18 60, 30 80, 48 72 S 78 58, 104 68" fill="none" stroke="#BFD8EC" stroke-width="0.5" opacity="0.7"></path>
+      <path d="M -4 30 C 25 26, 45 40, 70 34 S 96 30, 104 36" fill="none" stroke="#E7E0CC" stroke-width="1.6" stroke-linecap="round"></path>
+      <path d="M 14 -4 C 18 25, 30 45, 26 104" fill="none" stroke="#E7E0CC" stroke-width="1.4" stroke-linecap="round"></path>
+      <path d="M 84 -4 C 80 28, 88 60, 82 104" fill="none" stroke="#E7E0CC" stroke-width="1.4" stroke-linecap="round"></path>
+      <path d="M -4 50 C 30 48, 60 54, 104 50" fill="none" stroke="#EFE9D8" stroke-width="1.0" stroke-linecap="round"></path>
+      <path d="M 50 -4 L 50 104" fill="none" stroke="#F0EADA" stroke-width="0.7"></path>
+      <path d="M -4 16 L 104 16" fill="none" stroke="#F0EADA" stroke-width="0.7"></path>
+      <rect x="6" y="6" width="14" height="10" rx="2" fill="#E6EFD9" opacity="0.6"></rect>
+      <rect x="80" y="8" width="14" height="9" rx="2" fill="#E6EFD9" opacity="0.6"></rect>
+    </svg>
     <svg class="routes" id="routes" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
     <div class="statbadge" id="statbox"><span class="dot"></span><span id="stat">준비중</span><span class="stg" id="stg">1/1단계</span></div>
     <div class="allroute">전체 경로 보기</div>
@@ -1841,10 +1856,15 @@ def _build_operation_scenario(final_recommendations, max_moves=3):
         qty = int(_safe_parse_score(r.get("suggested_qty") or r.get("move_qty")) or 0)
 
         # 재고 추적: 출발 -qty, 도착 +qty, DC 통과
-        ss = int(_safe_parse_score(r.get("state_source_stock")
-                                   or r.get("current_stock") or r.get("source_stock")) or 0)
-        ts = int(_safe_parse_score(r.get("state_target_stock")
-                                   or r.get("target_stock") or r.get("dest_stock")) or 0)
+        # 출발 점포 현재고: run_all_algorithms 가 state_source_stock → stock_qty 로
+        # 리네임하므로 stock_qty 를 우선 확인해야 0 으로 표시되지 않는다.
+        ss = int(_safe_parse_score(
+            r.get("state_source_stock") or r.get("stock_qty")
+            or r.get("current_stock") or r.get("quantity")
+            or r.get("source_stock")) or 0)
+        ts = int(_safe_parse_score(
+            r.get("state_target_stock") or r.get("target_stock")
+            or r.get("target_current_stock") or r.get("dest_stock")) or 0)
         stock0.setdefault(src, ss)
         stock0.setdefault(tgt, ts)
         delta[src] = delta.get(src, 0) - qty
@@ -2102,19 +2122,29 @@ def _render_icon_nav(final_recommendations=None, stores=None, products=None, inv
               border-radius:8px;padding:2px 6px;text-align:center;margin-bottom:8px;
               font-weight:800;letter-spacing:.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     /* 상위 아이콘 버튼/팝오버 트리거 확대 */
+    div[class*="st-key-nav_grp_home"] button,
     div[class*="st-key-nav_home"] button,
     div[class*="st-key-nav_grp_analysis"] button,
     div[class*="st-key-nav_grp_sim"] button,
     div[class*="st-key-nav_grp_rl"] button,
     div[class*="st-key-nav_grp_manage"] button{
         width:46px !important;height:46px !important;min-height:46px !important;
-        padding:0 !important;margin:0 auto 7px auto !important;display:flex !important;
+        padding:0 !important;margin:0 auto !important;display:flex !important;
         align-items:center !important;justify-content:center !important;
         font-size:20px !important;line-height:1 !important;
         background:#FFFFFF !important;border:1px solid #ECECEC !important;border-radius:13px !important;
         box-shadow:0 1px 3px rgba(17,24,39,.06) !important;
         transition:transform .15s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease !important;
     }
+    /* 아이콘 메뉴 세로 간격 균일화 (홈 포함 한 묶음) */
+    div[class*="st-key-nav_grp_home"],
+    div[class*="st-key-nav_grp_analysis"],
+    div[class*="st-key-nav_grp_sim"],
+    div[class*="st-key-nav_grp_rl"],
+    div[class*="st-key-nav_grp_manage"]{
+        margin-bottom:8px !important;
+    }
+    div[class*="st-key-nav_grp_home"] button:hover,
     div[class*="st-key-nav_home"] button:hover,
     div[class*="st-key-nav_grp_analysis"] button:hover,
     div[class*="st-key-nav_grp_sim"] button:hover,
@@ -2147,17 +2177,17 @@ def _render_icon_nav(final_recommendations=None, stores=None, products=None, inv
     # 선택 강조는 위 CSS(_active_key)로 처리.
 
     # 🏠 대시보드
-    if st.button("🏠", key="nav_home", help="대시보드", width="stretch"):
-        _go("dashboard")
+    with _nav_box("nav_grp_home"):
+        if st.button("🏠", key="nav_home", help="대시보드", width="stretch"):
+            _go("dashboard")
 
-    # 📈 분석 (최종 추천 / 상세 분석 / Before·After / 그래프 / 경로·배치·시나리오 통합)
+    # 📈 분석 (경로 최적화 / 배치 최적화 / 시나리오 분석)
+    #   최종 추천·상세 분석은 분석 메뉴, 그래프·Before/After 는 대시보드 접힘 섹션으로 이동.
     with _nav_box("nav_grp_analysis"):
         with st.popover("📈", help="분석"):
             st.caption("분석")
             if st.button("최종 추천",     key="nav_sub_score",      width="stretch"): _go("score")
             if st.button("상세 분석",     key="nav_sub_algorithms", width="stretch"): _go("algorithms")
-            if st.button("Before / After", key="nav_sub_effect",    width="stretch"): _go("effect")
-            if st.button("그래프",        key="nav_sub_graph",      width="stretch"): _go("graph")
             if st.button("경로 최적화",   key="nav_sub_network",    width="stretch"): _go("network")
             if st.button("배치 최적화",   key="nav_sub_batch",      width="stretch"): _go("batch")
             if st.button("시나리오 분석", key="nav_sub_whatif",     width="stretch"): _go("whatif")
@@ -2336,6 +2366,20 @@ def _show_dashboard_home(
                 final_recommendations=final_recommendations,
                 stores=stores, products=products, inventory=inventory,
             )
+
+        # 그래프 / Before·After 는 별도 메뉴가 아니라 대시보드 내부 접힘 섹션으로 유지
+        with st.expander("📈 Before / After", expanded=False):
+            try:
+                _show_effect_page(final_recommendations)
+            except Exception as _e:
+                st.caption("Before/After를 표시할 수 없습니다")
+
+        with st.expander("📊 그래프", expanded=False):
+            try:
+                _show_graph_page(final_recommendations, final_rec_summary,
+                                 promotion_result, transfer_path_result)
+            except Exception as _e:
+                st.caption("그래프를 표시할 수 없습니다")
 
 
 # =========================
