@@ -794,9 +794,54 @@ def _go(page_name):
 
 
 def _back_to_dashboard():
-    if st.button("← 대시보드", key=None, help="메인 대시보드로 돌아가기"):
+    if st.button("🏠 홈", key=None, help="홈(대시보드)으로 이동"):
         _go("dashboard")
     st.markdown("<div style='margin-bottom:6px;'></div>", unsafe_allow_html=True)
+
+
+# 섹션별 하위 페이지 (분석 / 강화학습 / 관리) — 상단 가로 하위 탭
+_SECTION_GROUPS = {
+    "analysis": [("최종 추천", "score"), ("상세 분석", "algorithms"),
+                 ("경로 최적화", "network"), ("배치 최적화", "batch"),
+                 ("시나리오 분석", "whatif")],
+    "rl": [("학습 관리", "rl"), ("검증", "dqn_validation"), ("정책 해석", "dqn_interpret")],
+    "manage": [("데이터 검증", "validator"), ("상세 데이터", "data"), ("가이드", "guide")],
+}
+
+
+def _render_section_subnav(active_page):
+    """대표 페이지 상단에 같은 그룹의 하위 페이지로 이동하는 가로 탭을 렌더.
+    직접 이동 구조를 유지하면서 세부 기능 접근성을 되살린다."""
+    grp = next((g for g, items in _SECTION_GROUPS.items()
+                if any(p == active_page for _, p in items)), None)
+    if grp is None:
+        return
+    items = _SECTION_GROUPS[grp]
+    st.markdown("""
+    <style>
+    div[class*="st-key-subnav_"] button{
+        min-height:34px !important;height:34px !important;padding:2px 10px !important;
+        font-size:13px !important;font-weight:700 !important;border-radius:10px !important;
+        background:#FFFFFF !important;color:#4B5563 !important;border:1px solid #ECECEC !important;
+        box-shadow:none !important;white-space:nowrap !important;
+    }
+    div[class*="st-key-subnav_"] button:hover{
+        background:#FFFDF5 !important;border-color:#F1E3A3 !important;color:#111827 !important;
+    }
+    div[class*="st-key-subnav_"] button:disabled{
+        background:#FFEFA3 !important;color:#111827 !important;border:1px solid #E0C84A !important;
+        opacity:1 !important;font-weight:800 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    cols = st.columns(len(items))
+    for col, (label, page) in zip(cols, items):
+        with col:
+            if page == active_page:
+                st.button(label, key=f"subnav_{page}", disabled=True, width="stretch")
+            elif st.button(label, key=f"subnav_{page}", width="stretch"):
+                _go(page)
+    st.markdown("<div style='margin-bottom:4px;'></div>", unsafe_allow_html=True)
 
 
 # ── VHS 공통 상수 (모듈 레벨) ─────────────────────────────
@@ -1350,7 +1395,7 @@ def _render_selected_candidate_detail(final_recommendations):
 
     # 선택 후보의 순위 계산 (점수 기준)
     df = _filter_positive_qty_recommendations(final_recommendations)
-    score_col = next((c for c in ["vhs2","heuristic_score","total_score"]
+    score_col = next((c for c in ["heuristic_score","vhs2","total_score"]
                       if c in df.columns), None)
     rank_label = "1순위"
     try:
@@ -1463,6 +1508,7 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
 .ninv .dn{color:#C0392B;}
 .ninv .up{color:#2E7D32;}
 .veh{position:absolute;left:0;top:0;font-size:24px;z-index:4;will-change:transform;transform:translate3d(0,0,0) translate(-50%,-50%);filter:drop-shadow(0 2px 3px rgba(17,24,39,.22));opacity:0;transition:opacity .3s;}
+.vehload{position:absolute;left:0;top:0;z-index:5;white-space:nowrap;font-size:10px;font-weight:800;color:#7A5E12;background:rgba(255,255,255,.95);border:1px solid #E0C84A;border-radius:9px;padding:1px 7px;box-shadow:0 1px 3px rgba(17,24,39,.12);will-change:transform;transform:translate3d(0,0,0) translate(-50%,-50%);opacity:0;transition:opacity .25s;pointer-events:none;}
 /* 재고 상태 범례 */
 .legend{position:absolute;left:13px;bottom:13px;z-index:5;background:rgba(255,255,255,.92);border:1px solid #ECECEC;border-radius:11px;padding:8px 11px;font-size:11px;color:#374151;box-shadow:0 2px 6px rgba(17,24,39,.06);}
 .legend .lh{font-weight:800;color:#111827;margin-bottom:4px;font-size:11px;}
@@ -1515,9 +1561,9 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
     </svg>
     <svg class="routes" id="routes" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
     <div class="statbadge" id="statbox"><span class="dot"></span><span id="stat">준비중</span><span class="stg" id="stg">1/1단계</span></div>
-    <div class="allroute">전체 경로 보기</div>
     <div class="evt" id="evt"></div>
     <div class="veh" id="veh1">🚚</div>
+    <div class="vehload" id="vehload"></div>
     <div class="legend">
       <div class="lh">재고 상태</div>
       <div class="li"><span class="d" style="background:#E74C3C;"></span>부족</div>
@@ -1555,6 +1601,7 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
 try{
 var SC=__SCENARIO__;
 var mapEl=document.getElementById('smap'), veh=document.getElementById('veh1'), routes=document.getElementById('routes');
+var vehload=document.getElementById('vehload');
 var bar=document.getElementById('bar');
 var statEl=document.getElementById('stat'), statbox=document.getElementById('statbox'), stgEl=document.getElementById('stg');
 var evtEl=document.getElementById('evt'), logp=document.getElementById('logp');
@@ -1620,12 +1667,13 @@ function addPath(a,b,key){if(routePaths.indexOf(key)>=0)return;routePaths.push(k
   var flow=document.createElementNS('http://www.w3.org/2000/svg','path');flow.setAttribute('d',curve([a.x,a.y],[b.x,b.y]));flow.setAttribute('fill','none');flow.setAttribute('stroke','#E0C84A');flow.setAttribute('stroke-width','1.5');flow.setAttribute('stroke-linecap','round');flow.setAttribute('data-key',key);flow.setAttribute('data-role','flow');flow.setAttribute('class','flow');flow.style.opacity='0';routes.appendChild(flow);}
 function setActivePath(fromId,viaId,toId){var keys=[fromId+'_'+viaId,viaId+'_'+toId];for(var i=0;i<routes.children.length;i++){var c=routes.children[i];var k=c.getAttribute('data-key');var role=c.getAttribute('data-role');var on=keys.indexOf(k)>=0;if(role==='flow'){c.style.opacity=on?'1':'0';}else{c.setAttribute('stroke',on?'#C9A227':'#DAD3BD');c.setAttribute('stroke-width',on?'1.0':'0.8');}}}
 function setActiveNodes(ids){for(var id in NODES){var el=document.getElementById('nd_'+id);if(!el)continue;if(ids.indexOf(id)>=0){el.classList.add('active');}else{el.classList.remove('active');}}}
-function moveVeh(xp,yp){var px=xp/100*mapW, py=yp/100*mapH;veh.style.transform='translate3d('+px+'px,'+py+'px,0) translate(-50%,-50%)';}
+function moveVeh(xp,yp){var px=xp/100*mapW, py=yp/100*mapH;veh.style.transform='translate3d('+px+'px,'+py+'px,0) translate(-50%,-50%)';if(vehload){vehload.style.transform='translate3d('+px+'px,'+(py+20)+'px,0) translate(-50%,-50%)';}}
 
 var t0=null, TOT=SC.total||8000;
+var SPEED=0.75;  // 재생 속도(1.0=기본). 낮출수록 천천히 — 약 25% 느리게.
 function frame(ts){
   if(t0===null)t0=ts;
-  var t=ts-t0;
+  var t=(ts-t0)*SPEED;
   var p=Math.min(t/TOT,1);
   var cur=SC.stages[SC.stages.length-1], idx=SC.stages.length-1;
   for(var i=0;i<SC.stages.length;i++){if(t>=SC.stages[i].start&&t<SC.stages[i].end){cur=SC.stages[i];idx=i;break;}}
@@ -1636,6 +1684,7 @@ function frame(ts){
   else{evtEl.classList.remove('show');}
   if(cur.move){
     veh.style.opacity='1';veh.textContent=cur.move.vehicle;
+    if(vehload){var q=(cur.move.qty!=null?cur.move.qty:0);vehload.textContent='📦 적재 '+q+'개';vehload.style.opacity=(q>0?'1':'0');}
     r_veh.textContent=cur.move.vehicle+' '+vehLabel(cur.move.vehicle);
     r_temp.innerHTML=(cur.move.vehicle==='🚛')?'<span style="color:#2563EB;">❄ 2.3°C</span>':'정상';
     setActivePath(cur.move.fromId,cur.move.viaId,cur.move.toId);
@@ -1643,7 +1692,7 @@ function frame(ts){
     var seg=(t-cur.start)/Math.max(cur.end-cur.start,1);seg=Math.max(0,Math.min(1,seg));
     var f=nd(cur.move.fromId),via=nd(cur.move.viaId),to=nd(cur.move.toId);
     if(f&&via&&to){var x,y;if(seg<0.5){var s=seg/0.5;x=lerp(f.x,via.x,s);y=lerp(f.y,via.y,s);}else{var s2=(seg-0.5)/0.5;x=lerp(via.x,to.x,s2);y=lerp(via.y,to.y,s2);}moveVeh(x,y);}
-  } else { setActiveNodes([]); }
+  } else { setActiveNodes([]); if(vehload)vehload.style.opacity='0'; }
   // 재고 카운팅 (노드 내부)
   for(var id in INV){var el=document.getElementById('inv_'+id);if(el){var iv=INV[id];var v=Math.round(lerp(iv.f,iv.t,p));var cls=(iv.t<iv.f)?'dn':'up';el.innerHTML='재고 '+iv.f+' <span class="a '+cls+'">→ '+v+'</span>';}}
   // 우측 패널 진행
@@ -1657,7 +1706,7 @@ function frame(ts){
     for(var id2 in INV){var e2=document.getElementById('inv_'+id2);if(e2){var iv2=INV[id2];var c2=(iv2.t<iv2.f)?'dn':'up';e2.innerHTML='재고 '+iv2.f+' <span class="a '+c2+'">→ '+iv2.t+'</span>';}}
     bar.style.width='100%';statEl.textContent=SC.stages[SC.stages.length-1].status;statbox.className='statbadge';stgEl.textContent=SC.stages.length+'/'+SC.stages.length+'단계';
     r_elapsed.textContent=mmss(TOTAL_MIN*60);r_eta.textContent='00:00';r_deliv.textContent='운영 완료';cstat.innerHTML='<span class="d" style="background:#2E7D32;"></span>완료';
-    setActiveNodes([]);return;
+    setActiveNodes([]);if(vehload)vehload.style.opacity='0';return;
   }
   requestAnimationFrame(frame);
 }
@@ -1792,7 +1841,7 @@ def _build_operation_scenario(final_recommendations, max_moves=3):
     df = _filter_positive_qty_recommendations(final_recommendations)
     if df is None or df.empty:
         return None
-    score_col = next((c for c in ["vhs2","heuristic_score","total_score"]
+    score_col = next((c for c in ["heuristic_score","vhs2","total_score"]
                       if c in df.columns), None)
     ordered = (df.sort_values(score_col, ascending=False)
                if score_col else df).copy()
@@ -1872,7 +1921,7 @@ def _build_operation_scenario(final_recommendations, max_moves=3):
         dc_in += qty
         dc_out += qty
         if vhs_primary is None:
-            vhs_primary = _safe_parse_score(r.get("vhs2") or r.get("heuristic_score"))
+            vhs_primary = _safe_parse_score(r.get("heuristic_score") or r.get("vhs2"))
 
         cat   = str(r.get("category", "") or r.get("product_category", "") or "")
         drisk = str(r.get("disposal_risk_grade", "") or "").upper()
@@ -1947,6 +1996,26 @@ def _build_operation_scenario(final_recommendations, max_moves=3):
             "kpiFinal": {"disp": round(cum_disp), "sav": round(cum_sav)}}
 
 
+def _selected_candidate_vhs(final_recommendations):
+    """현재 시뮬레이션에 표시 중인(선택된) 후보의 VHS 점수를 반환.
+    _build_operation_scenario 의 정렬/선택 로직과 동일하게 계산해 항상 일치."""
+    try:
+        df = _filter_positive_qty_recommendations(final_recommendations)
+        if df is None or df.empty:
+            return None
+        score_col = next((c for c in ["heuristic_score", "vhs2", "total_score"]
+                          if c in df.columns), None)
+        ordered = (df.sort_values(score_col, ascending=False) if score_col else df).copy()
+        sel_idx = st.session_state.get("dashboard_selected_candidate_index", None)
+        if sel_idx is not None and sel_idx in ordered.index:
+            ordered = pd.concat([ordered.loc[[sel_idx]], ordered.drop(index=sel_idx)])
+        top = ordered.iloc[0]
+        return _safe_parse_score(top.get("heuristic_score") if "heuristic_score" in ordered.columns else None) \
+            or _safe_parse_score(top.get("vhs2") if "vhs2" in ordered.columns else None)
+    except Exception:
+        return None
+
+
 def _render_operation_simulation(final_recommendations):
     """AI 운영 시나리오 자동 생성 + 시뮬레이션 패널."""
     import html as _html
@@ -2013,9 +2082,119 @@ def _render_operation_simulation(final_recommendations):
     if not rendered:
         st.info("표시할 운영 시뮬레이션이 없습니다")
 
-    # 추천 후보 더보기 (시뮬레이션 전환 후보 목록 — compact, 접힘 기본)
-    with st.expander("▼ 추천 후보 더보기", expanded=False):
-        _render_dashboard_top5(final_recommendations)
+
+def _render_candidate_routes_tab(final_recommendations):
+    """추천 후보 경로 — Top5 표 + 선택 경로 상세 패널 (이미지 레이아웃)."""
+    if final_recommendations is None or final_recommendations.empty:
+        st.caption("추천 후보 없음")
+        return
+    df = _filter_positive_qty_recommendations(final_recommendations)
+    if df is None or df.empty:
+        st.caption("추천 후보 없음")
+        return
+
+    score_col = next((c for c in ["heuristic_score", "vhs2", "total_score"]
+                      if c in df.columns), None)
+    top5 = (df.sort_values(score_col, ascending=False).head(5)
+            if score_col else df.head(5))
+    sel_idx = st.session_state.get("dashboard_selected_candidate_index", None)
+    rows = list(top5.iterrows())
+    eff_sel = sel_idx if (sel_idx is not None and sel_idx in top5.index) else (rows[0][0] if rows else None)
+
+    def _won(v):
+        try:
+            f = float(v)
+            if f >= 1e8:  return "%.1f억원" % (f / 1e8)
+            if f >= 1e4:  return "%.0f만원" % (f / 1e4)
+            return "%d원" % int(f)
+        except Exception:
+            return "-"
+
+    st.markdown("""
+    <style>
+    .crt-h{display:grid;grid-template-columns:34px 1fr 92px 70px 90px 64px;gap:6px;
+           font-size:11px;color:#6B7280;font-weight:700;padding:4px 8px;border-bottom:1px solid #ECECEC;}
+    .crt-r{display:grid;grid-template-columns:34px 1fr 92px 70px 90px 64px;gap:6px;align-items:center;
+           font-size:12px;color:#374151;padding:6px 8px;border-radius:8px;}
+    .crt-r .rk{font-weight:800;color:#6B7280;}
+    .crt-r .rt{font-weight:700;color:#111827;word-break:keep-all;}
+    .crt-r .vv{font-weight:800;color:#111827;}
+    .crt-badge{font-size:10px;font-weight:800;border-radius:999px;padding:2px 9px;text-align:center;}
+    .crt-badge.sel{color:#FFFFFF;background:#C9A227;}
+    .crt-badge.alt{color:#6B7280;background:#F1F0EC;border:1px solid #E5E0CC;}
+    </style>
+    """, unsafe_allow_html=True)
+
+    c_table, c_detail = st.columns([1.55, 1])
+
+    with c_table:
+        st.markdown("**추천 후보 경로 Top 5**")
+        _hc1, _hc2 = st.columns([0.86, 0.14])
+        with _hc1:
+            st.markdown(
+                '<div class="crt-h"><div>순위</div><div>경로</div><div>예상 절감액</div>'
+                '<div>VHS 점수</div><div>처리 비용</div><div>상태</div></div>',
+                unsafe_allow_html=True)
+        with _hc2:
+            st.markdown(
+                '<div style="font-size:11px;color:#6B7280;font-weight:700;padding:4px 0;'
+                'border-bottom:1px solid #ECECEC;text-align:center;">&nbsp;</div>',
+                unsafe_allow_html=True)
+        for rank, (orig_idx, row) in enumerate(rows, 1):
+            is_sel = (str(orig_idx) == str(eff_sel))
+            src = str(row.get("source_store", "-"))
+            tgt = str(row.get("target_store", "-"))
+            route = f"{src} → 물류 DC → {tgt}"
+            sav = row.get("disposal_avoidance_profit")
+            sav_s = _won(sav) if (sav is not None and pd.notna(sav)) else "-"
+            sc = row.get(score_col) if score_col else None
+            sc_s = ("%.1f" % float(sc)) if (sc is not None and pd.notna(sc)) else "-"
+            cost = row.get("estimated_cost")
+            cost_s = _won(cost) if (cost is not None and pd.notna(cost)) else "-"
+            badge = ('<span class="crt-badge sel">선택</span>' if is_sel
+                     else '<span class="crt-badge alt">대안</span>')
+            cc1, cc2 = st.columns([0.86, 0.14])
+            with cc1:
+                st.markdown(
+                    f'<div class="crt-r"><div class="rk">{rank}</div>'
+                    f'<div class="rt">{route}</div>'
+                    f'<div class="vv">{sav_s}</div>'
+                    f'<div class="vv">{sc_s}</div>'
+                    f'<div>{cost_s}</div>'
+                    f'<div>{badge}</div></div>',
+                    unsafe_allow_html=True)
+            with cc2:
+                if is_sel:
+                    st.button("✓", key=f"t5_sel_{orig_idx}", disabled=True)
+                elif st.button("선택", key=f"t5_pick_{orig_idx}"):
+                    st.session_state["dashboard_selected_candidate_index"] = orig_idx
+                    st.rerun()
+
+    with c_detail:
+        st.markdown("**경로 상세 정보 (선택 경로)**")
+        if eff_sel is not None and eff_sel in top5.index:
+            r = top5.loc[eff_sel]
+            src = str(r.get("source_store", "-")); tgt = str(r.get("target_store", "-"))
+            cat = str(r.get("category", "") or r.get("product_category", ""))
+            risk = str(r.get("disposal_risk_grade", "") or "")
+            veh = ("냉장탑차" if any(k in cat for k in ["냉장", "냉동", "신선", "유제품"])
+                   else ("오토바이" if risk.upper() == "HIGH" else "소형트럭"))
+            sav = r.get("disposal_avoidance_profit")
+            sav_s = _won(sav) if (sav is not None and pd.notna(sav)) else "-"
+            st.markdown(
+                f'<div style="display:flex;align-items:center;justify-content:space-between;'
+                f'gap:6px;background:#FFFDF5;border:1px solid #F1E3A3;border-radius:12px;'
+                f'padding:12px 10px;margin:4px 0 10px 0;font-size:12px;font-weight:700;'
+                f'color:#111827;text-align:center;">'
+                f'<span>🏪<br>{src}</span><span style="color:#C9A227;">→</span>'
+                f'<span>🏭<br>물류 DC</span><span style="color:#C9A227;">→</span>'
+                f'<span>🏪<br>{tgt}</span></div>',
+                unsafe_allow_html=True)
+            d1, d2 = st.columns(2)
+            d1.metric("이동 수단", veh)
+            d2.metric("예상 절감액", sav_s)
+        else:
+            st.caption("후보를 선택하면 상세 경로가 표시됩니다")
 
 
 def _render_dashboard_top5(final_recommendations):
@@ -2029,7 +2208,7 @@ def _render_dashboard_top5(final_recommendations):
         st.caption("추천 후보 없음")
         return
 
-    score_col = next((c for c in ["vhs2", "heuristic_score", "total_score"]
+    score_col = next((c for c in ["heuristic_score", "vhs2", "total_score"]
                       if c in df.columns), None)
     top5 = (df.sort_values(score_col, ascending=False).head(5)
             if score_col else df.head(5))
@@ -2117,103 +2296,97 @@ def _render_icon_nav(final_recommendations=None, stores=None, products=None, inv
 
     st.markdown("""
     <style>
-    /* 좌측 아이콘 사이드바 — 앱 사이드바 느낌 (디자인 옵션 3) */
-    .vnav-cur{font-size:9px;color:#7A5E12;background:#FFF3BF;border:1px solid #F1E3A3;
-              border-radius:8px;padding:2px 6px;text-align:center;margin-bottom:8px;
-              font-weight:800;letter-spacing:.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-    /* 상위 아이콘 버튼/팝오버 트리거 확대 */
+    /* ── 좌측 세로 탭 사이드바 (아이콘 + 라벨) ── */
+    /* 상위 메뉴 버튼/팝오버 트리거: 아이콘 위 + 글자 아래, 풀폭 세로 탭 */
     div[class*="st-key-nav_grp_home"] button,
     div[class*="st-key-nav_home"] button,
     div[class*="st-key-nav_grp_analysis"] button,
     div[class*="st-key-nav_grp_sim"] button,
     div[class*="st-key-nav_grp_rl"] button,
     div[class*="st-key-nav_grp_manage"] button{
-        width:46px !important;height:46px !important;min-height:46px !important;
-        padding:0 !important;margin:0 auto !important;display:flex !important;
-        align-items:center !important;justify-content:center !important;
-        font-size:20px !important;line-height:1 !important;
-        background:#FFFFFF !important;border:1px solid #ECECEC !important;border-radius:13px !important;
-        box-shadow:0 1px 3px rgba(17,24,39,.06) !important;
-        transition:transform .15s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease !important;
+        width:100% !important;height:auto !important;min-height:0 !important;
+        padding:10px 6px !important;margin:0 !important;
+        display:flex !important;flex-direction:column !important;
+        align-items:center !important;justify-content:center !important;gap:5px !important;
+        font-size:12.5px !important;line-height:1.25 !important;font-weight:700 !important;
+        color:#4B5563 !important;background:transparent !important;
+        border:1px solid transparent !important;border-radius:12px !important;
+        box-shadow:none !important;white-space:normal !important;text-align:center !important;
+        word-break:keep-all !important;
+        transition:background .15s ease, color .15s ease, border-color .15s ease !important;
     }
-    /* 아이콘 메뉴 세로 간격 균일화 (홈 포함 한 묶음) */
+    /* 아이콘(라벨 첫 줄)만 크게 — 첫 줄(이모지)을 키운다 */
+    div[class*="st-key-nav_grp_home"] button p,
+    div[class*="st-key-nav_home"] button p,
+    div[class*="st-key-nav_grp_analysis"] button p,
+    div[class*="st-key-nav_grp_sim"] button p,
+    div[class*="st-key-nav_grp_rl"] button p,
+    div[class*="st-key-nav_grp_manage"] button p{
+        margin:0 !important;line-height:1.25 !important;
+    }
+    /* 메뉴 항목 세로 간격 */
     div[class*="st-key-nav_grp_home"],
     div[class*="st-key-nav_grp_analysis"],
     div[class*="st-key-nav_grp_sim"],
     div[class*="st-key-nav_grp_rl"],
     div[class*="st-key-nav_grp_manage"]{
-        margin-bottom:8px !important;
+        margin-bottom:4px !important;
     }
+    /* hover */
     div[class*="st-key-nav_grp_home"] button:hover,
     div[class*="st-key-nav_home"] button:hover,
     div[class*="st-key-nav_grp_analysis"] button:hover,
     div[class*="st-key-nav_grp_sim"] button:hover,
     div[class*="st-key-nav_grp_rl"] button:hover,
     div[class*="st-key-nav_grp_manage"] button:hover{
-        transform:translateY(-2px) scale(1.04) !important;
-        box-shadow:0 6px 16px rgba(201,162,39,.20) !important;
-        border-color:#F1E3A3 !important;background:#FFFDF5 !important;
+        background:#F4F4F2 !important;color:#111827 !important;border-color:#ECECEC !important;
     }
-    /* 현재 선택 그룹 강조 (연노랑 배경 + 테두리) */
-    div[class*="st-key-%s"] button{
-        background:#FFEFA3 !important;border:1.5px solid #E0C84A !important;
-        box-shadow:0 4px 12px rgba(201,162,39,.22) !important;
+    /* 현재 선택 탭 강조 (연한 배경 + 진한 글자) */
+    div[class*="st-key-__ACTIVE_KEY__"] button{
+        background:#F1F0EC !important;color:#111827 !important;
+        border:1px solid #E5E0CC !important;font-weight:800 !important;
     }
-    /* 팝오버 내부 하위 메뉴 — compact (모바일에서 큰 노란 버튼 남발 방지) */
+    /* 팝오버 내부 하위 메뉴 — compact 흰색(모바일 큰 노란버튼 방지) */
     div[class*="st-key-nav_sub_"] button{
         min-height:32px !important;height:32px !important;padding:2px 12px !important;
         font-size:13px !important;font-weight:600 !important;
         background:#FFFFFF !important;color:#374151 !important;
         border:1px solid #ECECEC !important;border-radius:9px !important;
-        box-shadow:none !important;margin-bottom:4px !important;justify-content:flex-start !important;
+        box-shadow:none !important;margin-bottom:4px !important;
+        flex-direction:row !important;justify-content:flex-start !important;
     }
     div[class*="st-key-nav_sub_"] button:hover{
         background:#FFFDF5 !important;border-color:#F1E3A3 !important;color:#111827 !important;
     }
     </style>
-    """ % (_active_key,), unsafe_allow_html=True)
+    """.replace("__ACTIVE_KEY__", _active_key), unsafe_allow_html=True)
 
-    # 현재 위치 라벨 텍스트는 표시하지 않음 (아이콘만 노출, 선택 강조는 버튼 배경으로).
-    # 선택 강조는 위 CSS(_active_key)로 처리.
+    # 좌측 세로 탭 — 아이콘 + 라벨(아이콘 위, 글자 아래). 선택 강조는 위 CSS(_active_key).
 
-    # 🏠 대시보드
+    # 🏠 대시보드 — 탭 클릭 시 해당 화면으로 바로 이동 (팝오버 없음)
     with _nav_box("nav_grp_home"):
-        if st.button("🏠", key="nav_home", help="대시보드", width="stretch"):
+        if st.button("🏠  \n홈", key="nav_home", help="대시보드", width="stretch"):
             _go("dashboard")
 
-    # 📈 분석 (경로 최적화 / 배치 최적화 / 시나리오 분석)
-    #   최종 추천·상세 분석은 분석 메뉴, 그래프·Before/After 는 대시보드 접힘 섹션으로 이동.
+    # 📊 분석
     with _nav_box("nav_grp_analysis"):
-        with st.popover("📈", help="분석"):
-            st.caption("분석")
-            if st.button("최종 추천",     key="nav_sub_score",      width="stretch"): _go("score")
-            if st.button("상세 분석",     key="nav_sub_algorithms", width="stretch"): _go("algorithms")
-            if st.button("경로 최적화",   key="nav_sub_network",    width="stretch"): _go("network")
-            if st.button("배치 최적화",   key="nav_sub_batch",      width="stretch"): _go("batch")
-            if st.button("시나리오 분석", key="nav_sub_whatif",     width="stretch"): _go("whatif")
+        if st.button("📊  \n분석", key="nav_analysis", help="분석", width="stretch"):
+            _go("score")
 
-    # 🚚 운영 시뮬레이션 (실시간 운영 / 데모 모드)
+    # 🚚 실제 지도 (지도 & 이동 시뮬레이션)
     with _nav_box("nav_grp_sim"):
-        with st.popover("🚚", help="운영 시뮬레이션"):
-            st.caption("운영 시뮬레이션")
-            if st.button("실시간 운영", key="nav_sub_movement", width="stretch"): _go("movement")
-            if st.button("데모 모드",   key="nav_sub_demo",     width="stretch"): _go("demo")
+        if st.button("🚚  \n실제 지도", key="nav_sim", help="실제 지도 & 이동 시뮬레이션", width="stretch"):
+            _go("movement")
 
-    # 🧠 강화학습 (학습 / 검증 / 정책 해석)
+    # 🧠 강화학습
     with _nav_box("nav_grp_rl"):
-        with st.popover("🧠", help="강화학습"):
-            st.caption("강화학습")
-            if st.button("학습 실행 · 결과", key="nav_sub_rl",             width="stretch"): _go("rl")
-            if st.button("검증",            key="nav_sub_dqn_validation", width="stretch"): _go("dqn_validation")
-            if st.button("정책 해석",        key="nav_sub_dqn_interpret",  width="stretch"): _go("dqn_interpret")
+        if st.button("🧠  \n강화학습", key="nav_rl_top", help="강화학습", width="stretch"):
+            _go("rl")
 
-    # ⚙ 관리 (데이터 검증 / 상세 데이터 / 가이드)
+    # ⚙ 관리
     with _nav_box("nav_grp_manage"):
-        with st.popover("⚙", help="관리"):
-            st.caption("관리")
-            if st.button("데이터 검증", key="nav_sub_validator", width="stretch"): _go("validator")
-            if st.button("상세 데이터", key="nav_sub_data",      width="stretch"): _go("data")
-            if st.button("가이드",      key="nav_sub_guide",     width="stretch"): _go("guide")
+        if st.button("⚙  \n관리", key="nav_manage", help="관리", width="stretch"):
+            _go("validator")
 
 
 def _show_dashboard_home(
@@ -2226,6 +2399,31 @@ def _show_dashboard_home(
     transfer_path_result=None,
 ):
     # ── Varo 분석 결과 대시보드 ───────────────────────────
+    # 상단 여백 축소 + 시뮬레이션 아래 섹션 compact (한 화면에 더 많이 보이게)
+    st.markdown("""
+    <style>
+    /* 상단 여백: 고정 헤더에 안 가리도록 충분히 확보(기본보다는 축소) */
+    .main .block-container, section.main > div.block-container,
+    div[data-testid="stMainBlockContainer"]{ padding-top:4rem !important; }
+    /* 액션 메트릭(전체후보/이동/할인/폐기/보류) compact */
+    div[data-testid="stMetric"]{ padding:6px 10px !important; }
+    div[data-testid="stMetricValue"]{ font-size:1.2rem !important; }
+    div[data-testid="stMetricLabel"]{ font-size:0.78rem !important; }
+    /* 운영 KPI 요약 카드(_mcard) 크기 축소 */
+    .mcard{ padding:10px 12px !important; min-height:0 !important; }
+    .mcard-label{ font-size:11px !important; margin-bottom:2px !important; }
+    .mcard-value{ font-size:1.45rem !important; line-height:1.15 !important; }
+    .mcard-sub{ font-size:10px !important; margin-top:2px !important; }
+    .mcard-badge{ font-size:10px !important; padding:1px 7px !important; }
+    .mcard-ba-row{ margin:1px 0 !important; }
+    .mcard-ba-key, .mcard-ba-val{ font-size:12px !important; }
+    .mbar-bg{ height:5px !important; margin-top:6px !important; }
+    /* expander 헤더 compact */
+    div[data-testid="stExpander"] summary{ padding:6px 12px !important; font-size:0.92rem !important; }
+    /* 요소 간 세로 간격 축소 */
+    div[data-testid="stVerticalBlock"]{ gap:0.5rem !important; }
+    </style>
+    """, unsafe_allow_html=True)
     try:
         from varo_dashboard_kpi import (
             calculate_before_after_costs, calculate_vhs_kpi,
@@ -2237,7 +2435,7 @@ def _show_dashboard_home(
         _kpi_ok = False
 
     # ── 좌측 아이콘 사이드바 + 메인 (디자인 옵션 3) ──────
-    _navrail, _navmain = st.columns([1.4, 18])
+    _navrail, _navmain = st.columns([2.2, 18])
     with _navrail:
         _render_icon_nav(final_recommendations, stores, products, inventory)
     with _navmain:
@@ -2251,7 +2449,16 @@ def _show_dashboard_home(
             try:
                 with st.popover("ⓘ VHS"):
                     st.markdown("**추천 결과 종합 점수**")
-                    st.caption("VHS는 Varo 추천 결과를 종합한 운영 점수입니다.")
+                    _vhs_val = _selected_candidate_vhs(final_recommendations)
+                    if _vhs_val is not None:
+                        st.markdown(
+                            '<div style="font-size:13px;color:#7A5E12;font-weight:800;'
+                            'background:#FFF9E6;border:1px solid #F1E3A3;border-radius:9px;'
+                            'padding:5px 10px;margin:2px 0 6px 0;display:inline-block;">'
+                            f'현재 후보 VHS · {_vhs_val:.1f}점</div>',
+                            unsafe_allow_html=True)
+                    st.caption("VHS는 Varo 추천 결과를 종합한 운영 점수입니다. "
+                               "추천 후보를 바꾸면 해당 후보의 점수로 갱신됩니다.")
             except Exception:
                 st.caption("VHS")
         with _t3:
@@ -2282,103 +2489,87 @@ def _show_dashboard_home(
         #    +하단 로그+추천 후보가 모두 포함 → 첫 화면의 핵심으로 최상단 배치.
         _render_operation_simulation(final_recommendations)
 
-        # ── 보조 분석 (접힘 — 운영 시뮬레이션 중심 화면 유지) ──────
-        #    기존 큰 KPI 카드/액션 현황/최적 전략/추천 이유/검증 리포트는
-        #    삭제하지 않고 접힘 영역으로 이동해 화면을 압축한다.
-        with st.expander("📊 운영 KPI 요약", expanded=False):
-            k1, k2, k3, k4 = st.columns(4)
+        # ── 운영 KPI 요약 (항상 표시) ───────────────────────────
+        st.markdown("#### 운영 KPI 요약")
+        k1, k2, k3, k4 = st.columns(4)
 
-            # 카드 1: VHS 점수
-            avg_sc = vhs_kpi.get("avg_score")
-            sc_val = f"{avg_sc:.1f}" if avg_sc is not None else "데이터 없음"
-            sc_bar = float(avg_sc) if avg_sc is not None else None
-            sc_badge_cls = "green" if avg_sc and avg_sc >= 65 else ("yellow" if avg_sc else "gray")
-            sc_badge = vhs_kpi.get("top_grade","-")
-            with k1:
-                if _kpi_ok:
-                    st.markdown(_mcard("VHS 점수", sc_val,
-                        sub="추천 결과 종합 점수",
-                        badge=sc_badge, badge_cls=sc_badge_cls,
-                        bar_pct=sc_bar), unsafe_allow_html=True)
-                else:
-                    st.metric("VHS 점수", sc_val)
+        # 카드 1: VHS 점수
+        avg_sc = vhs_kpi.get("avg_score")
+        sc_val = f"{avg_sc:.1f}" if avg_sc is not None else "데이터 없음"
+        sc_bar = float(avg_sc) if avg_sc is not None else None
+        sc_badge_cls = "green" if avg_sc and avg_sc >= 65 else ("yellow" if avg_sc else "gray")
+        sc_badge = vhs_kpi.get("top_grade","-")
+        with k1:
+            if _kpi_ok:
+                st.markdown(_mcard("VHS 점수", sc_val, sub="추천 결과 종합 점수",
+                    badge=sc_badge, badge_cls=sc_badge_cls, bar_pct=sc_bar), unsafe_allow_html=True)
+            else:
+                st.metric("VHS 점수", sc_val)
 
-            # 카드 2: Before → After
-            before_v = costs.get("before")
-            after_v  = costs.get("after")
-            with k2:
-                if _kpi_ok and before_v is not None and after_v is not None:
-                    st.markdown(_mcard_before_after("Before → After",
-                        safe_format_currency_short(before_v),
-                        safe_format_currency_short(after_v),
-                        sub="처리 비용 변화"), unsafe_allow_html=True)
-                elif _kpi_ok:
-                    st.markdown(_mcard("Before → After", "데이터 없음",
-                        sub="처리 비용 변화", value_cls="money"), unsafe_allow_html=True)
-                else:
-                    st.metric("Before → After", "데이터 없음")
+        # 카드 2: 비용 개선 효과 (Before → After)
+        before_v = costs.get("before"); after_v = costs.get("after")
+        with k2:
+            if _kpi_ok and before_v is not None and after_v is not None:
+                st.markdown(_mcard_before_after("비용 개선 효과",
+                    safe_format_currency_short(before_v), safe_format_currency_short(after_v),
+                    sub="처리 비용 변화"), unsafe_allow_html=True)
+            elif _kpi_ok:
+                st.markdown(_mcard("비용 개선 효과", "데이터 없음", sub="처리 비용 변화", value_cls="money"), unsafe_allow_html=True)
+            else:
+                st.metric("비용 개선 효과", "데이터 없음")
 
-            # 카드 3: 절감액
-            sav    = costs.get("savings")
-            sr     = costs.get("savings_rate")
-            sav_v  = safe_format_currency_short(sav) if sav is not None else "계산 불가"
-            sav_sub= safe_format_percent(sr) + " 절감" if sr is not None else "-"
-            sav_cls= "green" if (sav is not None and sav > 0) else "gray"
-            with k3:
-                if _kpi_ok:
-                    st.markdown(_mcard("예상 절감액", sav_v,
-                        sub=sav_sub, badge_cls=sav_cls, value_cls="money"),
-                        unsafe_allow_html=True)
-                else:
-                    st.metric("예상 절감액", sav_v)
+        # 카드 3: 예상 비용 절감
+        sav = costs.get("savings"); sr = costs.get("savings_rate")
+        sav_v = safe_format_currency_short(sav) if sav is not None else "계산 불가"
+        sav_sub = safe_format_percent(sr) + " 절감" if sr is not None else "-"
+        sav_cls = "green" if (sav is not None and sav > 0) else "gray"
+        with k3:
+            if _kpi_ok:
+                st.markdown(_mcard("예상 비용 절감", sav_v, sub=sav_sub, badge_cls=sav_cls, value_cls="money"), unsafe_allow_html=True)
+            else:
+                st.metric("예상 비용 절감", sav_v)
 
-            # 카드 4: 데이터 품질
-            vs_map = {"정상":"green","확인 필요":"yellow","데이터 부족":"yellow","오류 가능":"gray"}
-            vs_cls = vs_map.get(val_status, "gray")
-            q_sub  = f"경고 {val_warn}건" if val_warn else ""
-            with k4:
-                if _kpi_ok:
-                    st.markdown(_mcard("데이터 품질", val_status,
-                        sub=q_sub, badge_cls=vs_cls), unsafe_allow_html=True)
-                else:
-                    st.metric("데이터 품질", val_status)
+        # 카드 4: 데이터 품질
+        vs_map = {"정상":"green","확인 필요":"yellow","데이터 부족":"yellow","오류 가능":"gray"}
+        vs_cls = vs_map.get(val_status, "gray")
+        q_sub = f"경고 {val_warn}건" if val_warn else ""
+        with k4:
+            if _kpi_ok:
+                st.markdown(_mcard("데이터 품질", val_status, sub=q_sub, badge_cls=vs_cls), unsafe_allow_html=True)
+            else:
+                st.metric("데이터 품질", val_status)
 
-            # 액션 현황
-            if act_summ:
-                st.markdown("---")
-                ac1, ac2, ac3, ac4, ac5 = st.columns(5)
-                ac_items = [
-                    ("전체 후보",  act_summ.get("total", 0)),
-                    ("이동 추천",  act_summ.get("이동",  0)),
-                    ("할인 추천",  act_summ.get("할인",  0)),
-                    ("폐기 검토",  act_summ.get("폐기",  0)),
-                    ("보류",       act_summ.get("보류",  0)),
-                ]
-                for col, (label, num) in zip([ac1,ac2,ac3,ac4,ac5], ac_items):
-                    col.metric(label, f"{num}건")
+        # 액션 현황 (전체 후보 / 이동 / 할인 / 폐기 / 보류)
+        if act_summ:
+            ac1, ac2, ac3, ac4, ac5 = st.columns(5)
+            for col, (label, num) in zip([ac1,ac2,ac3,ac4,ac5], [
+                ("전체 후보", act_summ.get("total", 0)), ("이동 추천", act_summ.get("이동", 0)),
+                ("할인 추천", act_summ.get("할인", 0)), ("폐기 검토", act_summ.get("폐기", 0)),
+                ("보류", act_summ.get("보류", 0))]):
+                col.metric(label, f"{num}건")
+
+        # ── 추천 후보 경로 (항상 표시) + 보조 상세 (접힘) ──
+        st.markdown("#### 추천 후보 경로")
+        _render_candidate_routes_tab(final_recommendations)
 
         with st.expander("⭐ 최적 운영 전략 / 추천 이유", expanded=False):
             _render_optimal_strategy(final_recommendations)
             _render_strategy_reasoning(final_recommendations)
-
         with st.expander("🔎 검증 리포트", expanded=False):
             _render_validation_report(
                 final_recommendations=final_recommendations,
                 stores=stores, products=products, inventory=inventory,
             )
-
-        # 그래프 / Before·After 는 별도 메뉴가 아니라 대시보드 내부 접힘 섹션으로 유지
-        with st.expander("📈 Before / After", expanded=False):
+        with st.expander("📈 전후 비교", expanded=False):
             try:
-                _show_effect_page(final_recommendations)
-            except Exception as _e:
+                _show_effect_page(final_recommendations, embedded=True)
+            except Exception:
                 st.caption("Before/After를 표시할 수 없습니다")
-
-        with st.expander("📊 그래프", expanded=False):
+        with st.expander("📊 성과 분석 그래프", expanded=False):
             try:
                 _show_graph_page(final_recommendations, final_rec_summary,
-                                 promotion_result, transfer_path_result)
-            except Exception as _e:
+                                 promotion_result, transfer_path_result, embedded=True)
+            except Exception:
                 st.caption("그래프를 표시할 수 없습니다")
 
 
@@ -3674,6 +3865,7 @@ def _render_dqn_comparison(final_recommendations):
 
 def _show_score_page(final_recommendations):
     _back_to_dashboard()
+    _render_section_subnav("score")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     st.header("🧠 최종 추천")
 
@@ -4342,8 +4534,9 @@ def _show_score_formula_page(final_recommendations):
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def _show_graph_page(final_recommendations, final_rec_summary, promotion_result, transfer_path_result):
-    _back_to_dashboard()
+def _show_graph_page(final_recommendations, final_rec_summary, promotion_result, transfer_path_result, embedded=False):
+    if not embedded:
+        _back_to_dashboard()
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     st.header("📊 그래프 요약")
 
@@ -4899,6 +5092,7 @@ def _show_data_page(
     time_result,
 ):
     _back_to_dashboard()
+    _render_section_subnav("data")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     st.header("🧾 상세 데이터 페이지")
 
@@ -4958,6 +5152,7 @@ def _show_data_page(
 
 def _show_rl_page(stores, products, inventory, final_recommendations, transfer_path_result, promotion_result):
     _back_to_dashboard()
+    _render_section_subnav("rl")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     st.header("🤖 학습 관리")
 
@@ -5978,6 +6173,7 @@ def _show_truck_page(
 def _show_batch_page(final_recommendations):
     """처리 배치 최적화 페이지."""
     _back_to_dashboard()
+    _render_section_subnav("batch")
     st.header("📦 처리 배치 최적화")
     st.caption("오늘 처리할 상품들을 어떤 순서로 진행하면 비용·폐기 손실을 최소화할 수 있는지 보여줍니다.")
 
@@ -6036,9 +6232,10 @@ def _show_batch_page(final_recommendations):
     st.dataframe(batch_df, width="stretch", hide_index=True)
 
 
-def _show_effect_page(final_recommendations):
+def _show_effect_page(final_recommendations, embedded=False):
     """Before/After 효과 지표 페이지."""
-    _back_to_dashboard()
+    if not embedded:
+        _back_to_dashboard()
     st.header("📊 Varo 도입 전/후 효과 분석")
     st.caption("Varo 추천 적용 시 예상 폐기비용 절감 및 재고 균형 개선 효과를 추정합니다.")
 
@@ -6094,6 +6291,7 @@ def _show_effect_page(final_recommendations):
 def _show_guide_page(final_recommendations=None):
     """Varo 가이드 & 설명 — 기존 설명 페이지들을 탭으로 통합."""
     _back_to_dashboard()
+    _render_section_subnav("guide")
     st.header("📚 Varo 가이드 & 설명")
 
     tg1, tg2, tg3, tg4, tg5 = st.tabs([
@@ -6259,6 +6457,7 @@ def _show_guide_page(final_recommendations=None):
 def _show_whatif_page(final_recommendations):
     """What-if 시뮬레이션 페이지."""
     _back_to_dashboard()
+    _render_section_subnav("whatif")
     st.header("🔮 What-if 시뮬레이션")
 
     if final_recommendations is None or (
@@ -6421,6 +6620,7 @@ def _show_whatif_page(final_recommendations):
 def _show_network_page():
     """최소비용 네트워크 분석 결과 페이지."""
     _back_to_dashboard()
+    _render_section_subnav("network")
     st.header("🌐 최소비용 네트워크 분석")
 
     flow_df   = st.session_state.get("_network_flow_df",  None)
@@ -6513,6 +6713,7 @@ def _show_network_page():
 def _show_algorithms_page(final_recommendations, inventory=None):
     """VARO Hybrid Score 통합 대시보드."""
     _back_to_dashboard()
+    _render_section_subnav("algorithms")
 
     if final_recommendations is None or (
         isinstance(final_recommendations, pd.DataFrame) and final_recommendations.empty
@@ -7270,6 +7471,7 @@ def _show_demo_page():
 def _show_validator_page(sheets: dict = None):
     """샘플 엑셀 검증기 페이지."""
     _back_to_dashboard()
+    _render_section_subnav("validator")
     st.header("🔍 엑셀 데이터 검증")
     st.caption("업로드된 엑셀이 Varo 분석에 적합한지 자동으로 확인합니다.")
 
@@ -7290,6 +7492,7 @@ def _show_validator_page(sheets: dict = None):
 def _show_dqn_interpretation_page(final_recommendations=None, inventory=None):
     """📘 DQN 결과 해석 페이지."""
     _back_to_dashboard()
+    _render_section_subnav("dqn_interpret")
     st.header("📘 DQN 결과 해석")
     st.caption("DQN 추천 결과의 의미, Greedy/Heuristic과의 차이, 각 Action의 적용 상황을 설명합니다.")
 
@@ -7475,6 +7678,7 @@ def _show_dqn_interpretation_page(final_recommendations=None, inventory=None):
 def _show_dqn_validation_page(final_recommendations=None, inventory=None):
     """🤖 DQN 검증 페이지 — Greedy / Heuristic / DQN 비교."""
     _back_to_dashboard()
+    _render_section_subnav("dqn_validation")
     st.header("🤖 DQN 검증 페이지")
     st.caption("DQN 학습 결과를 Greedy·Heuristic 추천과 비교하여 검증합니다.")
 
