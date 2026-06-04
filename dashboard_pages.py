@@ -520,10 +520,27 @@ def _safe_dataframe(df, **kwargs):
         st.info("표시할 데이터가 없습니다.")
         return
 
+    # ── 실행 리스트 느낌: compact 행 높이 + 높이 상한 ──
+    kwargs.setdefault("width", "stretch")
+    if "height" not in kwargs:
+        n = len(display_df)
+        kwargs["height"] = min(38 + n * 34, 360)  # 최대 ~9행 후 스크롤
+    compact_kwargs = dict(kwargs)
+    compact_kwargs.setdefault("row_height", 32)  # 신버전만 지원 → 실패 시 제거
+
     try:
-        st.dataframe(display_df, **kwargs)
+        st.dataframe(display_df, **compact_kwargs)
+    except TypeError:
+        # row_height 미지원 구버전 폴백
+        try:
+            st.dataframe(display_df, **kwargs)
+        except Exception:
+            st.dataframe(display_df.astype(str), **kwargs)
     except Exception:
-        st.dataframe(display_df.astype(str), **kwargs)
+        try:
+            st.dataframe(display_df.astype(str), **kwargs)
+        except Exception:
+            st.dataframe(display_df.astype(str))
 
 
 
@@ -814,7 +831,8 @@ def _back_to_dashboard():
 _SECTION_GROUPS = {
     "analysis": [("최종 추천", "score"), ("상세 분석", "algorithms"),
                  ("경로 최적화", "network"), ("배치 최적화", "batch"),
-                 ("시나리오 분석", "whatif")],
+                 ("시나리오 분석", "whatif"), ("전후 비교", "effect"),
+                 ("성과 그래프", "graph")],
     "rl": [("학습 관리", "rl"), ("검증", "dqn_validation"), ("정책 해석", "dqn_interpret")],
     "manage": [("데이터 검증", "validator"), ("상세 데이터", "data"), ("가이드", "guide")],
 }
@@ -1433,6 +1451,26 @@ def _apply_page_style():
         [data-testid="stTabs"] button[aria-selected="true"]{ color:#9A7B12 !important; }
         /* 페이지 카드 래퍼 그림자 살짝 정돈 */
         .dash-page-box{ box-shadow:0 6px 18px rgba(201,162,39,.06) !important; border-color:#EFEAD2 !important; }
+        /* ── 운영 관제 밀도: 설명 축소 + info 연노랑 + 차트 높이 제한 ── */
+        /* st.info/안내 박스 → 연노랑 + compact (파랑 제거, 설명 시각적 축소) */
+        [data-testid="stAlert"]{
+            padding:8px 13px !important; border-radius:11px !important;
+            background:#FFFDF5 !important; border:1px solid #F1E3A3 !important;
+            color:#6B5A12 !important; font-size:12.5px !important; line-height:1.5 !important;
+        }
+        [data-testid="stAlert"] p{ font-size:12.5px !important; margin:0 !important; }
+        /* caption → 작게·muted (설명 다이어트) */
+        [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p{
+            font-size:11.5px !important; color:#9A8A55 !important; line-height:1.5 !important;
+        }
+        /* 차트 높이 상한 (giant chart 방지) — 보조 정보 수준으로 */
+        [data-testid="stArrowVegaLiteChart"], [data-testid="stVegaLiteChart"]{
+            max-height:240px !important; overflow:hidden !important;
+        }
+        /* 표 폰트 살짝 축소(실행 리스트 느낌) */
+        [data-testid="stDataFrame"]{ font-size:12.5px !important; }
+        /* expander 본문 패딩 축소 */
+        [data-testid="stExpander"] [data-testid="stExpanderDetails"]{ padding-top:6px !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -2130,7 +2168,127 @@ def _render_operation_simulation(final_recommendations):
         st.info("표시할 운영 시뮬레이션이 없습니다")
 
 
-def _render_candidate_routes_tab(final_recommendations):
+def _selected_source_store(final_recommendations):
+    """현재 선택(또는 1순위) 후보의 출발 점포명."""
+    try:
+        df = _filter_positive_qty_recommendations(final_recommendations)
+        if df is None or df.empty:
+            return None
+        score_col = next((c for c in ["heuristic_score", "vhs2", "total_score"]
+                          if c in df.columns), None)
+        ordered = (df.sort_values(score_col, ascending=False) if score_col else df).copy()
+        sel = st.session_state.get("dashboard_selected_candidate_index", None)
+        if sel is not None and sel in ordered.index:
+            ordered = pd.concat([ordered.loc[[sel]], ordered.drop(index=sel)])
+        return str(ordered.iloc[0].get("source_store", "") or "") or None
+    except Exception:
+        return None
+
+
+def _render_store_detail_panel(final_recommendations, inventory):
+    """선택 점포 상세 패널 — 부족/보낼 수 있는/폐기 위험 상품 + 운영 로그."""
+    store = _selected_source_store(final_recommendations)
+    if not store or inventory is None or (isinstance(inventory, pd.DataFrame) and inventory.empty):
+        return
+    df = inventory
+    scol = "store_name" if "store_name" in df.columns else None
+    if scol is None:
+        return
+    sdf = df[df[scol].astype(str) == store].copy()
+    if sdf.empty:
+        return
+
+    pcol = next((c for c in ["inventory_product_name", "product_name", "상품명"] if c in sdf.columns), None)
+    def num(col):
+        return pd.to_numeric(sdf[col], errors="coerce").fillna(0) if col in sdf.columns else pd.Series([0]*len(sdf), index=sdf.index)
+    stock = num("stock_qty") if "stock_qty" in sdf.columns else num("current_stock")
+    demand = num("demand_qty")
+    dead = num("dead_stock_qty")
+    expiry = num("days_to_expiry")
+    sdf = sdf.assign(_stock=stock, _demand=demand, _dead=dead, _expiry=expiry)
+    sdf["_short"] = (sdf["_demand"] - sdf["_stock"]).clip(lower=0)
+    sdf["_send"] = sdf[["_dead"]].max(axis=1)
+    sdf.loc[sdf["_send"] <= 0, "_send"] = (sdf["_stock"] - sdf["_demand"]).clip(lower=0)
+
+    shortage = sdf[sdf["_short"] > 0].sort_values("_short", ascending=False)
+    sendable = sdf[sdf["_send"] > 0].sort_values("_send", ascending=False)
+    status_col = "inventory_status" if "inventory_status" in sdf.columns else None
+    risk = sdf.copy()
+    if status_col:
+        risk = risk[(risk["_expiry"] <= 3) | (risk[status_col].astype(str).str.contains("악성|위험", na=False))]
+    else:
+        risk = risk[risk["_expiry"] <= 3]
+    risk = risk.sort_values("_expiry")
+
+    def pname(r):
+        return str(r.get(pcol, "상품")) if pcol else "상품"
+
+    # 칩 3개
+    chips = (
+        '<div style="display:flex;gap:12px;margin:2px 0 12px 0;flex-wrap:wrap;">'
+        + ''.join(
+            '<div style="flex:1;min-width:0;background:#FFFFFF;border:1px solid #EFEAD2;'
+            'border-radius:14px;padding:12px 14px;text-align:center;'
+            'box-shadow:0 3px 12px rgba(201,162,39,.05);">'
+            f'<div style="color:#7A7A7A;font-size:12px;font-weight:600;margin-bottom:4px;">{lab}</div>'
+            f'<div style="color:{col};font-size:1.5rem;font-weight:800;">{val}건</div></div>'
+            for lab, val, col in [
+                ("부족 상품", len(shortage), "#C9A227"),
+                ("보낼 상품", len(sendable), "#9A7B12"),
+                ("폐기 위험", len(risk), "#C9A227"),
+            ])
+        + '</div>'
+    )
+
+    def item_rows(rows, kind):
+        out = []
+        for _, r in rows.head(4 if kind == "send" else 3).iterrows():
+            nm = pname(r)
+            if kind == "short":
+                out.append(f'<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #F4F1E6;font-size:13px;">'
+                           f'<span style="color:#333;">{nm} 부족</span><b style="color:#C9A227;">{int(r["_short"])}개</b></div>')
+            elif kind == "send":
+                out.append(f'<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #F4F1E6;font-size:13px;">'
+                           f'<span style="color:#333;">{nm} 이동 가능</span><b style="color:#9A7B12;">{int(r["_send"])}개</b></div>')
+            else:
+                out.append(f'<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #F4F1E6;font-size:13px;">'
+                           f'<span style="color:#333;">{nm}</span><b style="color:#C9A227;">{int(r["_expiry"])}일 남음</b></div>')
+        return ''.join(out) or '<div style="color:#9CA3AF;font-size:12px;padding:8px 0;">해당 상품 없음</div>'
+
+    # 운영 로그 (시뮬레이션과 동일 소스)
+    log_html = ""
+    try:
+        sc = _build_operation_scenario(final_recommendations)
+        logs = [lg for stg in sc["stages"] for lg in stg.get("logs", [])]
+        for t, txt, _hl in logs[::-1][:3]:
+            log_html += (f'<div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid #F4F1E6;font-size:13px;">'
+                         f'<span style="color:#9A7B12;font-weight:700;">{t}</span><span style="color:#444;">{txt}</span></div>')
+    except Exception:
+        pass
+
+    def card(title, body, extra=""):
+        return ('<div style="background:#FFFFFF;border:1px solid #EFEAD2;border-radius:14px;'
+                'padding:14px 16px;box-shadow:0 3px 12px rgba(201,162,39,.05);">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                f'font-weight:800;color:#1A1A1A;font-size:14px;margin-bottom:6px;">{title}{extra}</div>'
+                f'{body}</div>')
+
+    st.markdown(f"#### 선택 점포 상세 · {store}")
+    st.markdown(chips, unsafe_allow_html=True)
+    cL, cR = st.columns(2)
+    with cL:
+        st.markdown(card("🔴 필요한 상품", item_rows(shortage, "short")), unsafe_allow_html=True)
+        st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+        st.markdown(card("⚠ 폐기 위험 상품", item_rows(risk, "risk")), unsafe_allow_html=True)
+    with cR:
+        st.markdown(card("🟢 보낼 수 있는 상품", item_rows(sendable, "send")), unsafe_allow_html=True)
+        st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+        st.markdown(card("운영 로그", log_html or '<div style="color:#9CA3AF;font-size:12px;padding:8px 0;">로그 없음</div>',
+                         extra='<span style="color:#9A7B12;font-size:11px;font-weight:700;">실시간</span>'),
+                    unsafe_allow_html=True)
+
+
+def _render_candidate_routes_tab(final_recommendations, compact=False):
     """추천 후보 경로 — Top5 표 + 선택 경로 상세 패널 (이미지 레이아웃)."""
     if final_recommendations is None or final_recommendations.empty:
         st.caption("추천 후보 없음")
@@ -2142,8 +2300,9 @@ def _render_candidate_routes_tab(final_recommendations):
 
     score_col = next((c for c in ["heuristic_score", "vhs2", "total_score"]
                       if c in df.columns), None)
-    top5 = (df.sort_values(score_col, ascending=False).head(5)
-            if score_col else df.head(5))
+    _topn = 3 if compact else 5
+    top5 = (df.sort_values(score_col, ascending=False).head(_topn)
+            if score_col else df.head(_topn))
     sel_idx = st.session_state.get("dashboard_selected_candidate_index", None)
     rows = list(top5.iterrows())
     eff_sel = sel_idx if (sel_idx is not None and sel_idx in top5.index) else (rows[0][0] if rows else None)
@@ -2172,10 +2331,14 @@ def _render_candidate_routes_tab(final_recommendations):
     </style>
     """, unsafe_allow_html=True)
 
-    c_table, c_detail = st.columns([1.55, 1])
+    c_table = st.container() if compact else None
+    if compact:
+        c_detail = None
+    else:
+        c_table, c_detail = st.columns([1.55, 1])
 
     with c_table:
-        st.markdown("**추천 후보 경로 Top 5**")
+        st.markdown("**추천 후보 경로 Top %d**" % _topn)
         _hc1, _hc2 = st.columns([0.86, 0.14])
         with _hc1:
             st.markdown(
@@ -2217,7 +2380,8 @@ def _render_candidate_routes_tab(final_recommendations):
                     st.session_state["dashboard_selected_candidate_index"] = orig_idx
                     st.rerun()
 
-    with c_detail:
+    if not compact and c_detail is not None:
+      with c_detail:
         st.markdown("**경로 상세 정보 (선택 경로)**")
         if eff_sel is not None and eff_sel in top5.index:
             r = top5.loc[eff_sel]
@@ -2595,29 +2759,12 @@ def _show_dashboard_home(
                 ("보류", act_summ.get("보류", 0))]):
                 col.metric(label, f"{num}건")
 
-        # ── 추천 후보 경로 (항상 표시) + 보조 상세 (접힘) ──
-        st.markdown("#### 추천 후보 경로")
-        _render_candidate_routes_tab(final_recommendations)
+        # ── 선택 점포 상세 패널 ──
+        _render_store_detail_panel(final_recommendations, inventory)
 
-        with st.expander("⭐ 최적 운영 전략 / 추천 이유", expanded=False):
-            _render_optimal_strategy(final_recommendations)
-            _render_strategy_reasoning(final_recommendations)
-        with st.expander("🔎 검증 리포트", expanded=False):
-            _render_validation_report(
-                final_recommendations=final_recommendations,
-                stores=stores, products=products, inventory=inventory,
-            )
-        with st.expander("📈 전후 비교", expanded=False):
-            try:
-                _show_effect_page(final_recommendations, embedded=True)
-            except Exception:
-                st.caption("Before/After를 표시할 수 없습니다")
-        with st.expander("📊 성과 분석 그래프", expanded=False):
-            try:
-                _show_graph_page(final_recommendations, final_rec_summary,
-                                 promotion_result, transfer_path_result, embedded=True)
-            except Exception:
-                st.caption("그래프를 표시할 수 없습니다")
+        # ── 추천 후보 경로 (Top3, 축소) ──
+        st.markdown("#### 추천 후보 경로")
+        _render_candidate_routes_tab(final_recommendations, compact=True)
 
 
 # =========================
@@ -3563,7 +3710,7 @@ def _render_sensitivity_analysis(final_recommendations):
         # 막대 그래프: 평균 Score
         try:
             chart_data = summary_df.set_index("시나리오")[["평균 Score"]]
-            st.bar_chart(chart_data)
+            st.bar_chart(chart_data, height=200)
         except Exception:
             pass
 
@@ -3910,7 +4057,7 @@ def _render_dqn_comparison(final_recommendations):
                 _safe_dataframe(act_df, width="stretch")
 
 
-def _show_score_page(final_recommendations):
+def _show_score_page(final_recommendations, stores=None, products=None, inventory=None):
     _back_to_dashboard()
     _render_section_subnav("score")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
@@ -4049,6 +4196,16 @@ def _show_score_page(final_recommendations):
 
     with _sc_tab2:
         _render_dqn_comparison(score_source)
+
+    # ── 홈에서 이동해 온 보조 분석 (접힘) ──
+    with st.expander("⭐ 최적 운영 전략 / 추천 이유", expanded=False):
+        _render_optimal_strategy(final_recommendations)
+        _render_strategy_reasoning(final_recommendations)
+    with st.expander("🔎 검증 리포트", expanded=False):
+        _render_validation_report(
+            final_recommendations=final_recommendations,
+            stores=stores, products=products, inventory=inventory,
+        )
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -4625,8 +4782,13 @@ def _show_score_formula_page(final_recommendations):
 def _show_graph_page(final_recommendations, final_rec_summary, promotion_result, transfer_path_result, embedded=False):
     if not embedded:
         _back_to_dashboard()
+        _render_section_subnav("graph")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("📊 추천 결과 한눈에 보기")
+    if not embedded:
+        _page_header("01", "추천 결과 한눈에 보기",
+                     "Varo가 추천한 처리 방법과 이동 방식을 막대 길이로 쉽게 보여줍니다.")
+    else:
+        st.markdown("#### 📊 추천 결과 한눈에 보기")
     st.markdown(
         '<div style="color:#7A7A7A;font-size:13.5px;line-height:1.6;margin:-4px 0 14px 0;">'
         'Varo가 추천한 <b>처리 방법</b>과 <b>이동 방식</b>을 막대 길이로 쉽게 풀어 보여줍니다. '
@@ -5323,7 +5485,33 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
     _back_to_dashboard()
     _render_section_subnav("rl")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("🤖 학습 관리")
+    _page_header("", "AI 운영 엔진",
+                 "DQN 기반 재배치 정책의 성능·안정성·운영 반영 현황입니다.")
+
+    # ── 운영 엔진 현황 (실데이터 기반 지표) ──
+    try:
+        _eng = _filter_positive_qty_recommendations(final_recommendations)
+        if _eng is not None and not _eng.empty:
+            _total_all = len(final_recommendations) if final_recommendations is not None else 0
+            _actionable = len(_eng)
+            _reflect = (100.0 * _actionable / _total_all) if _total_all else None
+            _vhs_col = next((c for c in ["heuristic_score", "vhs2", "total_score"] if c in _eng.columns), None)
+            _vhs_avg = None
+            _consist = None
+            if _vhs_col:
+                _v = pd.to_numeric(_eng[_vhs_col], errors="coerce").dropna()
+                if not _v.empty:
+                    _vhs_avg = float(_v.mean())
+                    # 추천 일관성: 점수 변동이 작을수록 높음 (1 - 표준편차/100)
+                    _consist = max(0.0, 100.0 - float(_v.std() or 0))
+            _stat_chips([
+                ("정책 추천 성능", ("%.1f점" % _vhs_avg) if _vhs_avg is not None else "—", "평균 추천 점수(VHS)"),
+                ("운영 반영률", ("%.0f%%" % _reflect) if _reflect is not None else "—", "실행 가능 추천 비율"),
+                ("추천 일관성", ("%.0f%%" % _consist) if _consist is not None else "—", "점수 안정도"),
+                ("처리 추천 건수", "%d건" % _actionable, "현재 운영 대상"),
+            ])
+    except Exception:
+        pass
 
 
     # =========================
@@ -5416,7 +5604,7 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
     # 2. DQN 학습 (numpy / PyTorch 자동 선택)
     # =========================
     st.markdown("---")
-    st.subheader("🧠 DQN 정책 학습")
+    st.subheader("정책 학습 · 실행")
 
     # backend 표시
     try:
@@ -5616,7 +5804,7 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
 
                 st.markdown("### DQN 학습 Loss 변화")
                 if not dqn_history.empty:
-                    st.line_chart(dqn_history.set_index("episode")["loss"])
+                    st.line_chart(dqn_history.set_index("episode")["loss"], height=200)
                     with st.expander("DQN 학습 로그"):
                         _safe_dataframe(dqn_history, width="stretch")
 
@@ -5696,7 +5884,7 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
     # 3. 기존 Q-table 정책 비교
     # =========================
     st.markdown("---")
-    st.subheader("기존 정책 테이블 비교")
+    st.subheader("정책 비교")
 
     try:
         from rl_data_logger import build_rl_training_log
@@ -5802,7 +5990,7 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
 
     # ── PyTorch DQN 학습 실행 ─────────────────────────────
     st.markdown("---")
-    st.subheader("⚡ PyTorch/numpy DQN 빠른 학습")
+    st.subheader("정책 재학습 (고급)")
     st.caption("RL 로그 데이터를 기반으로 DQN 정책을 직접 학습합니다.")
 
     try:
@@ -5916,7 +6104,7 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
 
     # ── 학습 이력 비교 (dqn_training_comparison.csv) ─────
     st.markdown("---")
-    st.subheader("📋 전체 학습 결과 비교")
+    st.subheader("학습 이력")
     st.caption("매 학습 실행 시 dqn_artifacts/dqn_training_comparison.csv에 자동 누적됩니다.")
 
     try:
@@ -6404,6 +6592,7 @@ def _show_effect_page(final_recommendations, embedded=False):
     """Before/After 효과 지표 페이지."""
     if not embedded:
         _back_to_dashboard()
+        _render_section_subnav("effect")
         _page_header("08", "기대 효과 (도입 전·후 비교)",
                      "Varo 추천을 적용하면 폐기 비용과 재고 균형이 얼마나 개선되는지 추정합니다.")
     else:
@@ -6878,6 +7067,37 @@ def _show_algorithms_page(final_recommendations, inventory=None):
         st.info("분석 결과가 없습니다. 먼저 엑셀 파일을 업로드해 주세요.")
         return
 
+    # ── 운영 인사이트 (실데이터 기반) ──
+    try:
+        _ins = _filter_positive_qty_recommendations(final_recommendations)
+        if _ins is not None and not _ins.empty:
+            def _wons(v):
+                f = float(v)
+                if f >= 1e8: return "%.1f억원" % (f / 1e8)
+                if f >= 1e4: return "%.0f만원" % (f / 1e4)
+                return "%d원" % int(f)
+            _tot = len(final_recommendations) if final_recommendations is not None else 0
+            _act = len(_ins)
+            _save = None
+            for _c in ["disposal_avoidance_profit", "avoided_disposal_cost", "savings"]:
+                if _c in _ins.columns:
+                    _v = pd.to_numeric(_ins[_c], errors="coerce").fillna(0).sum()
+                    if _v > 0: _save = _wons(_v); break
+            _vc = next((c for c in ["heuristic_score", "vhs2", "total_score"] if c in _ins.columns), None)
+            _vavg = None
+            if _vc:
+                _vv = pd.to_numeric(_ins[_vc], errors="coerce").dropna()
+                if not _vv.empty: _vavg = float(_vv.mean())
+            _ratio = (100.0 * _act / _tot) if _tot else None
+            _stat_chips([
+                ("예상 비용 절감", _save or "—", "추천대로 처리 시"),
+                ("이동 효율 (추천 점수)", ("%.1f점" % _vavg) if _vavg is not None else "—", "평균 VHS"),
+                ("처리 추천 비율", ("%.0f%%" % _ratio) if _ratio is not None else "—", "실행 가능 비율"),
+                ("처리 대상 건수", "%d건" % _act, "현재 운영 대상"),
+            ])
+    except Exception:
+        pass
+
     df = final_recommendations.copy()
 
     # VHS 없으면 즉석 계산
@@ -6975,12 +7195,12 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     #  탭 구성
     # ══════════════════════════════════════════════════════
     t1, t2, t3, t4, t5, t6 = st.tabs([
-        "🎯 VHS 추천 목록",
-        "📊 알고리즘 vs VHS 비교",
-        "🏗️ 8구성요소 분석",
-        "⚖️ 가중치 & 상황 감지",
-        "🔬 컴포넌트 기여 분석",
-        "📋 32개 알고리즘 현황",
+        "🎯 추천 목록",
+        "📊 점수 비교",
+        "🏗️ 점수 구성",
+        "⚖️ 가중치 · 상황 감지",
+        "🔬 항목별 기여도",
+        "📋 분석 항목 현황",
     ])
 
     # ══════════════════════════════════════════════════════
@@ -7062,7 +7282,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     #  탭 2: 알고리즘 vs VHS 비교
     # ══════════════════════════════════════════════════════
     with t2:
-        st.subheader("📊 알고리즘 vs VHS 효율 비교")
+        st.subheader("📊 점수 비교")
         st.caption("개별 알고리즘 점수와 VHS를 직접 비교해 통합 점수의 효율을 확인합니다.")
 
         if not has_vhs or "vhs" not in df.columns:
@@ -7285,7 +7505,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
 
     #  탭 3: 8구성요소 분석    #  탭 3: 8구성요소 분석
     with t3:
-        st.subheader("🏗️ Varo Hybrid Score — 8개 구성요소 구조")
+        st.subheader("🏗️ 추천 점수 구성")
         _G8 = {
             "A. 재고 위험 (22%)":   (["disposal_risk_score","turnover_score","abc_score","aging_score"],"#F1E3A3"),
             "B. 판매 가능성 (18%)": (["demand_forecast_score","trend_score","newsvendor_score"],"#E0C84A"),
@@ -7546,7 +7766,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
 
     # ── 탭 6: 32개 알고리즘 전체 현황 ───────────────────────
     with t6:
-        st.subheader("📋 Varo 32개 알고리즘 전체 현황")
+        st.subheader("📋 분석 항목 전체 현황")
         _ALL32 = [
             ("#1",  "ABC 분석",           "abc_score",                   "✅"),
             ("#2",  "재고 회전율",         "turnover_score",              "✅"),
@@ -7939,7 +8159,7 @@ def _show_dqn_validation_page(final_recommendations=None, inventory=None):
                 _ldf = hist_df[["episode","loss"]].copy()
                 _ldf["loss"] = pd.to_numeric(_ldf["loss"], errors="coerce")
                 _ldf = _ldf.set_index("episode")
-                st.line_chart(_ldf, color="#E0C84A")
+                st.line_chart(_ldf, color="#E0C84A", height=200)
                 st.caption(f"최종 Loss: {float(_ldf['loss'].iloc[-1]):.5f}")
             else:
                 st.info("loss 데이터 없음")
@@ -7949,7 +8169,7 @@ def _show_dqn_validation_page(final_recommendations=None, inventory=None):
                 _rdf = hist_df[["episode","mean_reward"]].copy()
                 _rdf["mean_reward"] = pd.to_numeric(_rdf["mean_reward"], errors="coerce")
                 _rdf = _rdf.set_index("episode")
-                st.line_chart(_rdf, color="#C9A227")
+                st.line_chart(_rdf, color="#C9A227", height=200)
                 st.caption(f"최종 평균 Reward: {float(_rdf['mean_reward'].iloc[-1]):.3f}")
             else:
                 st.info("reward 데이터 없음")
@@ -7959,7 +8179,7 @@ def _show_dqn_validation_page(final_recommendations=None, inventory=None):
                 _edf = hist_df[["episode","epsilon"]].copy()
                 _edf["epsilon"] = pd.to_numeric(_edf["epsilon"], errors="coerce")
                 _edf = _edf.set_index("episode")
-                st.line_chart(_edf, color="#E0C84A")
+                st.line_chart(_edf, color="#E0C84A", height=200)
                 st.caption("epsilon이 낮아질수록 탐색보다 학습된 정책을 따릅니다.")
             else:
                 st.info("epsilon 데이터 없음")
@@ -7969,7 +8189,7 @@ def _show_dqn_validation_page(final_recommendations=None, inventory=None):
                 _adf = rec_df["dqn_action"].value_counts().reset_index()
                 _adf.columns = ["Action", "건수"]
                 _adf = _adf.set_index("Action")
-                st.bar_chart(_adf, color="#F1E3A3")
+                st.bar_chart(_adf, color="#F1E3A3", height=200)
                 st.caption("DQN이 선택한 Action 분포")
             else:
                 st.info("DQN action 데이터 없음")
@@ -7982,7 +8202,7 @@ def _show_dqn_validation_page(final_recommendations=None, inventory=None):
             "Greedy Reward": pd.to_numeric(rec_df["reward"],    errors="coerce").fillna(0).values,
             "DQN Q값":       pd.to_numeric(rec_df["dqn_max_q"], errors="coerce").fillna(0).values,
         })
-        st.line_chart(_cdf)
+        st.line_chart(_cdf, height=200)
         st.caption("DQN Q값이 높을수록 장기적으로 더 유리한 행동을 선택했습니다.")
 
     # ── 5. 비교 테이블 ────────────────────────────────────
@@ -8098,7 +8318,8 @@ def show_dashboard_router(
         )
 
     elif page == "score":
-        _show_score_page(final_recommendations)
+        _show_score_page(final_recommendations, stores=stores,
+                         products=products, inventory=inventory)
 
     elif page == "score_formula":
         _show_score_formula_page(final_recommendations)
