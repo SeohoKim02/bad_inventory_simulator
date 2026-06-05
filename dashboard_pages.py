@@ -692,6 +692,54 @@ def _pick_examples_for_graph(
     return pd.DataFrame()
 
 
+# ── 그래프 항목 구분용 초연한 파스텔 팔레트 (브랜드 노랑은 UI 강조색으로 유지) ──
+_GRAPH_PASTEL = [
+    ("#FFF1F2", "#FECACA"), ("#EFF6FF", "#BFDBFE"), ("#F0FDF4", "#BBF7D0"),
+    ("#F5F3FF", "#DDD6FE"), ("#FFF5F5", "#FECACA"), ("#F0FDFA", "#99F6E4"),
+    ("#FAF5FF", "#E9D5FF"), ("#FFFBEB", "#FDE68A"), ("#ECFDF5", "#A7F3D0"),
+    ("#EEF2FF", "#C7D2FE"), ("#FDF4FF", "#F0ABFC"), ("#F0F9FF", "#BAE6FD"),
+    ("#F7FEE7", "#D9F99D"), ("#FDF2F8", "#FBCFE8"), ("#FFF7ED", "#FED7AA"),
+    ("#FAFAF9", "#E5E7EB"), ("#F8FAFC", "#E2E8F0"), ("#F0FDFA", "#99F6E4"),
+    ("#F8FAFC", "#E2E8F0"), ("#FFFBEB", "#FDE68A"),
+]
+
+_VHS_KO = {
+    "disposal_risk": "폐기위험", "turnover": "재고회전", "demand_forecast": "수요예측",
+    "heuristic": "휴리스틱", "safety_stock": "안전재고", "match": "점포매칭",
+    "abc": "ABC등급", "greedy": "그리디", "eoq": "발주량", "network_cost": "운송비",
+}
+
+
+def _pastel_bar_legend(items, min_label_pct=10.0):
+    """누적 막대 + 흰색 카드 범례(색 dot + 항목명 + %). 항목 구분용 파스텔 다색, 글씨는 진한 검정."""
+    def _f(x):
+        try:
+            return float(x)
+        except Exception:
+            return 0.0
+    vals = [(str(k), _f(v)) for k, v in items if _f(v) > 0]
+    if not vals:
+        return ""
+    vals.sort(key=lambda x: -x[1])
+    total = sum(v for _, v in vals) or 1.0
+    bar = ('<div style="display:flex;height:26px;border-radius:8px;overflow:hidden;'
+           'border:1px solid #E5E7EB;margin-bottom:10px;">')
+    leg = ('<div style="display:flex;flex-wrap:wrap;gap:10px;background:#FFFFFF;'
+           'border:1px solid #EFEAD2;border-radius:12px;padding:10px 12px;margin-bottom:14px;">')
+    for i, (k, v) in enumerate(vals):
+        pct = v / total * 100
+        bg, bd = _GRAPH_PASTEL[i % len(_GRAPH_PASTEL)]
+        txt = f"{pct:.0f}%" if pct >= min_label_pct else ""
+        bar += (f'<div style="width:{pct:.1f}%;background:{bg};border-right:1px solid #FFFFFF;'
+                f'display:flex;align-items:center;justify-content:center;" title="{k} {pct:.1f}%">'
+                f'<span style="font-size:10px;color:#111827;font-weight:700;white-space:nowrap;">{txt}</span></div>')
+        leg += ('<span style="display:inline-flex;align-items:center;gap:6px;'
+                'font-size:11.5px;color:#111827;font-weight:600;">'
+                f'<span style="width:10px;height:10px;border-radius:50%;background:{bg};'
+                f'border:1px solid {bd};display:inline-block;"></span>{k} {pct:.1f}%</span>')
+    return bar + "</div>" + leg + "</div>"
+
+
 def _render_compact_chart_card(
     df,
     label_col,
@@ -1621,7 +1669,7 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
 @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
 .wrap{display:grid;grid-template-columns:1fr 286px;gap:12px;max-width:100%;align-items:stretch;}
 /* ── 운영 맵 ── */
-.smap{position:relative;width:100%;min-height:392px;border:1px solid #EFE6C2;border-radius:16px;overflow:hidden;
+.smap{position:relative;width:100%;min-height:300px;border:1px solid #EFE6C2;border-radius:16px;overflow:hidden;
   background:
     radial-gradient(130% 95% at 50% 12%, #FFFFFF 0%, #FFFDF5 44%, #FBF3D6 100%),
     radial-gradient(55% 45% at 50% 56%, rgba(224,200,74,.10) 0%, rgba(224,200,74,0) 72%);
@@ -1789,6 +1837,7 @@ function nd(id){return NODES[id];}
 
 // 첫 이동(주 경로) — 우측 패널/재고 strip 기준
 var firstMove=(SC.stages.find(function(s){return s.move;})||{}).move||null;
+var moveStage=(SC.stages.find(function(s){return s.move;}))||null;
 // 총 이동 거리(노드 좌표 기반 → km 환산)
 function segLen(a,b){var dx=(a.x-b.x),dy=(a.y-b.y);return Math.sqrt(dx*dx+dy*dy);}
 var totalUnits=0;
@@ -1843,8 +1892,16 @@ function frame(ts){
     var f=nd(cur.move.fromId),via=nd(cur.move.viaId),to=nd(cur.move.toId);
     if(f&&via&&to){var x,y;if(seg<0.5){var s=seg/0.5;x=lerp(f.x,via.x,s);y=lerp(f.y,via.y,s);}else{var s2=(seg-0.5)/0.5;x=lerp(via.x,to.x,s2);y=lerp(via.y,to.y,s2);}moveVeh(x,y);}
   } else { setActiveNodes([]); if(vehload)vehload.style.opacity='0'; }
-  // 재고 카운팅 (노드 내부)
-  for(var id in INV){var el=document.getElementById('inv_'+id);if(el){var iv=INV[id];var v=Math.round(lerp(iv.f,iv.t,p));var cls=(iv.t<iv.f)?'dn':'up';el.innerHTML='재고 '+iv.f+' <span class="a '+cls+'">→ '+v+'</span>';}}
+  // 재고 카운팅 — 트럭 이동과 동기화: 출발 시 출고 점포 감소, 도착 시 입고 점포 증가
+  var mseg=0;
+  if(moveStage){ if(t<moveStage.start)mseg=0; else if(t>=moveStage.end)mseg=1; else mseg=(t-moveStage.start)/Math.max(moveStage.end-moveStage.start,1); }
+  var srcFactor=Math.min(mseg/0.5,1), dstFactor=Math.max(0,(mseg-0.5)/0.5);
+  for(var id in INV){var el=document.getElementById('inv_'+id);if(el){var iv=INV[id];
+    var fac=mseg;
+    if(firstMove&&id===firstMove.fromId)fac=srcFactor;
+    else if(firstMove&&id===firstMove.toId)fac=dstFactor;
+    var v=Math.round(lerp(iv.f,iv.t,fac));var cls=(iv.t<iv.f)?'dn':'up';
+    el.innerHTML='재고 '+iv.f+' <span class="a '+cls+'">→ '+v+'</span>';}}
   // 우측 패널 진행
   r_elapsed.textContent=mmss(p*TOTAL_MIN*60);
   r_eta.textContent=mmss((1-p)*TOTAL_MIN*60);
@@ -2153,14 +2210,14 @@ def _render_operation_simulation(final_recommendations):
     if callable(_iframe_fn):
         try:
             b64 = _b64.b64encode(sim_html.encode("utf-8")).decode("ascii")
-            _iframe_fn("data:text/html;base64," + b64, height=486, scrolling=False)
+            _iframe_fn("data:text/html;base64," + b64, height=392, scrolling=False)
             rendered = True
         except Exception:
             rendered = False
     if not rendered and _components is not None and hasattr(_components, "html"):
         try:
             _suppress_streamlit_deprecation()  # 콘솔 deprecation 경고 억제
-            _components.html(sim_html, height=486, scrolling=False)
+            _components.html(sim_html, height=392, scrolling=False)
             rendered = True
         except Exception:
             rendered = False
@@ -2584,9 +2641,9 @@ def _render_icon_nav(final_recommendations=None, stores=None, products=None, inv
         if st.button("📊  \n분석", key="nav_analysis", help="분석", width="stretch"):
             _go("score")
 
-    # 🚚 실제 지도 (지도 & 이동 시뮬레이션)
+    # 🚚 운영 시뮬레이션 (추천 경로 & 재고 이동)
     with _nav_box("nav_grp_sim"):
-        if st.button("🚚  \n실제 지도", key="nav_sim", help="실제 지도 & 이동 시뮬레이션", width="stretch"):
+        if st.button("🚚  \n운영 시뮬레이션", key="nav_sim", help="추천 경로와 재고 이동 시뮬레이션", width="stretch"):
             _go("movement")
 
     # 🧠 강화학습
@@ -2750,14 +2807,7 @@ def _show_dashboard_home(
             else:
                 st.metric("데이터 품질", val_status)
 
-        # 액션 현황 (전체 후보 / 이동 / 할인 / 폐기 / 보류)
-        if act_summ:
-            ac1, ac2, ac3, ac4, ac5 = st.columns(5)
-            for col, (label, num) in zip([ac1,ac2,ac3,ac4,ac5], [
-                ("전체 후보", act_summ.get("total", 0)), ("이동 추천", act_summ.get("이동", 0)),
-                ("할인 추천", act_summ.get("할인", 0)), ("폐기 검토", act_summ.get("폐기", 0)),
-                ("보류", act_summ.get("보류", 0))]):
-                col.metric(label, f"{num}건")
+        # (액션 현황 카드 제거 — 한 화면 배치를 위해)
 
         # ── 선택 점포 상세 패널 ──
         _render_store_detail_panel(final_recommendations, inventory)
@@ -4509,7 +4559,8 @@ def _transport_usage_text(name):
 def _show_transport_rule_page():
     _back_to_dashboard()
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("🚛 이동수단·비용 산정 기준")
+    _page_header("", "이동수단 · 비용 기준",
+                 "추천 이동수단별 예상 비용과 적재 가능 수량 기준입니다.")
 
 
     cost_rule_df = pd.DataFrame([
@@ -4524,29 +4575,37 @@ def _show_transport_rule_page():
     _safe_dataframe(cost_rule_df, width="stretch")
 
     st.subheader("이동수단별 기준")
-    transport_df = pd.DataFrame([
+    transport_main = pd.DataFrame([
         {
             "이동수단": f"{profile['icon']} {name}",
-            "기본비용": _format_money(profile["base_cost"]),
-            "km당 비용": _format_money(profile["cost_per_km"]),
+            "예상 비용(㎞당)": _format_money(profile["cost_per_km"]),
             "적재 가능 수량": f"{profile['capacity']}개",
-            "특징": profile["description"],
-            "추천 상황": _transport_usage_text(name),
         }
         for name, profile in TRANSPORT_PROFILES.items()
     ])
+    _safe_dataframe(transport_main, width="stretch")
 
-    _safe_dataframe(transport_df, width="stretch")
-
-    st.markdown(
-        """
-        - **오토바이**: 소량·근거리 일반 상품 이동에 우선 적용합니다.  
-        - **소형 차량**: 중간 수량의 점포 간 이동에 적용합니다.  
-        - **소형 트럭**: 대량 이동 또는 DC 경유 이동에 적용합니다.  
-        - **냉동/냉장 탑차**: 우유, 냉장, 냉동, 아이스, 샐러드처럼 온도 유지가 필요한 상품에 우선 적용합니다.  
-        - 최종 선택은 비용만이 아니라 추천 수량, 거리, 시간, 재고 처리 효과까지 반영한 AI 추천 결과와 함께 판단합니다.
-        """
-    )
+    with st.expander("이동수단 상세 기준", expanded=False):
+        transport_df = pd.DataFrame([
+            {
+                "이동수단": f"{profile['icon']} {name}",
+                "기본비용": _format_money(profile["base_cost"]),
+                "km당 비용": _format_money(profile["cost_per_km"]),
+                "적재 가능 수량": f"{profile['capacity']}개",
+                "특징": profile["description"],
+                "추천 상황": _transport_usage_text(name),
+            }
+            for name, profile in TRANSPORT_PROFILES.items()
+        ])
+        _safe_dataframe(transport_df, width="stretch")
+        st.markdown(
+            """
+            - **오토바이**: 소량·근거리 일반 상품
+            - **소형 차량**: 중간 수량 점포 간 이동
+            - **소형 트럭**: 대량 또는 DC 경유 이동
+            - **냉동/냉장 탑차**: 온도 유지가 필요한 상품
+            """
+        )
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -4785,15 +4844,10 @@ def _show_graph_page(final_recommendations, final_rec_summary, promotion_result,
         _render_section_subnav("graph")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     if not embedded:
-        _page_header("01", "추천 결과 한눈에 보기",
-                     "Varo가 추천한 처리 방법과 이동 방식을 막대 길이로 쉽게 보여줍니다.")
+        _page_header("01", "처리 현황",
+                     "추천 처리 유형과 이동 방식 분포입니다.")
     else:
         st.markdown("#### 📊 추천 결과 한눈에 보기")
-    st.markdown(
-        '<div style="color:#7A7A7A;font-size:13.5px;line-height:1.6;margin:-4px 0 14px 0;">'
-        'Varo가 추천한 <b>처리 방법</b>과 <b>이동 방식</b>을 막대 길이로 쉽게 풀어 보여줍니다. '
-        '막대가 길수록 건수가 많다는 뜻이에요.</div>',
-        unsafe_allow_html=True)
 
     # 친근한 라벨 (모르는 값은 원래 텍스트 그대로)
     _REC_LABELS = {
@@ -4884,7 +4938,7 @@ def _show_graph_page(final_recommendations, final_rec_summary, promotion_result,
                     "df": summary_df,
                     "label_col": "final_recommendation",
                     "value_col": "count",
-                    "title": "어떤 처리를 추천했나요?",
+                    "title": "처리 유형",
                     "caption": "이동·할인·폐기·보류 중 무엇을 몇 건 추천했는지 보여줍니다.",
                     "label_map": _REC_LABELS,
                     "top_n": 5,
@@ -4915,7 +4969,7 @@ def _show_graph_page(final_recommendations, final_rec_summary, promotion_result,
                             "df": cost_df,
                             "label_col": "label",
                             "value_col": "estimated_cost",
-                            "title": "처리 비용이 적게 드는 추천 Top 5",
+                            "title": "저비용 후보 Top 5",
                             "caption": "옮기는 데 드는 비용이 가장 적은 경로 순서입니다.",
                             "label_map": None,
                             "top_n": 5,
@@ -4950,7 +5004,7 @@ def _show_graph_page(final_recommendations, final_rec_summary, promotion_result,
                     "df": path_summary,
                     "label_col": "recommended_path",
                     "value_col": "count",
-                    "title": "재고를 어떻게 옮기나요?",
+                    "title": "이동 방식",
                     "caption": "직접 이동인지, 물류센터(DC)를 거치는지 등 이동 방식별 건수입니다.",
                     "label_map": _PATH_LABELS,
                     "top_n": 5,
@@ -4985,7 +5039,7 @@ def _show_graph_page(final_recommendations, final_rec_summary, promotion_result,
                     "df": promo_summary,
                     "label_col": "final_decision",
                     "value_col": "count",
-                    "title": "할인 vs 매장 재배치",
+                    "title": "처리 전략 비교",
                     "caption": "할인 판매로 풀지, 다른 매장으로 옮길지 결정 건수입니다.",
                     "label_map": _REC_LABELS,
                     "top_n": 5,
@@ -5110,7 +5164,8 @@ def _show_movement_page(
 ):
     _back_to_dashboard()
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("🗺 지도 & 이동 시뮬레이션")
+    _page_header("", "운영 시뮬레이션",
+                 "추천 경로와 재고 이동을 지도에서 확인합니다.")
 
     if not kakao_js_key:
         st.info("왼쪽 사이드바에 카카오맵 JavaScript 키를 입력하면 지도와 재고 이동 시뮬레이션이 표시됩니다.")
@@ -5331,79 +5386,6 @@ def _show_movement_page(
         selected_scenarios,
         speed_multiplier=truck_speed,
         default_selected_count=len(selected_scenarios),
-    )
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-def _show_explain_page():
-    _back_to_dashboard()
-    st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("📘 설명")
-
-    st.markdown(
-        """
-        ## 화면 구성
-
-        이 앱은 편의점 악성재고 처리 후보를 자동 계산하고, 실행 가치가 높은 후보를 대시보드에 표시합니다.
-
-        - **AI 추천 결과**: 상품별 추천 후보, 총점, 추천 등급을 확인합니다.
-        - **재고 이동 지도**: 선택한 추천 경로를 지도에서 확인합니다.
-        - **이력 보정 비교**: Greedy 추천과 DQN 기반 추천을 비교합니다.
-        - **📊 산업공학 알고리즘 분석 결과**: ABC 분석, 재고 회전율, 폐기 위험도, Safety Stock 결과를 확인합니다.
-        - **관리자용 메뉴**: 계산 방식, 비용 기준, 이동수단 기준, 상세 데이터를 확인합니다.
-
-        ## 추천 후보 계산 흐름
-
-        1. 엑셀 데이터에서 점포, 상품, 재고, 경로 정보를 불러옵니다.
-        2. 악성재고 가능성이 높은 상품과 이동 후보를 선별합니다.
-        3. 이동비용, 할인손실비용, 폐기비용을 계산합니다.
-        4. 추천 수량, 거리, 시간, 재고 처리 효과를 함께 반영해 총점을 계산합니다.
-        5. **산업공학 알고리즘 4종**을 실행해 결과를 Varo 통합 점수에 반영합니다.
-        6. 총점 기준으로 최적, 권장, 검토 등급을 부여합니다.
-        7. 지도와 표에서 실행 가능한 추천 후보를 확인합니다.
-
-        ## 산업공학 알고리즘
-
-        | 알고리즘 | 설명 | 핵심 지표 |
-        |---------|------|---------|
-        | **ABC 분석** | 매출가치 기준으로 A/B/C 등급 분류 | abc_grade (A/B/C) |
-        | **재고 회전율** | 소진일수 기반 악성재고 판단 | turnover_grade (FAST/NORMAL/SLOW/DEAD) |
-        | **폐기 위험도** | 유통기한·판매속도·보관기간 복합 점수화 | disposal_risk_score (0~100) |
-        | **Safety Stock** | 수요 변동성·리드타임 기반 안전재고·재주문점 계산 | reorder_status (CRITICAL/WARNING/MONITOR/SAFE) |
-
-        ## Varo 통합 점수
-
-        4개 알고리즘 결과를 하나의 점수로 통합합니다.
-
-        | 구성 요소 | 가중치 | 설명 |
-        |---------|------|------|
-        | 휴리스틱 점수 | 40% | 비용·수량·전략 기반 기존 점수 |
-        | ABC 점수 | 20% | 핵심 상품 우선 처리 |
-        | 재고 회전율 | 20% | 악성재고 판단 |
-        | 폐기 위험도 | 20% | 폐기 위험 반영 |
-        | Safety Stock | +8% | Phase 2 — 자동 반영 |
-
-        ## 비용 산정 기준
-
-        - **이동비용**: 추천 경로의 이동거리, 경유 여부, 선택 이동수단의 단가를 반영한 예상 운송비.
-        - **할인손실비용**: 할인 판매 시 정상 판매 대비 감소하는 예상 매출 손실.
-        - **폐기비용**: 처리하지 못한 재고를 폐기할 때 발생하는 예상 손실 비용.
-
-        ## 이동수단 기준
-
-        - **도보**: 초근거리·극소량 이동에 사용합니다.
-        - **전동자전거**: 근거리·소량 이동에 사용합니다.
-        - **오토바이**: 긴급 소량 배송에 사용합니다.
-        - **소형 차량**: 중간 수량의 점포 간 이동에 사용합니다.
-        - **소형 트럭**: 대량 이동 또는 DC 경유 이동에 사용합니다.
-        - **냉동/냉장 탑차**: 냉장, 냉동, 아이스, 샐러드 등 온도 유지가 필요한 상품에 사용합니다.
-
-        ## DQN 비교
-
-        DQN은 추천 후보의 상태값을 입력받고, 재고 이동, 할인, 폐기, 보류 중 하나를 선택하도록 학습하는 비교용 강화학습 모델입니다.
-        현재 앱에서는 Greedy 추천 결과와 DQN 추천 결과를 비교해 의사결정 보조 자료로 사용합니다.
-        """
     )
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -5994,9 +5976,6 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
     st.caption("RL 로그 데이터를 기반으로 DQN 정책을 직접 학습합니다.")
 
     try:
-        from torch_dqn_agent import run_torch_dqn, TORCH_AVAILABLE, TORCH_ACTION_SPACE
-        from rl_data_logger   import build_rl_training_log
-
         _tdq_c1, _tdq_c2, _tdq_c3 = st.columns(3)
         with _tdq_c1:
             _tdq_episodes = st.slider(
@@ -6016,6 +5995,8 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
             )
 
         if st.button("🚀 DQN 학습 실행", key="run_torch_dqn_btn"):
+            from torch_dqn_agent import run_torch_dqn, TORCH_AVAILABLE, TORCH_ACTION_SPACE
+            from rl_data_logger   import build_rl_training_log
             _rl_log = build_rl_training_log(
                 stores=stores, products=products, inventory=inventory,
                 final_recommendations=final_recommendations,
@@ -6663,7 +6644,9 @@ def _show_guide_page(final_recommendations=None):
 
     # ── 탭 1: Varo 개요 ──────────────────────────────────
     with tg1:
-        st.markdown(
+        st.markdown("Varo는 편의점 악성재고를 자동 감지하고 상품별 최적 처리(재배치·할인·폐기·보류)를 추천하는 운영 시스템입니다.")
+        with st.expander("자세히 보기", expanded=False):
+          st.markdown(
             """
             ## Varo란?
             Varo는 편의점 악성재고를 자동으로 감지하고, 상품별로 최적 처리 방법을 추천하는
@@ -6698,7 +6681,9 @@ def _show_guide_page(final_recommendations=None):
 
     # ── 탭 2: VHS 알고리즘 ───────────────────────────────
     with tg2:
-        st.markdown(
+        st.markdown("VHS는 10개 분석 지표를 상황에 맞게 가중합산해 0~100점으로 환산한 추천 종합 점수입니다.")
+        with st.expander("자세히 보기", expanded=False):
+          st.markdown(
             """
             ## VARO Hybrid Score (VHS)
 
@@ -6737,7 +6722,9 @@ def _show_guide_page(final_recommendations=None):
 
     # ── 탭 3: 비용 산정 기준 ─────────────────────────────
     with tg3:
-        st.markdown(
+        st.markdown("비용은 이동비용·할인손실·폐기비용으로 구성되며, 이동비용이 폐기비용보다 낮으면 이동을 우선 추천합니다.")
+        with st.expander("자세히 보기", expanded=False):
+          st.markdown(
             """
             ## 비용 산정 기준
 
@@ -6767,7 +6754,9 @@ def _show_guide_page(final_recommendations=None):
 
     # ── 탭 4: 이동수단 기준 ──────────────────────────────
     with tg4:
-        st.markdown(
+        st.markdown("이동수단은 거리·수량·냉장 여부에 따라 도보~냉장탑차 중 비용이 가장 낮은 것을 자동 선택합니다.")
+        with st.expander("자세히 보기", expanded=False):
+          st.markdown(
             """
             ## 이동수단 선택 기준
 
@@ -6789,7 +6778,9 @@ def _show_guide_page(final_recommendations=None):
 
     # ── 탭 5: 용어 설명 ──────────────────────────────────
     with tg5:
-        st.markdown(
+        st.markdown("Varo에서 사용하는 주요 용어 정리입니다.")
+        with st.expander("자세히 보기", expanded=False):
+          st.markdown(
             """
             ## 주요 용어 설명
 
@@ -7571,40 +7562,9 @@ def _show_algorithms_page(final_recommendations, inventory=None):
             }
             total_contrib = sum(avg_contrib_vals.values())
             if total_contrib > 0:
-                st.markdown("**전체 평균 VHS 구성 (기여도 %)**")
-                color_map = {
-                    "disposal_risk": "#F1E3A3",
-                    "turnover":      "#E0C84A",
-                    "demand_forecast":"#E0C84A",
-                    "heuristic":     "#E0C84A",
-                    "safety_stock":  "#C9A227",
-                    "match":         "#E0C84A",
-                    "abc":           "#E0C84A",
-                    "greedy":        "#C9A227",
-                    "eoq":           "#E0C84A",
-                    "network_cost":  "#F1E3A3",
-                }
-                bar_html = '<div style="display:flex;height:28px;border-radius:8px;overflow:hidden;margin-bottom:8px;">'
-                legend_html = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">'
-                for k, v in sorted(avg_contrib_vals.items(), key=lambda x: -x[1]):
-                    pct = v / total_contrib * 100
-                    if pct < 0.5: continue
-                    col_c = color_map.get(k, "#aaa")
-                    bar_html += (
-                        f'<div style="width:{pct:.1f}%;background:{col_c};'
-                        f'display:flex;align-items:center;justify-content:center;">'
-                        f'<span style="font-size:10px;color:#fff;font-weight:700;'
-                        f'white-space:nowrap;overflow:hidden;">'
-                        f'{pct:.0f}%</span></div>'
-                    )
-                    legend_html += (
-                        f'<span style="background:{col_c};color:#fff;border-radius:6px;'
-                        f'padding:2px 8px;font-size:11px;font-weight:700;">'
-                        f'{k} {v:.1f}pt</span>'
-                    )
-                bar_html += '</div>'
-                legend_html += '</div>'
-                st.markdown(bar_html + legend_html, unsafe_allow_html=True)
+                st.markdown("**VHS 구성 비중**")
+                _vhs_items = [(_VHS_KO.get(k, k), v) for k, v in avg_contrib_vals.items()]
+                st.markdown(_pastel_bar_legend(_vhs_items), unsafe_allow_html=True)
 
             # 상품별 기여 상세 (상위 20)
             st.markdown("**상품별 컴포넌트 기여 점수 (상위 20)**")
@@ -7738,7 +7698,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
 
     # ── 탭 5: 컴포넌트 기여 ────────────────────────────────
     with t5:
-        st.subheader("🔬 VHS 컴포넌트 기여 분석")
+        st.subheader("기여도 분석")
         contrib_cols_t5 = {
             c.replace("vhs_contrib_","").replace("_score",""): c
             for c in df.columns if c.startswith("vhs_contrib_")
@@ -7747,17 +7707,9 @@ def _show_algorithms_page(final_recommendations, inventory=None):
             avg_c = {k: float(df[v].mean()) for k, v in contrib_cols_t5.items()}
             total_c = sum(avg_c.values())
             if total_c > 0:
-                st.markdown("**전체 평균 VHS 구성**")
-                bar_html = '<div style="display:flex;height:24px;border-radius:6px;overflow:hidden;margin-bottom:8px;">'
-                leg_html = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">'
-                _CC = ["#E0C84A","#E0C84A","#E0C84A","#C9A227","#E0C84A","#E0C84A","#C9A227","#E0C84A","#F1E3A3"]
-                for ci,(k,v) in enumerate(sorted(avg_c.items(), key=lambda x:-x[1])):
-                    pct = v/total_c*100
-                    if pct < 0.3: continue
-                    col = _CC[ci % len(_CC)]
-                    bar_html += f'<div style="width:{pct:.1f}%;background:{col};"></div>'
-                    leg_html += f'<span style="background:{col};color:#fff;border-radius:4px;padding:2px 7px;font-size:10px;">{k} {v:.1f}pt</span>'
-                st.markdown(bar_html+"</div>"+leg_html+"</div>", unsafe_allow_html=True)
+                st.markdown("**VHS 구성 비중**")
+                _vhs_items2 = [(_VHS_KO.get(k, k), v) for k, v in avg_c.items()]
+                st.markdown(_pastel_bar_legend(_vhs_items2), unsafe_allow_html=True)
 
             base_c = [c for c in ["product_name","source_store","vhs","vhs_action"] if c in df.columns]
             st.dataframe(df[base_c + list(contrib_cols_t5.values())].head(20).round(2), width="stretch")
@@ -7897,7 +7849,7 @@ def _show_dqn_interpretation_page(final_recommendations=None, inventory=None):
 
     # ── 1. DQN 학습 요약 ──────────────────────────────────
     st.markdown("---")
-    st.markdown("### 1️⃣ DQN 학습 요약")
+    st.markdown("### DQN 학습 요약")
 
     if no_artifact:
         st.info("📋 DQN 학습 결과 파일이 없습니다. 먼저 DQN 학습을 실행해 주세요.")
@@ -7920,134 +7872,23 @@ def _show_dqn_interpretation_page(final_recommendations=None, inventory=None):
         s6.metric("최대 Reward",  f"{max_r:.3f}")
         s7.metric("최종 Loss",    f"{final_l:.5f}")
 
-    # ── 2. 추천 방식별 의미 ───────────────────────────────
+    # ── DQN 추천 Action 분포 ──────────────────────────────
     st.markdown("---")
-    st.markdown("### 2️⃣ 추천 방식별 의미")
+    st.markdown("### DQN 추천 Action 분포")
 
-    st.markdown(
-        """
-<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
-  <div style="flex:1;min-width:200px;background:#FFF9E6;border-radius:10px;padding:14px;">
-    <b>📐 Heuristic</b><br>
-    <span style="font-size:13px;color:#333;">
-    사람이 설계한 <b>규칙 기반 점수</b>.<br>
-    재고 위험, 판매 가능성, 이동 적합도 등<br>
-    7개 요소를 가중합산해 점수를 산출합니다.<br>
-    <i>→ 설명 가능성 높음, 빠른 판단에 유리</i>
-    </span>
-  </div>
-  <div style="flex:1;min-width:200px;background:#FFF9E6;border-radius:10px;padding:14px;">
-    <b>🏆 Greedy</b><br>
-    <span style="font-size:13px;color:#333;">
-    현재 후보 중 <b>휴리스틱 점수가 가장 높은</b> 후보 선택.<br>
-    단기 최적해를 빠르게 탐색합니다.<br>
-    <i>→ 현재 상태 기준 즉각적 최선 선택</i>
-    </span>
-  </div>
-  <div style="flex:1;min-width:200px;background:#FFF9E6;border-radius:10px;padding:14px;">
-    <b>🤖 DQN</b><br>
-    <span style="font-size:13px;color:#333;">
-    누적 학습된 <b>State → Action → Reward</b> 경험 기반.<br>
-    epsilon-greedy 탐색으로 정책을 학습하고,<br>
-    replay buffer를 통해 경험을 재사용합니다.<br>
-    <i>→ 장기 보상 관점의 정책 추천</i>
-    </span>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-    # ── 3. Greedy = DQN 경우 해석 ─────────────────────────
-    st.markdown("---")
-    st.markdown("### 3️⃣ Greedy와 DQN이 같은 경우")
-    st.markdown(
-        """<div style="background:#FFF9E6;border-left:4px solid #C9A227;padding:12px 16px;border-radius:0 8px 8px 0;">
-<b>🟢 추천 일치 — 신뢰도 상승</b><br>
-<span style="font-size:13px;">
-현재 조건 기준의 <b>단기 최적 판단(Greedy)</b>과 <b>누적 학습된 정책(DQN)</b>이 같은 행동을 제안한 경우입니다.<br>
-두 방법이 독립적으로 같은 결론에 도달했으므로, <b>해당 추천의 신뢰도가 상대적으로 높습니다.</b><br>
-의사결정자는 이 후보를 우선 처리 대상으로 고려할 수 있습니다.
-</span></div>""", unsafe_allow_html=True)
-
-    # ── 4. Greedy ≠ DQN 경우 해석 ─────────────────────────
-    st.markdown("---")
-    st.markdown("### 4️⃣ Greedy와 DQN이 다른 경우")
-    st.markdown(
-        """<div style="background:#FFF9E6;border-left:4px solid #C9A227;padding:12px 16px;border-radius:0 8px 8px 0;">
-<b>🟡 추천 불일치 — 다각도 검토 권장</b><br>
-<span style="font-size:13px;">
-<b>Greedy</b>는 현재 휴리스틱 점수 기준으로 <b>단기 최적 후보</b>를 선택한 반면,<br>
-<b>DQN</b>은 누적 학습된 보상 기준에서 <b>장기적으로 더 유리한 행동</b>을 선택했을 가능성이 있습니다.<br><br>
-단, 아래 한계도 함께 고려해야 합니다:<br>
-· 현재 DQN은 <b>시뮬레이션/샘플 데이터 기반</b>으로 학습되어 실제 운영 환경과 차이가 있을 수 있습니다.<br>
-· 실제 운영 데이터가 많아질수록 DQN 정책의 <b>신뢰도가 향상</b>됩니다.<br>
-· 불일치 항목은 <b>운영자의 추가 판단</b>이 필요한 후보로 분류하는 것을 권장합니다.
-</span></div>""", unsafe_allow_html=True)
-
-    # ── 5. Action별 해석 ──────────────────────────────────
-    st.markdown("---")
-    st.markdown("### 5️⃣ Action별 의미와 적용 상황")
-
-    ACTION_EXPLAIN = [
-        ("🚚 direct_transfer",   "직접 이동",   "#E0C84A",
-         "출발 점포에서 도착 점포로 직접 재고를 이동합니다.",
-         "유통기한 여유가 있고 이동 거리가 짧으며 도착 점포의 수요가 높을 때 유리합니다."),
-        ("🏭 dc_transfer",       "DC 경유 이동","#E0C84A",
-         "배송센터(DC)를 경유하여 재고를 이동합니다.",
-         "출발·도착 점포 간 직접 경로가 없거나, 여러 점포에 분산 공급이 필요할 때 선택됩니다."),
-        ("🏷 discount_sale",     "할인 판매",   "#C9A227",
-         "현재 점포에서 할인 프로모션으로 재고를 소진합니다.",
-         "유통기한이 임박하거나 재고 과잉 상태에서 이동 비용보다 할인 손실이 작을 때 유리합니다."),
-        ("🎁 one_plus_one",      "1+1 프로모션","#E0C84A",
-         "1+1 행사를 통해 재고 회전율을 높입니다.",
-         "판매 속도가 느리고 재고가 누적된 상품에 적합하며, 폐기 비용을 줄이는 데 효과적입니다."),
-        ("📦 keep_inventory",    "재고 유지",   "#C9A227",
-         "현재 재고 상태를 유지하고 별도 처리를 하지 않습니다.",
-         "유통기한 여유가 충분하고 현재 점포의 수요 회복이 예상될 때 선택됩니다."),
-        ("⚡ emergency_discount","긴급 할인",   "#E0C84A",
-         "즉각적인 대폭 할인으로 재고를 신속하게 소진합니다.",
-         "유통기한이 매우 임박하여 폐기 위험이 높을 때, 손실을 최소화하기 위해 선택됩니다."),
-        ("🗑 dispose",           "폐기",        "#6B7280",
-         "재고를 폐기 처리합니다.",
-         "유통기한 초과, 이동·할인 비용보다 폐기 비용이 낮은 경우 최후 수단으로 선택됩니다."),
-    ]
-
-    for icon_name, label_ko, color, desc, when in ACTION_EXPLAIN:
-        with st.expander(f"{icon_name}  **{label_ko}**", expanded=False):
-            st.markdown(
-                f'<div style="border-left:4px solid {color};padding:8px 14px;">'
-                f'<b>설명:</b> {desc}<br><br>'
-                f'<b>선택 상황:</b> {when}'
-                f'</div>', unsafe_allow_html=True)
-
-    # DQN이 실제 선택한 action 분포 (artifact 있을 때)
     if rec_df is not None and "dqn_action" in rec_df.columns:
-        st.markdown("**현재 DQN 추천 Action 분포**")
         _avc = rec_df["dqn_action"].value_counts()
         for act, cnt in _avc.items():
             pct = cnt / len(rec_df) * 100
-            label = next((ko for _, ko, _, _, _ in
-                         [x for x in ACTION_EXPLAIN if x[0].split()[1] == str(act)]), str(act))
             st.markdown(
                 f'<div style="display:flex;align-items:center;gap:8px;margin:3px 0;">'
                 f'<div style="width:130px;font-size:12px;">{act}</div>'
-                f'<div style="flex:1;background:#eee;border-radius:3px;height:14px;">'
+                f'<div style="flex:1;background:#ECECEC;border-radius:3px;height:14px;">'
                 f'<div style="width:{pct:.0f}%;background:#F1E3A3;height:100%;border-radius:3px;"></div></div>'
                 f'<div style="width:50px;font-size:12px;text-align:right;">{cnt}건 ({pct:.0f}%)</div></div>',
                 unsafe_allow_html=True)
-
-    # ── 6. 주의사항/한계 ──────────────────────────────────
-    st.markdown("---")
-    st.markdown("### 6️⃣ 주의사항 및 한계")
-    st.markdown(
-        """<div style="background:#FFF9E6;border-left:4px solid #E0C84A;padding:12px 16px;border-radius:0 8px 8px 0;">
-<b>⚠️ 현재 시스템의 한계</b><br>
-<span style="font-size:13px;line-height:1.8;">
-① 현재 DQN은 <b>시뮬레이션 및 샘플 데이터 기반</b>으로 학습되어 실제 운영 환경과 차이가 있을 수 있습니다.<br>
-② 실제 편의점 운영 데이터가 많아질수록 <b>DQN 정책의 신뢰도가 향상</b>됩니다.<br>
-③ <b>Reward 함수 설계</b>(폐기비용 절감, 보관비 절감, 판매기회 증가 등 7개 컴포넌트)에 따라 추천 결과가 달라질 수 있습니다.<br>
-④ 현재 학습은 <b>numpy fallback</b> 기반이며, GPU 환경에서 PyTorch를 사용하면 학습 품질이 향상됩니다.<br>
-⑤ 본 시스템의 DQN은 <b>의사결정 보조 도구</b>이며, 최종 판단은 운영자가 수행합니다.
-</span></div>""", unsafe_allow_html=True)
+    else:
+        st.info("DQN 학습 후 Action 분포가 표시됩니다.")
 
 
 def _show_dqn_validation_page(final_recommendations=None, inventory=None):
@@ -8428,7 +8269,7 @@ def show_dashboard_router(
         _show_whatif_page(final_recommendations)
 
     elif page == "explain":
-        _show_explain_page()
+        _show_guide_page(final_recommendations)  # 설명 페이지는 가이드로 통합
 
     elif page == "data":
         _show_data_page(
