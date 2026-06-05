@@ -1668,7 +1668,7 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
 @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
 .wrap{display:grid;grid-template-columns:1fr 286px;gap:12px;max-width:100%;align-items:stretch;}
 /* ── 운영 맵 ── */
-.smap{position:relative;width:100%;min-height:250px;border:1px solid #EFE6C2;border-radius:16px;overflow:hidden;
+.smap{position:relative;width:100%;min-height:350px;border:1px solid #EFE6C2;border-radius:16px;overflow:hidden;
   background:
     radial-gradient(130% 95% at 50% 12%, #FFFFFF 0%, #FFFDF5 44%, #FBF3D6 100%),
     radial-gradient(55% 45% at 50% 56%, rgba(224,200,74,.10) 0%, rgba(224,200,74,0) 72%);
@@ -1730,7 +1730,7 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
 .srow .v{color:#111827;font-weight:800;}
 .srow .v.cold{color:#2563EB;}
 .srow .v.ok{color:#2E7D32;}
-.logp{max-height:188px;overflow-y:auto;font-size:12px;color:#374151;-webkit-overflow-scrolling:touch;padding-right:2px;}
+.logp{height:220px;overflow-y:auto;font-size:12px;color:#374151;-webkit-overflow-scrolling:touch;padding-right:2px;}
 .logp::-webkit-scrollbar{width:6px;}.logp::-webkit-scrollbar-thumb{background:#E5E0CC;border-radius:3px;}
 .lr{padding:4px 2px;border-bottom:1px solid #F5F2E8;overflow-wrap:break-word;display:flex;align-items:flex-start;gap:7px;}
 .lr:last-child{border-bottom:none;}
@@ -1869,6 +1869,8 @@ function moveVeh(xp,yp){var px=xp/100*mapW, py=yp/100*mapH;veh.style.transform='
 
 var t0=null, TOT=SC.total||8000;
 var SPEED=0.75;  // 재생 속도(1.0=기본). 낮출수록 천천히 — 약 25% 느리게.
+var DWELL=1000*SPEED;  // 한 지점(DC/점포) 도착 시 정차 시간 ≈ 1초(재생속도 보정)
+function dwellProgress(t,mst){var dur=Math.max(mst.end-mst.start,1);var dw=Math.min(DWELL,dur*0.28);var travel=Math.max(dur-2*dw,dur*0.30);var t1=travel*0.5,d1=t1+dw,t2=d1+travel*0.5;var el=t-mst.start,prog;if(el<=0){prog=0;}else if(el<t1){prog=(el/t1)*0.5;}else if(el<d1){prog=0.5;}else if(el<t2){prog=0.5+((el-d1)/(travel*0.5))*0.5;}else if(el<dur){prog=1;}else{prog=1;}return prog;}
 function frame(ts){
   if(t0===null)t0=ts;
   var t=(ts-t0)*SPEED;
@@ -1887,13 +1889,13 @@ function frame(ts){
     r_temp.innerHTML=(cur.move.vehicle==='🚛')?'<span style="color:#2563EB;">❄ 2.3°C</span>':'정상';
     setActivePath(cur.move.fromId,cur.move.viaId,cur.move.toId);
     setActiveNodes([cur.move.fromId,cur.move.viaId,cur.move.toId]);
-    var seg=(t-cur.start)/Math.max(cur.end-cur.start,1);seg=Math.max(0,Math.min(1,seg));
+    var seg=dwellProgress(t,cur);
     var f=nd(cur.move.fromId),via=nd(cur.move.viaId),to=nd(cur.move.toId);
     if(f&&via&&to){var x,y;if(seg<0.5){var s=seg/0.5;x=lerp(f.x,via.x,s);y=lerp(f.y,via.y,s);}else{var s2=(seg-0.5)/0.5;x=lerp(via.x,to.x,s2);y=lerp(via.y,to.y,s2);}moveVeh(x,y);}
   } else { setActiveNodes([]); if(vehload)vehload.style.opacity='0'; }
   // 재고 카운팅 — 트럭 이동과 동기화: 출발 시 출고 점포 감소, 도착 시 입고 점포 증가
   var mseg=0;
-  if(moveStage){ if(t<moveStage.start)mseg=0; else if(t>=moveStage.end)mseg=1; else mseg=(t-moveStage.start)/Math.max(moveStage.end-moveStage.start,1); }
+  if(moveStage){ if(t<moveStage.start)mseg=0; else if(t>=moveStage.end)mseg=1; else mseg=dwellProgress(t,moveStage); }
   var srcFactor=Math.min(mseg/0.5,1), dstFactor=Math.max(0,(mseg-0.5)/0.5);
   for(var id in INV){var el=document.getElementById('inv_'+id);if(el){var iv=INV[id];
     var fac=mseg;
@@ -2118,19 +2120,19 @@ def _build_operation_scenario(final_recommendations, max_moves=1):
          "logs": [["09:22", ev + " 감지", True],
                   ["09:23", "AI 재배치 분석 시작", True]],
          "kpi": {"done": 40, "disp": 0, "sav": 0}},
-        {"start": 2000, "end": 4600, "status": "이동 처리중", "ai": False, "event": None,
+        {"start": 2000, "end": 5600, "status": "이동 처리중", "ai": False, "event": None,
          "move": {"vehicle": veh, "fromId": "src", "viaId": "dc", "toId": "tgt", "qty": qty},
          "logs": [["09:24", vname + " 배정 완료", True],
                   ["09:25", srcnm + " 출발", False],
                   ["09:26", tgtnm + " 배송 시작", False]],
          "kpi": {"done": 85, "disp": disp, "sav": sav}},
-        {"start": 4600, "end": 5600, "status": "폐기 감소 반영 완료", "ai": False,
+        {"start": 5600, "end": 6600, "status": "폐기 감소 반영 완료", "ai": False,
          "event": None, "move": None,
          "logs": [["09:37", tgtnm + " 재고 반영 완료", False],
                   ["09:37", "폐기 감소 반영 완료", False]],
          "kpi": {"done": 100, "disp": disp, "sav": sav}},
     ]
-    total = 5600
+    total = 6600
 
     return {"nodes": nodes, "stages": stages, "total": total,
             "vhs": round(vhs, 1) if vhs is not None else None,
@@ -2209,14 +2211,14 @@ def _render_operation_simulation(final_recommendations):
     if callable(_iframe_fn):
         try:
             b64 = _b64.b64encode(sim_html.encode("utf-8")).decode("ascii")
-            _iframe_fn("data:text/html;base64," + b64, height=330, scrolling=False)
+            _iframe_fn("data:text/html;base64," + b64, height=510, scrolling=False)
             rendered = True
         except Exception:
             rendered = False
     if not rendered and _components is not None and hasattr(_components, "html"):
         try:
             _suppress_streamlit_deprecation()  # 콘솔 deprecation 경고 억제
-            _components.html(sim_html, height=330, scrolling=False)
+            _components.html(sim_html, height=510, scrolling=False)
             rendered = True
         except Exception:
             rendered = False
@@ -2281,13 +2283,13 @@ def _render_store_detail_panel(final_recommendations, inventory):
 
     # 칩 3개
     chips = (
-        '<div style="display:flex;gap:12px;margin:2px 0 12px 0;flex-wrap:wrap;">'
+        '<div style="display:flex;gap:10px;margin:2px 0 10px 0;flex-wrap:wrap;">'
         + ''.join(
             '<div style="flex:1;min-width:0;background:#FFFFFF;border:1px solid #EFEAD2;'
-            'border-radius:14px;padding:12px 14px;text-align:center;'
+            'border-radius:12px;padding:8px 12px;text-align:center;'
             'box-shadow:0 3px 12px rgba(201,162,39,.05);">'
-            f'<div style="color:#7A7A7A;font-size:12px;font-weight:600;margin-bottom:4px;">{lab}</div>'
-            f'<div style="color:{col};font-size:1.5rem;font-weight:800;">{val}건</div></div>'
+            f'<div style="color:#7A7A7A;font-size:11px;font-weight:600;margin-bottom:2px;">{lab}</div>'
+            f'<div style="color:{col};font-size:1.15rem;font-weight:800;">{val}건</div></div>'
             for lab, val, col in [
                 ("부족 상품", len(shortage), "#C9A227"),
                 ("보낼 상품", len(sendable), "#9A7B12"),
@@ -8099,6 +8101,74 @@ def _show_dqn_validation_page(final_recommendations=None, inventory=None):
         )
 
 
+def _auto_collapse_sidebar_once():
+    """데모/엑셀 데이터가 새로 로드되면 사이드바를 1회 자동 접는다.
+    동일 데이터에서 재실행되면 다시 접지 않아, 사용자가 다시 펼친 상태를 존중한다.
+    트리거(데모/엑셀)는 app.py에 있으나 app.py는 수정하지 않고,
+    데이터 로드 직후 렌더되는 이 라우터 단계에서 한 번만 처리한다."""
+    try:
+        sig = "|".join([
+            str(st.session_state.get("_analysis_file_hash", "")),
+            str(st.session_state.get("demo_active", "")),
+            str(st.session_state.get("demo_scenario", "")),
+        ])
+    except Exception:
+        return
+    if not sig.strip("|"):
+        return  # 아직 로드된 데이터 없음
+    if st.session_state.get("_sidebar_collapsed_sig") == sig:
+        return  # 이 데이터에서 이미 접음 → 사용자 선택 존중
+    st.session_state["_sidebar_collapsed_sig"] = sig
+    try:
+        import streamlit.components.v1 as _components
+    except Exception:
+        return
+    if not hasattr(_components, "html"):
+        return
+    _js = """<script>
+(function(){
+  try{
+    var pd = window.parent && window.parent.document;
+    if(!pd) return;
+    function expanded(){
+      var sb = pd.querySelector('[data-testid="stSidebar"]');
+      if(!sb) return false;
+      var a = sb.getAttribute('aria-expanded');
+      if(a != null) return a === 'true';
+      return sb.getBoundingClientRect().width > 60;
+    }
+    function collapse(){
+      var sels = ['[data-testid="stSidebarCollapseButton"] button',
+                  '[data-testid="stSidebarCollapseButton"]',
+                  '[data-testid="stSidebarHeader"] button',
+                  '[aria-label="Close sidebar"]',
+                  '[aria-label="Collapse sidebar"]',
+                  '[title="Close sidebar"]'];
+      for(var i=0;i<sels.length;i++){
+        var el = pd.querySelector(sels[i]);
+        if(el){ el.click(); return true; }
+      }
+      return false;
+    }
+    var n=0, iv=setInterval(function(){
+      n++;
+      if(expanded()){ if(collapse()) clearInterval(iv); }
+      else { clearInterval(iv); }
+      if(n>25) clearInterval(iv);
+    }, 120);
+  }catch(e){}
+})();
+</script>"""
+    try:
+        _suppress_streamlit_deprecation()
+    except Exception:
+        pass
+    try:
+        _components.html(_js, height=0, width=0)
+    except Exception:
+        pass
+
+
 def show_dashboard_router(
     stores,
     products,
@@ -8115,6 +8185,7 @@ def show_dashboard_router(
     time_result,
 ):
     _apply_page_style()
+    _auto_collapse_sidebar_once()
 
     if "excel_dashboard_page" not in st.session_state:
         st.session_state.excel_dashboard_page = "dashboard"
