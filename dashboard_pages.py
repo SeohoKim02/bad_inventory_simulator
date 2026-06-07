@@ -877,11 +877,19 @@ def _back_to_dashboard():
 
 # 섹션별 하위 페이지 (분석 / 강화학습 / 관리) — 상단 가로 하위 탭
 _SECTION_GROUPS = {
-    "analysis": [("최종 추천", "score"), ("상세 분석", "algorithms"),
-                 ("시나리오 분석", "whatif"), ("경로 최적화", "network")],
-    "rl": [("학습 관리", "rl"), ("검증", "dqn_validation"), ("정책 해석", "dqn_interpret")],
-    "manage": [("데이터 검증", "validator"), ("상세 데이터", "data"), ("가이드", "guide"),
-               ("배치 최적화", "batch"), ("전후 비교", "effect"), ("성과 그래프", "graph")],
+    "sim": [("카카오 지도", "movement"), ("경로 요약", "route_summary")],
+    "analysis": [("추천 결과", "score"), ("후보 비교", "algorithms"), ("비용·효과", "effect"),
+                 ("시나리오 분석", "whatif"), ("최적화 근거", "network"), ("VHS 설명", "score_formula")],
+    "rl": [("DQN 학습 실행", "rl"), ("DQN 검증", "dqn_validation"), ("정책 해석", "dqn_interpret")],
+    "manage": [("데이터 검증", "validator"), ("상세 데이터", "data"), ("사용 가이드", "guide"),
+               ("설정", "settings")],
+}
+
+# 대표 탭 안에서 호출되는 보조 페이지 (탭으로는 숨기되 같은 메뉴로 취급 + 같은 sub-nav 표시)
+_SECTION_EXTRA = {
+    "graph": "analysis", "cost_compare": "analysis",
+    "batch": "analysis", "transport_rule": "analysis",
+    "truck": "sim",
 }
 
 
@@ -890,6 +898,8 @@ def _render_section_subnav(active_page):
     직접 이동 구조를 유지하면서 세부 기능 접근성을 되살린다."""
     grp = next((g for g, items in _SECTION_GROUPS.items()
                 if any(p == active_page for _, p in items)), None)
+    if grp is None:
+        grp = _SECTION_EXTRA.get(active_page)
     if grp is None:
         return
     items = _SECTION_GROUPS[grp]
@@ -910,13 +920,16 @@ def _render_section_subnav(active_page):
     }
     </style>
     """, unsafe_allow_html=True)
-    cols = st.columns(len(items))
-    for col, (label, page) in zip(cols, items):
-        with col:
-            if page == active_page:
-                st.button(label, key=f"subnav_{page}", disabled=True, width="stretch")
-            elif st.button(label, key=f"subnav_{page}", width="stretch"):
-                _go(page)
+    _per = 5
+    for _i in range(0, len(items), _per):
+        _chunk = items[_i:_i + _per]
+        cols = st.columns(len(_chunk))
+        for col, (label, page) in zip(cols, _chunk):
+            with col:
+                if page == active_page:
+                    st.button(label, key=f"subnav_{page}", disabled=True, width="stretch")
+                elif st.button(label, key=f"subnav_{page}", width="stretch"):
+                    _go(page)
     st.markdown("<div style='margin-bottom:4px;'></div>", unsafe_allow_html=True)
 
 
@@ -1740,6 +1753,8 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
 .lt{color:#9CA3AF;font-weight:700;margin-right:5px;}
 .prog{height:6px;background:#F3F0E4;border-radius:5px;overflow:hidden;margin-top:10px;}
 .bar{height:100%;width:0%;background:linear-gradient(90deg,#F1E3A3,#E0C84A);border-radius:5px;will-change:width;}
+.ppbtn{position:absolute;top:10px;right:12px;z-index:5;border:1px solid #E5E0CC;background:rgba(255,255,255,.92);color:#7A5E12;font-size:11px;font-weight:800;border-radius:999px;padding:4px 11px;cursor:pointer;box-shadow:0 1px 4px rgba(17,24,39,.08);font-family:inherit;}
+.ppbtn:hover{background:#FFFDF5;border-color:#E0C84A;}
 @media (max-width:680px){.wrap{grid-template-columns:1fr;}.smap{grid-column:1;min-height:230px;}.rightcol{grid-column:1;}.node{width:84px;padding:6px 4px;}.node.dc{width:92px;}.ico{font-size:17px;}.nm{font-size:9.5px;}.ninv{font-size:9px;}.invstrip{max-width:80%;}}
 </style></head><body>
 <div class="wrap">
@@ -1758,6 +1773,7 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
     </svg>
     <svg class="routes" id="routes" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
     <div class="statbadge" id="statbox"><span class="dot"></span><span id="stat">준비중</span><span class="stg" id="stg">1/1단계</span></div>
+    <button class="ppbtn" id="ppbtn" type="button">⏸ 일시정지</button>
     <div class="evt" id="evt"></div>
     <div class="veh" id="veh1">🚚</div>
     <div class="vehload" id="vehload"></div>
@@ -1826,7 +1842,7 @@ var NODES={}, INV={}, DCNODE=null;
   d.className='node'+(n.type==='dc'?' dc':'');
   d.id='nd_'+n.id; d.style.left=n.x+'%'; d.style.top=n.y+'%';
   var invHtml='';
-  if(n.type==='dc'){invHtml='<div class="ninv">입고 +'+(n.dcIn||0)+' / 출고 -'+(n.dcOut||0)+'</div>';DCNODE=n;}
+  if(n.type==='dc'){invHtml='<div class="ninv" id="inv_dc">입고 대기</div>';DCNODE=n;}
   else{invHtml='<div class="ninv" id="inv_'+n.id+'">재고 '+(n.inv0||0)+' <span class="a">→ '+(n.inv0||0)+'</span></div>';INV[n.id]={f:n.inv0||0,t:(n.inv1!=null?n.inv1:n.inv0||0)};}
   d.innerHTML='<div class="ico">'+(n.type==='dc'?'🏭':'🏪')+'</div><div class="nm">'+n.name+'</div>'+invHtml;
   mapEl.appendChild(d);
@@ -1858,22 +1874,33 @@ r_dist.textContent=DIST_KM+' km';
 
 // route 곡선 (활성/비활성 + flow)
 function curve(a,b){var mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2 - 7;return 'M '+a[0]+' '+a[1]+' Q '+mx+' '+my+' '+b[0]+' '+b[1];}
-var routePaths=[];
+var routePaths=[], geom={};
 (SC.stages||[]).forEach(function(s){if(s.move){var f=nd(s.move.fromId),via=nd(s.move.viaId),to=nd(s.move.toId);if(f&&via){addPath(f,via,s.move.fromId+'_'+s.move.viaId);}if(via&&to){addPath(via,to,s.move.viaId+'_'+s.move.toId);}}});
 function addPath(a,b,key){if(routePaths.indexOf(key)>=0)return;routePaths.push(key);
-  var base=document.createElementNS('http://www.w3.org/2000/svg','path');base.setAttribute('d',curve([a.x,a.y],[b.x,b.y]));base.setAttribute('fill','none');base.setAttribute('stroke','#DAD3BD');base.setAttribute('stroke-width','0.8');base.setAttribute('stroke-linecap','round');base.setAttribute('data-key',key);base.setAttribute('data-role','base');routes.appendChild(base);
-  var flow=document.createElementNS('http://www.w3.org/2000/svg','path');flow.setAttribute('d',curve([a.x,a.y],[b.x,b.y]));flow.setAttribute('fill','none');flow.setAttribute('stroke','#E0C84A');flow.setAttribute('stroke-width','1.5');flow.setAttribute('stroke-linecap','round');flow.setAttribute('data-key',key);flow.setAttribute('data-role','flow');flow.setAttribute('class','flow');flow.style.opacity='0';routes.appendChild(flow);}
-function setActivePath(fromId,viaId,toId){var keys=[fromId+'_'+viaId,viaId+'_'+toId];for(var i=0;i<routes.children.length;i++){var c=routes.children[i];var k=c.getAttribute('data-key');var role=c.getAttribute('data-role');var on=keys.indexOf(k)>=0;if(role==='flow'){c.style.opacity=on?'1':'0';}else{c.setAttribute('stroke',on?'#C9A227':'#DAD3BD');c.setAttribute('stroke-width',on?'1.0':'0.8');}}}
+  var dstr=curve([a.x,a.y],[b.x,b.y]);
+  function _mk(role,stroke,w,extra){var p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d',dstr);p.setAttribute('fill','none');p.setAttribute('stroke',stroke);p.setAttribute('stroke-width',w);p.setAttribute('stroke-linecap','round');p.setAttribute('stroke-linejoin','round');p.setAttribute('data-key',key);p.setAttribute('data-role',role);if(extra)extra(p);routes.appendChild(p);return p;}
+  _mk('casing','#9AA0A6','3.6');
+  geom[key]=_mk('asphalt','#D7DBE0','2.6');
+  _mk('center','#E0C84A','0.5',function(p){p.setAttribute('stroke-dasharray','1.5 1.8');p.style.opacity='0.45';});}
+function setActivePath(fromId,viaId,toId){var keys=[fromId+'_'+viaId,viaId+'_'+toId];for(var i=0;i<routes.children.length;i++){var c=routes.children[i];var k=c.getAttribute('data-key');var role=c.getAttribute('data-role');var on=keys.indexOf(k)>=0;if(role==='asphalt'){c.setAttribute('stroke',on?'#E4E7EC':'#D7DBE0');}else if(role==='center'){if(on){c.setAttribute('stroke-width','0.8');c.style.opacity='1';c.setAttribute('class','flow');}else{c.setAttribute('stroke-width','0.5');c.style.opacity='0.45';c.setAttribute('class','');}}}}
 function setActiveNodes(ids){for(var id in NODES){var el=document.getElementById('nd_'+id);if(!el)continue;if(ids.indexOf(id)>=0){el.classList.add('active');}else{el.classList.remove('active');}}}
 function moveVeh(xp,yp){var px=xp/100*mapW, py=yp/100*mapH;veh.style.transform='translate3d('+px+'px,'+py+'px,0) translate(-50%,-50%)';if(vehload){vehload.style.transform='translate3d('+px+'px,'+(py+20)+'px,0) translate(-50%,-50%)';}}
+function ptOnEdge(key,frac){var pth=geom[key];if(!pth||!pth.getTotalLength)return null;try{var L=pth.getTotalLength();var pp=pth.getPointAtLength(Math.max(0,Math.min(1,frac))*L);return {x:pp.x,y:pp.y};}catch(e){return null;}}
+function setPlayUI(){var b=document.getElementById('ppbtn');if(!b)return;b.innerHTML=ended?'\u21bb \ub2e4\uc2dc':(paused?'\u25b6 \uc7ac\uc0dd':'\u23f8 \uc77c\uc2dc\uc815\uc9c0');}
+function resetScene(){done={};lastRow=null;invAnim={};if(logp)logp.innerHTML='';for(var id in INV){var el=document.getElementById('inv_'+id);if(el){el.innerHTML='\uc7ac\uace0 '+INV[id].f;}}if(bar)bar.style.width='0%';var _dcr=document.getElementById('inv_dc');if(_dcr)_dcr.innerHTML='입고 대기';setActiveNodes([]);if(veh)veh.style.opacity='0';if(vehload)vehload.style.opacity='0';if(cstat)cstat.innerHTML='<span class="d"></span>\uc6b4\uc601 \uc911';if(r_deliv)r_deliv.textContent='\ub300\uae30';}
+function togglePlay(){if(ended){resetScene();animMs=0;ended=false;paused=false;lastTs=null;requestAnimationFrame(frame);}else{paused=!paused;}setPlayUI();}
+function _animVal(key,target){var a=invAnim[key];if(!a){invAnim[key]={from:target,to:target,m0:animMs,cur:target};return target;}if(a.to!==target){a={from:a.cur,to:target,m0:animMs,cur:a.cur};invAnim[key]=a;}var k=Math.min(1,Math.max(0,(animMs-a.m0)/600));k=k<0.5?2*k*k:1-Math.pow(-2*k+2,2)/2;a.cur=a.from+(a.to-a.from)*k;return a.cur;}
 
-var t0=null, TOT=SC.total||8000;
+var TOT=SC.total||8000;var animMs=0,lastTs=null,paused=false,ended=false;var invAnim={};
 var SPEED=0.75;  // 재생 속도(1.0=기본). 낮출수록 천천히 — 약 25% 느리게.
 var DWELL=1000*SPEED;  // 한 지점(DC/점포) 도착 시 정차 시간 ≈ 1초(재생속도 보정)
 function dwellProgress(t,mst){var dur=Math.max(mst.end-mst.start,1);var dw=Math.min(DWELL,dur*0.28);var travel=Math.max(dur-2*dw,dur*0.30);var t1=travel*0.5,d1=t1+dw,t2=d1+travel*0.5;var el=t-mst.start,prog;if(el<=0){prog=0;}else if(el<t1){prog=(el/t1)*0.5;}else if(el<d1){prog=0.5;}else if(el<t2){prog=0.5+((el-d1)/(travel*0.5))*0.5;}else if(el<dur){prog=1;}else{prog=1;}return prog;}
 function frame(ts){
-  if(t0===null)t0=ts;
-  var t=(ts-t0)*SPEED;
+  if(lastTs===null)lastTs=ts;
+  var dtr=ts-lastTs;lastTs=ts;
+  if(paused){requestAnimationFrame(frame);return;}
+  if(!ended)animMs+=dtr;
+  var t=animMs*SPEED;
   var p=Math.min(t/TOT,1);
   var cur=SC.stages[SC.stages.length-1], idx=SC.stages.length-1;
   for(var i=0;i<SC.stages.length;i++){if(t>=SC.stages[i].start&&t<SC.stages[i].end){cur=SC.stages[i];idx=i;break;}}
@@ -1890,19 +1917,27 @@ function frame(ts){
     setActivePath(cur.move.fromId,cur.move.viaId,cur.move.toId);
     setActiveNodes([cur.move.fromId,cur.move.viaId,cur.move.toId]);
     var seg=dwellProgress(t,cur);
-    var f=nd(cur.move.fromId),via=nd(cur.move.viaId),to=nd(cur.move.toId);
-    if(f&&via&&to){var x,y;if(seg<0.5){var s=seg/0.5;x=lerp(f.x,via.x,s);y=lerp(f.y,via.y,s);}else{var s2=(seg-0.5)/0.5;x=lerp(via.x,to.x,s2);y=lerp(via.y,to.y,s2);}moveVeh(x,y);}
+    var fId=cur.move.fromId,vId=cur.move.viaId,tId=cur.move.toId;
+    var pos=(seg<0.5)?ptOnEdge(fId+'_'+vId,seg/0.5):ptOnEdge(vId+'_'+tId,(seg-0.5)/0.5);
+    if(pos){moveVeh(pos.x,pos.y);}else{var f=nd(fId),via=nd(vId),to=nd(tId);if(f&&via&&to){var x,y;if(seg<0.5){var s=seg/0.5;x=lerp(f.x,via.x,s);y=lerp(f.y,via.y,s);}else{var s2=(seg-0.5)/0.5;x=lerp(via.x,to.x,s2);y=lerp(via.y,to.y,s2);}moveVeh(x,y);}}
   } else { setActiveNodes([]); if(vehload)vehload.style.opacity='0'; }
-  // 재고 카운팅 — 트럭 이동과 동기화: 출발 시 출고 점포 감소, 도착 시 입고 점포 증가
+  // 재고 카운팅 — 도착/출발 순간에 부드럽게 카운트 애니메이션
   var mseg=0;
   if(moveStage){ if(t<moveStage.start)mseg=0; else if(t>=moveStage.end)mseg=1; else mseg=dwellProgress(t,moveStage); }
-  var srcFactor=Math.min(mseg/0.5,1), dstFactor=Math.max(0,(mseg-0.5)/0.5);
   for(var id in INV){var el=document.getElementById('inv_'+id);if(el){var iv=INV[id];
-    var fac=mseg;
-    if(firstMove&&id===firstMove.fromId)fac=srcFactor;
-    else if(firstMove&&id===firstMove.toId)fac=dstFactor;
-    var v=Math.round(lerp(iv.f,iv.t,fac));var cls=(iv.t<iv.f)?'dn':'up';
-    el.innerHTML='재고 '+iv.f+' <span class="a '+cls+'">→ '+v+'</span>';}}
+    var tgt2;
+    if(firstMove&&id===firstMove.fromId)tgt2=(mseg>0)?iv.t:iv.f;
+    else if(firstMove&&id===firstMove.toId)tgt2=(mseg>=1)?iv.t:iv.f;
+    else tgt2=(mseg>=1)?iv.t:iv.f;
+    var v=Math.round(_animVal('n_'+id,tgt2));var cls=(iv.t<iv.f)?'dn':'up';
+    el.innerHTML=(v===iv.f)?('재고 '+iv.f):('재고 '+iv.f+' <span class="a '+cls+'">→ '+v+'</span>');}}
+  // 물류 DC: 도착 시 입고(보유) 카운트업, 출발 시 출고 카운트다운
+  if(DCNODE){var dcel=document.getElementById('inv_dc');if(dcel){var dq=DCNODE.dcIn||0;
+    var dctgt=(mseg<0.5-1e-6)?0:((mseg<=0.5+1e-6)?dq:0);
+    var hr=Math.round(_animVal('dc',dctgt));
+    if(mseg<0.5-1e-6){dcel.innerHTML='입고 대기';}
+    else if(mseg<=0.5+1e-6){dcel.innerHTML='보유 <span class="a up">'+hr+'</span>';}
+    else{dcel.innerHTML=(hr>0)?('보유 <span class="a up">'+hr+'</span>'):'출고 완료';}}}
   // 우측 패널 진행
   r_elapsed.textContent=mmss(p*TOTAL_MIN*60);
   r_eta.textContent=mmss((1-p)*TOTAL_MIN*60);
@@ -1914,11 +1949,12 @@ function frame(ts){
     for(var id2 in INV){var e2=document.getElementById('inv_'+id2);if(e2){var iv2=INV[id2];var c2=(iv2.t<iv2.f)?'dn':'up';e2.innerHTML='재고 '+iv2.f+' <span class="a '+c2+'">→ '+iv2.t+'</span>';}}
     bar.style.width='100%';statEl.textContent=SC.stages[SC.stages.length-1].status;statbox.className='statbadge';stgEl.textContent=SC.stages.length+'/'+SC.stages.length+'단계';
     r_elapsed.textContent=mmss(TOTAL_MIN*60);r_eta.textContent='00:00';r_deliv.textContent='운영 완료';cstat.innerHTML='<span class="d" style="background:#2E7D32;"></span>완료';
-    setActiveNodes([]);if(vehload)vehload.style.opacity='0';return;
+    setActiveNodes([]);if(vehload)vehload.style.opacity='0';ended=true;setPlayUI();return;
   }
   requestAnimationFrame(frame);
 }
 if(SC.nodes&&SC.nodes.length){var mv=(SC.stages.find(function(s){return s.move;})||{move:{fromId:SC.nodes[0].id}}).move;var fn=nd(mv.fromId)||NODES[SC.nodes[0].id];if(fn)moveVeh(fn.x,fn.y);}
+var _pp=document.getElementById('ppbtn');if(_pp)_pp.addEventListener('click',togglePlay);setPlayUI();
 requestAnimationFrame(frame);
 }catch(e){var lp=document.getElementById('logp');if(lp)lp.textContent='시뮬레이션 표시 준비 중';}
 })();
@@ -2243,17 +2279,73 @@ def _selected_source_store(final_recommendations):
         return None
 
 
+def _selected_route_stores(final_recommendations):
+    """현재 선택(또는 1순위) 후보의 (출발 점포, 도착 점포, 이동량, 경로 시그니처)."""
+    try:
+        df = _filter_positive_qty_recommendations(final_recommendations)
+        if df is None or df.empty:
+            return None, None, 0, ""
+        score_col = next((c for c in ["heuristic_score", "vhs2", "total_score"]
+                          if c in df.columns), None)
+        ordered = (df.sort_values(score_col, ascending=False) if score_col else df).copy()
+        sel = st.session_state.get("dashboard_selected_candidate_index", None)
+        if sel is not None and sel in ordered.index:
+            ordered = pd.concat([ordered.loc[[sel]], ordered.drop(index=sel)])
+        row = ordered.iloc[0]
+        src = str(row.get("source_store", "") or "") or None
+        tgt = str(row.get("target_store", "") or "") or None
+        qty = int(_safe_parse_score(row.get("suggested_qty") or row.get("move_qty")) or 0)
+        return src, tgt, qty, "{}|{}|{}".format(sel, src, tgt)
+    except Exception:
+        return None, None, 0, ""
+
+
 def _render_store_detail_panel(final_recommendations, inventory):
     """선택 점포 상세 패널 — 부족/보낼 수 있는/폐기 위험 상품 + 운영 로그."""
-    store = _selected_source_store(final_recommendations)
-    if not store or inventory is None or (isinstance(inventory, pd.DataFrame) and inventory.empty):
+    src, tgt, _qty, _cand_sig = _selected_route_stores(final_recommendations)
+    if not src:
+        return
+    # 선택 경로의 점포 선택(출발 먼저, 옆에 도착) — 후보가 바뀌면 출발 점포로 초기화
+    _DC_NAME = "물류 DC"
+    options = list(dict.fromkeys([s for s in [src, _DC_NAME, tgt] if s]))
+    rk = "detail_store_pick"
+    if st.session_state.get("_detail_route_sig") != _cand_sig:
+        st.session_state["_detail_route_sig"] = _cand_sig
+        st.session_state[rk] = src
+    if st.session_state.get(rk) not in options:
+        st.session_state[rk] = src
+    st.markdown("##### 선택 점포 상세")
+    if len(options) > 1:
+        store = st.radio("상세 점포 선택", options, key=rk, horizontal=True,
+                         label_visibility="collapsed")
+    else:
+        store = options[0]
+        st.caption(store)
+    if store == _DC_NAME:
+        _dc_html = (
+            '<div style="background:#FFFDF5;border:1px solid #F1E3A3;border-radius:12px;padding:12px 14px;">'
+            '<div style="font-size:13px;font-weight:800;color:#111827;">🏭 물류 DC · 경유 거점</div>'
+            '<div style="font-size:12px;color:#6B7280;margin-top:6px;">이 경로는 물류 DC를 경유해 재고가 이동합니다.</div>'
+            '<div style="display:flex;gap:22px;margin-top:10px;align-items:flex-end;">'
+            '<div><div style="font-size:11px;color:#9CA3AF;">경유 이동량</div>'
+            '<div style="font-size:1.25rem;font-weight:800;color:#9A7B12;">' + str(_qty) + '개</div></div>'
+            '<div><div style="font-size:11px;color:#9CA3AF;">경로</div>'
+            '<div style="font-size:0.98rem;font-weight:700;color:#111827;">' + str(src) + ' → ' + str(tgt) + '</div></div>'
+            '</div></div>'
+        )
+        st.markdown(_dc_html, unsafe_allow_html=True)
+        return
+    if inventory is None or (isinstance(inventory, pd.DataFrame) and inventory.empty):
+        st.caption("재고 데이터가 없습니다.")
         return
     df = inventory
     scol = "store_name" if "store_name" in df.columns else None
     if scol is None:
+        st.caption("재고 데이터에 점포 컬럼이 없습니다.")
         return
     sdf = df[df[scol].astype(str) == store].copy()
     if sdf.empty:
+        st.caption("'" + str(store) + "' 점포의 재고 데이터가 없습니다.")
         return
 
     pcol = next((c for c in ["inventory_product_name", "product_name", "상품명"] if c in sdf.columns), None)
@@ -2320,15 +2412,95 @@ def _render_store_detail_panel(final_recommendations, inventory):
                 f'font-weight:800;color:#1A1A1A;font-size:14px;margin-bottom:6px;">{title}{extra}</div>'
                 f'{body}</div>')
 
-    st.markdown(f"##### 선택 점포 상세 · {store}")
     st.markdown(chips, unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown(card("🔴 필요한 상품", item_rows(shortage, "short")), unsafe_allow_html=True)
-    with c2:
-        st.markdown(card("🟢 보낼 수 있는 상품", item_rows(sendable, "send")), unsafe_allow_html=True)
-    with c3:
-        st.markdown(card("⚠ 폐기 위험 상품", item_rows(risk, "risk")), unsafe_allow_html=True)
+    _detail_html = (
+        '<div style="display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;">'
+        + '<div style="flex:1;min-width:0;">' + card("🔴 필요한 상품", item_rows(shortage, "short")) + '</div>'
+        + '<div style="flex:1;min-width:0;">' + card("🟢 보낼 수 있는 상품", item_rows(sendable, "send")) + '</div>'
+        + '<div style="flex:1;min-width:0;">' + card("⚠ 폐기 위험 상품", item_rows(risk, "risk")) + '</div>'
+        + '</div>'
+    )
+    st.markdown(_detail_html, unsafe_allow_html=True)
+
+
+def _render_candidate_rail(final_recommendations, topn=5):
+    """추천 후보 경로 — 우측 세로 레일(카드형). 내부에서 컬럼 분할 미사용(중첩 회피)."""
+    st.markdown(
+        '<div style="display:flex;align-items:center;gap:7px;margin:2px 0 8px 0;">'
+        '<span style="font-size:15px;font-weight:800;color:#111827;">추천 후보 경로 Top %d</span>'
+        '</div>' % topn, unsafe_allow_html=True)
+    if final_recommendations is None or final_recommendations.empty:
+        st.caption("추천 후보 없음")
+        return
+    df = _filter_positive_qty_recommendations(final_recommendations)
+    if df is None or df.empty:
+        st.caption("추천 후보 없음")
+        return
+    score_col = next((c for c in ["heuristic_score", "vhs2", "total_score"]
+                      if c in df.columns), None)
+    top = (df.sort_values(score_col, ascending=False).head(topn)
+           if score_col else df.head(topn))
+    sel_idx = st.session_state.get("dashboard_selected_candidate_index", None)
+    rows = list(top.iterrows())
+    eff_sel = sel_idx if (sel_idx is not None and sel_idx in top.index) else (rows[0][0] if rows else None)
+
+    def _won(v):
+        try:
+            f = float(v)
+            if f >= 1e8: return "%.1f억원" % (f / 1e8)
+            if f >= 1e4: return "%.0f만원" % (f / 1e4)
+            return "%d원" % int(f)
+        except Exception:
+            return "-"
+
+    st.markdown("""
+    <style>
+    .rail-card{background:#FFFFFF;border:1px solid #ECECEC;border-radius:12px;
+      padding:10px 12px;margin-bottom:8px;box-shadow:0 1px 3px rgba(17,24,39,.04);}
+    .rail-card.sel{border:1.5px solid #E0C84A;background:#FFFDF5;
+      box-shadow:0 4px 14px rgba(201,162,39,.16);}
+    .rc-top{display:flex;align-items:center;gap:8px;}
+    .rc-rank{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:#F1F0EC;
+      color:#6B7280;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;}
+    .rail-card.sel .rc-rank{background:#C9A227;color:#FFFFFF;}
+    .rc-route{flex:1;min-width:0;font-size:13px;font-weight:700;color:#111827;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .rc-vhs{flex:0 0 auto;font-size:14px;font-weight:800;color:#111827;}
+    .rc-vhs .l{font-size:10px;font-weight:700;color:#9CA3AF;margin-right:3px;}
+    .rc-bot{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:6px;}
+    .rc-sav{font-size:11px;color:#6B7280;font-weight:600;}
+    .rc-sav b{color:#9A7B12;font-weight:800;}
+    .rc-badge{font-size:10px;font-weight:800;border-radius:999px;padding:2px 9px;}
+    .rc-badge.sel{color:#FFFFFF;background:#C9A227;}
+    .rc-badge.alt{color:#6B7280;background:#F1F0EC;border:1px solid #E5E0CC;}
+    </style>
+    """, unsafe_allow_html=True)
+
+    for rank, (orig_idx, row) in enumerate(rows, 1):
+        is_sel = (str(orig_idx) == str(eff_sel))
+        src = str(row.get("source_store", "-"))
+        tgt = str(row.get("target_store", "-"))
+        sc = row.get(score_col) if score_col else None
+        sc_s = ("%.1f" % float(sc)) if (sc is not None and pd.notna(sc)) else "-"
+        sav = row.get("disposal_avoidance_profit")
+        sav_s = _won(sav) if (sav is not None and pd.notna(sav)) else "-"
+        cost = row.get("estimated_cost")
+        cost_s = _won(cost) if (cost is not None and pd.notna(cost)) else "-"
+        badge = ('<span class="rc-badge sel">선택</span>' if is_sel
+                 else '<span class="rc-badge alt">대안</span>')
+        _selcls = "sel" if is_sel else ""
+        st.markdown(
+            f'<div class="rail-card {_selcls}">'
+            f'<div class="rc-top"><span class="rc-rank">{rank}</span>'
+            f'<span class="rc-route">{src} → {tgt}</span>'
+            f'<span class="rc-vhs"><span class="l">VHS</span>{sc_s}</span></div>'
+            f'<div class="rc-bot"><span class="rc-sav"><b>{sav_s}</b> 절감 · {cost_s}</span>'
+            f'{badge}</div></div>',
+            unsafe_allow_html=True)
+        if not is_sel:
+            if st.button("선택", key=f"rail_pick_{orig_idx}", width="stretch"):
+                st.session_state["dashboard_selected_candidate_index"] = orig_idx
+                st.rerun()
 
 
 def _render_candidate_routes_tab(final_recommendations, compact=False, topn=None):
@@ -2536,15 +2708,10 @@ def _render_icon_nav(final_recommendations=None, stores=None, products=None, inv
     """좌측 세로 아이콘 사이드바 — 5개 메뉴로 통합
     (대시보드 / 분석 / 운영 시뮬레이션 / 강화학습 / 관리)."""
     cur = st.session_state.get("excel_dashboard_page", "dashboard")
-    # 현재 위치 → 어느 그룹이 활성인지 (5개 그룹)
-    _grp = {
-        "dashboard":"home",
-        "score":"analysis","algorithms":"analysis","effect":"analysis",
-        "graph":"analysis","network":"analysis","batch":"analysis","whatif":"analysis",
-        "movement":"sim","demo":"sim",
-        "rl":"rl","dqn_validation":"rl","dqn_interpret":"rl",
-        "validator":"manage","data":"manage","guide":"manage",
-    }.get(cur, "")
+    # 현재 위치 → 어느 그룹이 활성인지 (_SECTION_GROUPS 기준 자동 매핑)
+    _grp_of = {p: g for g, items in _SECTION_GROUPS.items() for _, p in items}
+    _grp_of.update(_SECTION_EXTRA)
+    _grp = "home" if cur == "dashboard" else _grp_of.get(cur, "")
     _active_key = {"home":"nav_home","analysis":"nav_grp_analysis","sim":"nav_grp_sim",
                    "rl":"nav_grp_rl","manage":"nav_grp_manage"}.get(_grp, "")
 
@@ -2624,7 +2791,7 @@ def _render_icon_nav(final_recommendations=None, stores=None, products=None, inv
 
     # 📊 분석
     with _nav_box("nav_grp_analysis"):
-        if st.button("📊  \n분석", key="nav_analysis", help="분석", width="stretch"):
+        if st.button("📊  \n추천 분석", key="nav_analysis", help="추천 분석", width="stretch"):
             _go("score")
 
     # 🚚 운영 시뮬레이션 (추천 경로 & 재고 이동)
@@ -2634,7 +2801,7 @@ def _render_icon_nav(final_recommendations=None, stores=None, products=None, inv
 
     # 🧠 강화학습
     with _nav_box("nav_grp_rl"):
-        if st.button("🧠  \n강화학습", key="nav_rl_top", help="강화학습", width="stretch"):
+        if st.button("🧠  \n학습 관리", key="nav_rl_top", help="학습 관리", width="stretch"):
             _go("rl")
 
     # ⚙ 관리
@@ -2698,13 +2865,38 @@ def _show_dashboard_home(
     with _navrail:
         _render_icon_nav(final_recommendations, stores, products, inventory)
     with _navmain:
-        _t1, _t2, _t3 = st.columns([6, 1.1, 1.2])
-        with _t1:
+        # ── 헤더: 타이틀+부제 | 경로 브레드크럼 | VHS·재생·다시시작 ──
+        _bc_src, _bc_tgt = "-", "-"
+        try:
+            _bcdf = _filter_positive_qty_recommendations(final_recommendations)
+            if _bcdf is not None and not _bcdf.empty:
+                _sccol = next((c for c in ["heuristic_score", "vhs2", "total_score"]
+                               if c in _bcdf.columns), None)
+                _bcord = _bcdf.sort_values(_sccol, ascending=False) if _sccol else _bcdf
+                _selx = st.session_state.get("dashboard_selected_candidate_index", None)
+                _bcrow = (_bcord.loc[_selx] if (_selx is not None and _selx in _bcord.index)
+                          else _bcord.iloc[0])
+                _bc_src = str(_bcrow.get("source_store", "-"))
+                _bc_tgt = str(_bcrow.get("target_store", "-"))
+        except Exception:
+            pass
+        _h1, _h2, _h3, _h4 = st.columns([5, 4.6, 1.1, 1.3])
+        with _h1:
             st.markdown(
-                '<div style="font-size:19px;font-weight:800;color:#111827;'
-                'margin:2px 0 2px 0;">Varo 분석 결과</div>',
+                '<div style="font-size:19px;font-weight:800;color:#111827;margin:2px 0 0 0;">'
+                'Varo 분석 결과</div>'
+                '<div style="font-size:12px;color:#6B7280;margin:2px 0 2px 0;">'
+                '편의점 신선·냉동 재고 재배치 운영 콘솔</div>',
                 unsafe_allow_html=True)
-        with _t2:
+        with _h2:
+            st.markdown(
+                '<div style="display:flex;align-items:center;justify-content:center;gap:8px;'
+                'height:100%;min-height:42px;font-size:13px;font-weight:700;color:#374151;">'
+                f'<span>🏪 {_bc_src}</span><span style="color:#C9A227;">›</span>'
+                '<span>🏭 물류 DC</span><span style="color:#C9A227;">›</span>'
+                f'<span>📍 {_bc_tgt}</span></div>',
+                unsafe_allow_html=True)
+        with _h3:
             try:
                 with st.popover("ⓘ VHS"):
                     st.markdown("**추천 결과 종합 점수**")
@@ -2720,8 +2912,9 @@ def _show_dashboard_home(
                                "추천 후보를 바꾸면 해당 후보의 점수로 갱신됩니다.")
             except Exception:
                 st.caption("VHS")
-        with _t3:
-            if st.button("↻ 다시 시작", key="sim_restart", help="처음부터 다시 재생"):
+        with _h4:
+            if st.button("↻ 다시 시작", key="sim_restart", help="추천 1순위로 되돌리고 재생", width="stretch"):
+                st.session_state.pop("dashboard_selected_candidate_index", None)
                 st.session_state["_sim_nonce"] = st.session_state.get("_sim_nonce", 0) + 1
 
         if _kpi_ok:
@@ -2743,67 +2936,54 @@ def _show_dashboard_home(
         except Exception:
             pass
 
-        # ── 추천 운영 시뮬레이션(좌) + 추천 후보(우) 좌우 배치 ──
-        sim_col, cand_col = st.columns([1.6, 1])
-        with sim_col:
+        # ── 좌: KPI + 시뮬레이션 + 점포상세  /  우: 추천 후보 Top5 레일 ──
+        _left, _rail = st.columns([2.5, 1])
+        with _left:
+            if _kpi_ok:
+                # 카드 1: VHS 점수
+                avg_sc = vhs_kpi.get("avg_score")
+                sc_val = f"{avg_sc:.1f}" if avg_sc is not None else "데이터 없음"
+                sc_bar = float(avg_sc) if avg_sc is not None else None
+                sc_badge_cls = "green" if avg_sc and avg_sc >= 65 else ("yellow" if avg_sc else "gray")
+                sc_badge = vhs_kpi.get("top_grade", "-")
+                _c1 = _mcard("VHS 점수", sc_val, sub="추천 결과 종합 점수",
+                             badge=sc_badge, badge_cls=sc_badge_cls, bar_pct=sc_bar)
+                # 카드 2: 비용 개선 효과
+                before_v = costs.get("before"); after_v = costs.get("after")
+                if before_v is not None and after_v is not None:
+                    _c2 = _mcard_before_after("비용 개선 효과",
+                        safe_format_currency_short(before_v), safe_format_currency_short(after_v),
+                        sub="처리 비용 변화")
+                else:
+                    _c2 = _mcard("비용 개선 효과", "데이터 없음", sub="처리 비용 변화", value_cls="money")
+                # 카드 3: 예상 비용 절감
+                sav = costs.get("savings"); sr = costs.get("savings_rate")
+                sav_v = safe_format_currency_short(sav) if sav is not None else "계산 불가"
+                sav_sub = (safe_format_percent(sr) + " 절감") if sr is not None else "-"
+                sav_cls = "green" if (sav is not None and sav > 0) else "gray"
+                _c3 = _mcard("예상 비용 절감", sav_v, sub=sav_sub, badge_cls=sav_cls, value_cls="money")
+                # 카드 4: 데이터 품질
+                vs_map = {"정상": "green", "확인 필요": "yellow", "데이터 부족": "yellow", "오류 가능": "gray"}
+                vs_cls = vs_map.get(val_status, "gray")
+                q_sub = f"경고 {val_warn}건" if val_warn else ""
+                _c4 = _mcard("데이터 품질", val_status, sub=q_sub, badge_cls=vs_cls)
+                _kpi_row = (
+                    '<div style="display:flex;gap:10px;align-items:stretch;margin:2px 0 8px 0;flex-wrap:wrap;">'
+                    + '<div style="flex:1;min-width:0;">' + _c1 + '</div>'
+                    + '<div style="flex:1;min-width:0;">' + _c2 + '</div>'
+                    + '<div style="flex:1;min-width:0;">' + _c3 + '</div>'
+                    + '<div style="flex:1;min-width:0;">' + _c4 + '</div>'
+                    + '</div>'
+                )
+                st.markdown(_kpi_row, unsafe_allow_html=True)
+            else:
+                st.caption("KPI 요약을 불러오지 못했습니다.")
+            # 추천 운영 시뮬레이션 (화면 그대로 유지)
             _render_operation_simulation(final_recommendations)
-        with cand_col:
-            _render_candidate_routes_tab(final_recommendations, compact=True, topn=5)
-
-        # ── 운영 KPI 요약 (항상 표시) ───────────────────────────
-        st.markdown("##### 운영 KPI 요약")
-        k1, k2, k3, k4 = st.columns(4)
-
-        # 카드 1: VHS 점수
-        avg_sc = vhs_kpi.get("avg_score")
-        sc_val = f"{avg_sc:.1f}" if avg_sc is not None else "데이터 없음"
-        sc_bar = float(avg_sc) if avg_sc is not None else None
-        sc_badge_cls = "green" if avg_sc and avg_sc >= 65 else ("yellow" if avg_sc else "gray")
-        sc_badge = vhs_kpi.get("top_grade","-")
-        with k1:
-            if _kpi_ok:
-                st.markdown(_mcard("VHS 점수", sc_val, sub="추천 결과 종합 점수",
-                    badge=sc_badge, badge_cls=sc_badge_cls, bar_pct=sc_bar), unsafe_allow_html=True)
-            else:
-                st.metric("VHS 점수", sc_val)
-
-        # 카드 2: 비용 개선 효과 (Before → After)
-        before_v = costs.get("before"); after_v = costs.get("after")
-        with k2:
-            if _kpi_ok and before_v is not None and after_v is not None:
-                st.markdown(_mcard_before_after("비용 개선 효과",
-                    safe_format_currency_short(before_v), safe_format_currency_short(after_v),
-                    sub="처리 비용 변화"), unsafe_allow_html=True)
-            elif _kpi_ok:
-                st.markdown(_mcard("비용 개선 효과", "데이터 없음", sub="처리 비용 변화", value_cls="money"), unsafe_allow_html=True)
-            else:
-                st.metric("비용 개선 효과", "데이터 없음")
-
-        # 카드 3: 예상 비용 절감
-        sav = costs.get("savings"); sr = costs.get("savings_rate")
-        sav_v = safe_format_currency_short(sav) if sav is not None else "계산 불가"
-        sav_sub = safe_format_percent(sr) + " 절감" if sr is not None else "-"
-        sav_cls = "green" if (sav is not None and sav > 0) else "gray"
-        with k3:
-            if _kpi_ok:
-                st.markdown(_mcard("예상 비용 절감", sav_v, sub=sav_sub, badge_cls=sav_cls, value_cls="money"), unsafe_allow_html=True)
-            else:
-                st.metric("예상 비용 절감", sav_v)
-
-        # 카드 4: 데이터 품질
-        vs_map = {"정상":"green","확인 필요":"yellow","데이터 부족":"yellow","오류 가능":"gray"}
-        vs_cls = vs_map.get(val_status, "gray")
-        q_sub = f"경고 {val_warn}건" if val_warn else ""
-        with k4:
-            if _kpi_ok:
-                st.markdown(_mcard("데이터 품질", val_status, sub=q_sub, badge_cls=vs_cls), unsafe_allow_html=True)
-            else:
-                st.metric("데이터 품질", val_status)
-
-        # (액션 현황 카드 제거 — 한 화면 배치를 위해)
-
-        # ── 선택 점포 상세 패널 ──
-        _render_store_detail_panel(final_recommendations, inventory)
+            # 선택 점포 상세
+            _render_store_detail_panel(final_recommendations, inventory)
+        with _rail:
+            _render_candidate_rail(final_recommendations, topn=5)
 
 
 # =========================
@@ -4547,6 +4727,7 @@ def _transport_usage_text(name):
 
 def _show_transport_rule_page():
     _back_to_dashboard()
+    _render_section_subnav("transport_rule")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     _page_header("", "이동수단 · 비용 기준",
                  "추천 이동수단별 예상 비용과 적재 가능 수량 기준입니다.")
@@ -4609,6 +4790,7 @@ def _show_cost_compare_page(
     transfer_path_result,
 ):
     _back_to_dashboard()
+    _render_section_subnav("cost_compare")
 
     if st.button("← 상품별 AI 추천 결과로 돌아가기", width="stretch", key="back_to_ai_recommendation_from_cost"):
         _go("score")
@@ -4693,6 +4875,7 @@ def _show_cost_compare_page(
 
 def _show_score_formula_page(final_recommendations):
     _back_to_dashboard()
+    _render_section_subnav("score_formula")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     st.header("🧮 총점 계산 방식")
 
@@ -5152,9 +5335,10 @@ def _show_movement_page(
     network_path_result,
 ):
     _back_to_dashboard()
+    _render_section_subnav("movement")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     _page_header("", "운영 시뮬레이션",
-                 "추천 경로와 재고 이동을 지도에서 확인합니다.")
+                 "카카오 지도에서 출발 점포 · 물류 DC · 도착 점포와 추천 경로를 확인합니다.")
 
     if not kakao_js_key:
         st.info("왼쪽 사이드바에 카카오맵 JavaScript 키를 입력하면 지도와 재고 이동 시뮬레이션이 표시됩니다.")
@@ -5308,6 +5492,49 @@ def _show_movement_page(
     # 현재 조건에서 AI 점수순 상위 후보를 자동으로 최대 5개 선택한다.
     selected_scenarios = candidate_scenarios[:5]
 
+    # ── 선택 후보 경로 요약 (홈에서 선택한 후보 기준) — 경로/거리/예상 이동 시간/이동 수단 ──
+    _src2, _tgt2, _qty2, _sig2 = _selected_route_stores(final_recommendations)
+    _primary = None
+    if _src2 and _tgt2:
+        _primary = next((s for s in selected_scenarios
+                         if str(s.get("source_store", "-")) == _src2
+                         and str(s.get("target_store", "-")) == _tgt2), None)
+    if _primary is None and selected_scenarios:
+        _primary = selected_scenarios[0]
+    if _primary is not None:
+        _spd_map = {"도보": 4, "전동자전거": 16, "오토바이": 30,
+                    "소형 차량": 38, "소형 트럭": 36, "냉동/냉장 탑차": 34}
+        try:
+            _dist_v = float(_primary.get("distance_km") or 0)
+        except Exception:
+            _dist_v = 0.0
+        _ttype2 = str(_primary.get("transport_type", "-"))
+        _kmh = _spd_map.get(_ttype2, 35)
+        _eta_v = (_dist_v / _kmh * 60.0) if (_dist_v > 0 and _kmh > 0) else 0.0
+        _dist_txt = ("%.1f km" % _dist_v) if _dist_v > 0 else "-"
+        _eta_txt = ("약 %d분" % int(round(_eta_v))) if _eta_v > 0 else "-"
+        _route_txt = "%s → 물류 DC → %s" % (
+            _primary.get("source_store", "-"), _primary.get("target_store", "-"))
+        _ticon2 = str(_primary.get("transport_icon", "") or "")
+        _mode_txt = (_ticon2 + " " + _ttype2).strip() or "-"
+
+        def _mvchip(lab, val, col):
+            return ('<div style="flex:1;min-width:130px;background:#FFFDF5;'
+                    'border:1px solid #F1E3A3;border-radius:12px;padding:9px 13px;">'
+                    '<div style="font-size:11px;color:#9CA3AF;font-weight:700;">' + lab + '</div>'
+                    '<div style="font-size:0.98rem;font-weight:800;color:' + col + ';margin-top:3px;'
+                    'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + val + '</div></div>')
+
+        st.markdown(
+            '<div style="display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 12px 0;">'
+            + _mvchip("추천 경로", _route_txt, "#111827")
+            + _mvchip("이동 거리", _dist_txt, "#9A7B12")
+            + _mvchip("예상 이동 시간", _eta_txt, "#9A7B12")
+            + _mvchip("이동 수단", _mode_txt, "#111827")
+            + "</div>",
+            unsafe_allow_html=True)
+        st.caption("운영 진행 현황 · 운영 로그 · KPI · 선택 점포 상세는 홈에서 확인할 수 있습니다.")
+
     with st.expander(f"{selector_label} 결과 ({len(selected_scenarios)}개)", expanded=False):
         preview_rows = []
 
@@ -5458,6 +5685,24 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     _page_header("", "AI 운영 엔진",
                  "DQN 기반 재배치 정책의 성능·안정성·운영 반영 현황입니다.")
+    st.caption("운영 흐름:  학습 데이터 확인  →  실행 설정 · 학습 실행  →  결과 요약 · 정책 비교  →  학습 이력")
+    try:
+        import os as _os_rl
+        _hist_p = _os_rl.path.join("dqn_artifacts", "dqn_training_comparison.csv")
+        if _os_rl.path.exists(_hist_p) and _os_rl.path.getsize(_hist_p) > 0:
+            _st_label, _st_color = "학습 이력 있음 · 정상", "#2E7D32"
+        else:
+            _st_label, _st_color = "학습 이력 없음 · 첫 학습 필요", "#9A7B12"
+    except Exception:
+        _st_label, _st_color = "상태 확인 불가", "#9CA3AF"
+    st.markdown(
+        '<div style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;'
+        'border:1px solid #ECECEC;border-radius:999px;background:#FFFFFF;margin:2px 0 12px 0;">'
+        '<span style="width:8px;height:8px;border-radius:50%;background:' + _st_color + ';'
+        'display:inline-block;"></span>'
+        '<span style="font-size:12.5px;font-weight:700;color:#374151;">학습 상태 · '
+        + _st_label + '</span></div>',
+        unsafe_allow_html=True)
 
     # ── 운영 엔진 현황 (실데이터 기반 지표) ──
     try:
@@ -5575,7 +5820,7 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
     # 2. DQN 학습 (numpy / PyTorch 자동 선택)
     # =========================
     st.markdown("---")
-    st.subheader("정책 학습 · 실행")
+    st.subheader("학습 실행 (실행 설정 → 실행)")
 
     # backend 표시
     try:
@@ -5855,7 +6100,7 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
     # 3. 기존 Q-table 정책 비교
     # =========================
     st.markdown("---")
-    st.subheader("정책 비교")
+    st.subheader("정책 비교 · 결과 검증")
 
     try:
         from rl_data_logger import build_rl_training_log
@@ -5961,7 +6206,7 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
 
     # ── PyTorch DQN 학습 실행 ─────────────────────────────
     st.markdown("---")
-    st.subheader("정책 재학습 (고급)")
+    st.subheader("빠른 학습 (고급)")
     st.caption("RL 로그 데이터를 기반으로 DQN 정책을 직접 학습합니다.")
 
     try:
@@ -6376,6 +6621,7 @@ def _show_truck_page(
     transfer_path_result,
 ):
     _back_to_dashboard()
+    _render_section_subnav("truck")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     st.header("🚚 재고 이동 시뮬레이션 페이지")
 
@@ -6563,6 +6809,14 @@ def _show_effect_page(final_recommendations, embedded=False):
     if not embedded:
         _back_to_dashboard()
         _render_section_subnav("effect")
+        with st.expander("관련 분석 더 보기 (성과 그래프 · 비용 비교)", expanded=False):
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                if st.button("📈 성과 그래프", key="goto_graph_from_effect", width="stretch"):
+                    _go("graph")
+            with _c2:
+                if st.button("💰 비용 비교", key="goto_cost_compare_from_effect", width="stretch"):
+                    _go("cost_compare")
         _page_header("08", "기대 효과 (도입 전·후 비교)",
                      "Varo 추천을 적용하면 폐기 비용과 재고 균형이 얼마나 개선되는지 추정합니다.")
     else:
@@ -6945,6 +7199,14 @@ def _show_network_page():
     """최소비용 네트워크 분석 결과 페이지."""
     _back_to_dashboard()
     _render_section_subnav("network")
+    with st.expander("관련 분석 더 보기 (배치 최적화 · 운송수단 규칙)", expanded=False):
+        _c1, _c2 = st.columns(2)
+        with _c1:
+            if st.button("🗂️ 배치 최적화", key="goto_batch_from_network", width="stretch"):
+                _go("batch")
+        with _c2:
+            if st.button("🚚 운송수단 규칙", key="goto_transport_rule_from_network", width="stretch"):
+                _go("transport_rule")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     _page_header("05", "경로 최적화",
                  "재고를 가장 적은 비용으로 옮기는 최적 경로를 계산한 결과입니다.")
@@ -7746,9 +8008,9 @@ def _show_algorithms_page(final_recommendations, inventory=None):
 # 라우터
 # =========================
 def _show_demo_page():
-    """데모 모드 — 샘플 데이터 선택 후 바로 시연."""
+    """미리보기 모드 — 샘플 데이터로 운영 화면을 확인."""
     _back_to_dashboard()
-    st.header("🎮 데모 모드")
+    st.header("🎮 운영 미리보기")
     st.caption("엑셀 없이 내장 샘플 데이터로 Varo를 바로 시연합니다.")
 
     try:
@@ -7770,7 +8032,7 @@ def _show_demo_page():
         st.session_state["demo_active"]     = True
         st.session_state["demo_scenario"]   = selected
         st.success(f"✅ '{selected}' 샘플 준비 완료 — 엑셀 업로드 화면에서 분석 버튼을 누르세요.")
-        st.info("💡 또는 엑셀 업로드 화면으로 돌아가 '데모 데이터 사용' 버튼을 클릭하세요.")
+        st.info("💡 또는 엑셀 업로드 화면에서 샘플 데이터로 시작할 수 있습니다.")
 
 
 def _show_validator_page(sheets: dict = None):
@@ -8102,9 +8364,9 @@ def _show_dqn_validation_page(final_recommendations=None, inventory=None):
 
 
 def _auto_collapse_sidebar_once():
-    """데모/엑셀 데이터가 새로 로드되면 사이드바를 1회 자동 접는다.
+    """샘플/엑셀 데이터가 새로 로드되면 사이드바를 1회 자동 접는다.
     동일 데이터에서 재실행되면 다시 접지 않아, 사용자가 다시 펼친 상태를 존중한다.
-    트리거(데모/엑셀)는 app.py에 있으나 app.py는 수정하지 않고,
+    트리거(샘플/엑셀)는 app.py에 있으나 app.py는 수정하지 않고,
     데이터 로드 직후 렌더되는 이 라우터 단계에서 한 번만 처리한다."""
     try:
         sig = "|".join([
@@ -8167,6 +8429,111 @@ def _auto_collapse_sidebar_once():
         _components.html(_js, height=0, width=0)
     except Exception:
         pass
+
+
+def _show_settings_page(stores, products, inventory, kakao_js_key, final_recommendations):
+    """설정 — 데이터 연결 상태와 기본 환경 확인(운영 설정 화면)."""
+    _back_to_dashboard()
+    _render_section_subnav("settings")
+    st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
+    _page_header("", "설정", "데이터 연결 상태와 기본 환경을 확인합니다.")
+
+    def _count(x):
+        try:
+            if x is None:
+                return 0
+            if hasattr(x, "shape"):
+                return int(x.shape[0])
+            return len(x)
+        except Exception:
+            return 0
+
+    n_store = _count(stores)
+    n_prod = _count(products)
+    n_inv = _count(inventory)
+    rec_ok = (final_recommendations is not None
+              and getattr(final_recommendations, "empty", True) is False)
+    key_ok = bool(kakao_js_key)
+
+    def _row(label, ok, val):
+        dot = "#2E7D32" if ok else "#9CA3AF"
+        bcol = "#2E7D32" if ok else "#9A7B12"
+        badge = "연결됨" if ok else "미설정"
+        return ('<div style="display:flex;align-items:center;justify-content:space-between;'
+                'padding:12px 14px;border:1px solid #ECECEC;border-radius:12px;'
+                'background:#FFFFFF;margin-bottom:8px;">'
+                '<div style="display:flex;align-items:center;gap:10px;">'
+                '<span style="width:9px;height:9px;border-radius:50%;background:' + dot + ';'
+                'display:inline-block;"></span>'
+                '<span style="font-size:13px;font-weight:700;color:#111827;">' + label + '</span></div>'
+                '<div style="font-size:13px;color:#6B7280;">' + val + ' · '
+                '<b style="color:' + bcol + ';">' + badge + '</b></div></div>')
+
+    st.markdown("##### 데이터 연결 상태")
+    st.markdown(
+        _row("점포 데이터", n_store > 0, str(n_store) + "개")
+        + _row("상품 데이터", n_prod > 0, str(n_prod) + "개")
+        + _row("재고 데이터", n_inv > 0, str(n_inv) + "건")
+        + _row("추천 결과", rec_ok, "생성됨" if rec_ok else "없음")
+        + _row("카카오 지도 키", key_ok, "입력됨" if key_ok else "없음"),
+        unsafe_allow_html=True)
+    st.caption("데이터 업로드와 카카오 지도 키 입력은 왼쪽 사이드바에서 설정합니다.")
+
+    with st.expander("환경 안내", expanded=False):
+        st.markdown(
+            "- 운영 데이터는 엑셀 업로드로 불러옵니다.\n"
+            "- 카카오 지도 키를 입력하면 운영 시뮬레이션의 지도가 표시됩니다.\n"
+            "- 추천 결과는 업로드한 데이터를 기준으로 자동 계산됩니다.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _show_route_summary_page(stores, products, inventory, final_recommendations, transfer_path_result):
+    """경로 요약 — 추천 후보별 이동 경로/거리/예상 시간/이동 수단 정리(운영 시뮬레이션 보조 탭)."""
+    _back_to_dashboard()
+    _render_section_subnav("route_summary")
+    st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
+    _page_header("", "경로 요약",
+                 "추천 후보별 이동 경로 · 거리 · 예상 시간 · 이동 수단을 한눈에 정리했습니다.")
+    if final_recommendations is None or getattr(final_recommendations, "empty", True):
+        st.info("표시할 추천 경로가 없습니다.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+    try:
+        scs = _build_truck_scenarios(stores, products, inventory,
+                                     final_recommendations, transfer_path_result, 10)
+    except Exception:
+        scs = []
+    if not scs:
+        st.info("추천 경로 정보를 불러오지 못했습니다.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+    _spd_map = {"도보": 4, "전동자전거": 16, "오토바이": 30,
+                "소형 차량": 38, "소형 트럭": 36, "냉동/냉장 탑차": 34}
+    rows = []
+    for _i, s in enumerate(scs[:10], 1):
+        try:
+            dist = float(s.get("distance_km") or 0)
+        except Exception:
+            dist = 0.0
+        ttype = str(s.get("transport_type", "-"))
+        kmh = _spd_map.get(ttype, 35)
+        mins = int(round(dist / kmh * 60.0)) if (dist > 0 and kmh > 0) else 0
+        icon = str(s.get("transport_icon", "") or "")
+        rows.append({
+            "순위": _i,
+            "경로": "%s → 물류 DC → %s" % (s.get("source_store", "-"), s.get("target_store", "-")),
+            "거리": ("%.1f km" % dist) if dist > 0 else "-",
+            "예상 시간": ("약 %d분" % mins) if mins > 0 else "-",
+            "이동 수단": (icon + " " + ttype).strip() or "-",
+            "이동 수량": "%s개" % s.get("move_qty", 0),
+        })
+    _safe_dataframe(pd.DataFrame(rows), width="stretch")
+    st.caption("지도에서 위치와 경로 라인을 보려면 상단 '카카오 지도' 탭을 선택하세요.")
+    with st.expander("차량 이동 시뮬레이션 (보조)", expanded=False):
+        st.caption("출발 점포 · 물류 DC · 도착 점포를 잇는 차량 이동 시뮬레이션을 별도 화면에서 확인합니다.")
+        if st.button("차량 이동 시뮬레이션 열기", key="goto_truck_from_route", width="stretch"):
+            _go("truck")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def show_dashboard_router(
@@ -8329,6 +8696,16 @@ def show_dashboard_router(
             dc_routes,
             cutline_result,
             time_result,
+        )
+
+    elif page == "route_summary":
+        _show_route_summary_page(
+            stores, products, inventory, final_recommendations, transfer_path_result
+        )
+
+    elif page == "settings":
+        _show_settings_page(
+            stores, products, inventory, kakao_js_key, final_recommendations
         )
 
     else:

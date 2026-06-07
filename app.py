@@ -1492,7 +1492,9 @@ def cached_excel_analysis(
 
 
 def show_excel_optimizer():
-    show_back_button()
+    # "방식 선택 화면으로 돌아가기"는 홈(대시보드)에서만 표시
+    if st.session_state.get("excel_dashboard_page", "dashboard") == "dashboard":
+        show_back_button()
 
     # 엑셀 분석 화면에서는 메인에 대시보드만 보이도록 상단 설명 헤더와 기능 카드는 숨김 처리
     # show_mode_header(
