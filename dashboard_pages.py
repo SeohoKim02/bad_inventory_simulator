@@ -893,6 +893,23 @@ _SECTION_EXTRA = {
 }
 
 
+_SUBPAGE_PARENT = {
+    "graph": ("effect", "비용·효과"),
+    "cost_compare": ("effect", "비용·효과"),
+    "batch": ("network", "최적화 근거"),
+    "transport_rule": ("network", "최적화 근거"),
+}
+
+
+def _back_to_parent(page):
+    """페이지 속 페이지: 상위(대표) 페이지로 돌아가는 버튼."""
+    _p = _SUBPAGE_PARENT.get(page)
+    if not _p:
+        return
+    if st.button("← %s로 돌아가기" % _p[1], key="back_parent_%s" % page):
+        _go(_p[0])
+
+
 def _render_section_subnav(active_page):
     """대표 페이지 상단에 같은 그룹의 하위 페이지로 이동하는 가로 탭을 렌더.
     직접 이동 구조를 유지하면서 세부 기능 접근성을 되살린다."""
@@ -903,23 +920,21 @@ def _render_section_subnav(active_page):
     if grp is None:
         return
     items = _SECTION_GROUPS[grp]
-    st.markdown("""
-    <style>
-    div[class*="st-key-subnav_"] button{
-        min-height:34px !important;height:34px !important;padding:2px 10px !important;
-        font-size:13px !important;font-weight:700 !important;border-radius:10px !important;
-        background:#FFFFFF !important;color:#4B5563 !important;border:1px solid #ECECEC !important;
-        box-shadow:none !important;white-space:nowrap !important;
-    }
-    div[class*="st-key-subnav_"] button:hover{
-        background:#FFFDF5 !important;border-color:#F1E3A3 !important;color:#111827 !important;
-    }
-    div[class*="st-key-subnav_"] button:disabled{
-        background:#FFEFA3 !important;color:#111827 !important;border:1px solid #E0C84A !important;
-        opacity:1 !important;font-weight:800 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    st.markdown("""<style>
+div[class*="st-key-subnav_"] button{
+min-height:34px !important;height:34px !important;padding:2px 10px !important;
+font-size:13px !important;font-weight:700 !important;border-radius:10px !important;
+background:#FFFFFF !important;color:#4B5563 !important;border:1px solid #ECECEC !important;
+box-shadow:none !important;white-space:nowrap !important;
+}
+div[class*="st-key-subnav_"] button:hover{
+background:#FFFDF5 !important;border-color:#F1E3A3 !important;color:#111827 !important;
+}
+div[class*="st-key-subnav_"] button:disabled{
+background:#FFEFA3 !important;color:#111827 !important;border:1px solid #E0C84A !important;
+opacity:1 !important;font-weight:800 !important;
+}
+</style>""", unsafe_allow_html=True)
     _per = 5
     for _i in range(0, len(items), _per):
         _chunk = items[_i:_i + _per]
@@ -1277,12 +1292,11 @@ def _apply_page_style():
             }
 
             .dash-page-box {
-                padding: 20px 24px;
-                border-radius: 24px;
-                background: #ffffff;
-                border: 1px solid #F4F4F2;
-                box-shadow: 0 8px 22px rgba(0,0,0,0.045);
-                margin: 12px 0 16px 0;
+                padding: 0;
+                background: transparent;
+                border: none;
+                box-shadow: none;
+                margin: 6px 0 0 0;
             }
 
             .formula-grid {
@@ -1510,7 +1524,7 @@ def _apply_page_style():
         hr{ border-color:#EFEAD2 !important; }
         [data-testid="stTabs"] button[aria-selected="true"]{ color:#9A7B12 !important; }
         /* 페이지 카드 래퍼 그림자 살짝 정돈 */
-        .dash-page-box{ box-shadow:0 6px 18px rgba(201,162,39,.06) !important; border-color:#EFEAD2 !important; }
+        .dash-page-box{ box-shadow:none !important; border:none !important; }
         /* ── 운영 관제 밀도: 설명 축소 + info 연노랑 + 차트 높이 제한 ── */
         /* st.info/안내 박스 → 연노랑 + compact (파랑 제거, 설명 시각적 축소) */
         [data-testid="stAlert"]{
@@ -2456,9 +2470,8 @@ def _render_candidate_rail(final_recommendations, topn=5):
     st.markdown("""
     <style>
     .rail-card{background:#FFFFFF;border:1px solid #ECECEC;border-radius:12px;
-      padding:10px 12px;margin-bottom:8px;box-shadow:0 1px 3px rgba(17,24,39,.04);}
-    .rail-card.sel{border:1.5px solid #E0C84A;background:#FFFDF5;
-      box-shadow:0 4px 14px rgba(201,162,39,.16);}
+      padding:10px 12px;margin-bottom:12px;box-shadow:none;}
+    .rail-card.sel{border:1.5px solid #E0C84A;background:#FFFDF5;box-shadow:none;}
     .rc-top{display:flex;align-items:center;gap:8px;}
     .rc-rank{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:#F1F0EC;
       color:#6B7280;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;}
@@ -2501,6 +2514,8 @@ def _render_candidate_rail(final_recommendations, topn=5):
             if st.button("선택", key=f"rail_pick_{orig_idx}", width="stretch"):
                 st.session_state["dashboard_selected_candidate_index"] = orig_idx
                 st.rerun()
+        else:
+            st.button("✓ 선택됨", key=f"rail_sel_{orig_idx}", disabled=True, width="stretch")
 
 
 def _render_candidate_routes_tab(final_recommendations, compact=False, topn=None):
@@ -2764,8 +2779,8 @@ def _render_icon_nav(final_recommendations=None, stores=None, products=None, inv
     }
     /* 현재 선택 탭 강조 (연한 배경 + 진한 글자) */
     div[class*="st-key-__ACTIVE_KEY__"] button{
-        background:#F1F0EC !important;color:#111827 !important;
-        border:1px solid #E5E0CC !important;font-weight:800 !important;
+        background:transparent !important;color:#C9A227 !important;
+        border:1px solid transparent !important;font-weight:800 !important;
     }
     /* 팝오버 내부 하위 메뉴 — compact 흰색(모바일 큰 노란버튼 방지) */
     div[class*="st-key-nav_sub_"] button{
@@ -2905,7 +2920,7 @@ def _show_dashboard_home(
                         st.markdown(
                             '<div style="font-size:13px;color:#7A5E12;font-weight:800;'
                             'background:#FFF9E6;border:1px solid #F1E3A3;border-radius:9px;'
-                            'padding:5px 10px;margin:2px 0 6px 0;display:inline-block;">'
+                            'padding:6px 12px;margin:2px 0 14px 0;display:inline-block;">'
                             f'현재 후보 VHS · {_vhs_val:.1f}점</div>',
                             unsafe_allow_html=True)
                     st.caption("VHS는 Varo 추천 결과를 종합한 운영 점수입니다. "
@@ -4377,42 +4392,6 @@ def _show_score_page(final_recommendations, stores=None, products=None, inventor
         _render_score_bar_chart(summary_view, max_rows=5)
         _render_grade_category_top3(filtered_view)
 
-        # Hybrid Score 기준 (접힌 영역)
-        with st.expander("📐 Hybrid Score 기준", expanded=False):
-            _render_hybrid_score_criteria(filtered_view)
-
-        # 신뢰도 기준 (접힌 영역)
-        with st.expander("🎯 신뢰도 기준", expanded=False):
-            try:
-                from varo_confidence import get_confidence_criteria_table
-                _safe_dataframe(get_confidence_criteria_table(), width="stretch")
-            except Exception:
-                st.info("신뢰도 기준 표시 불가")
-
-        # 민감도 분석 (접힌 영역)
-        with st.expander("📉 민감도 분석", expanded=False):
-            _render_sensitivity_analysis(score_source)
-
-        # 최적화 비교 (접힌 영역)
-        with st.expander("🔬 최적화 비교", expanded=False):
-            _render_optimality_gap(score_source)
-
-        # 가중치 최적화 (접힌 영역)
-        with st.expander("⚙️ 가중치 최적화", expanded=False):
-            _render_weight_optimizer(score_source)
-
-        # 수요 분석 (접힌 영역)
-        with st.expander("📦 수요 분석", expanded=False):
-            _render_demand_analysis(score_source)
-
-        # 프로모션 분석 (접힌 영역)
-        with st.expander("🏷️ 프로모션 분석", expanded=False):
-            _render_promotion_analysis(score_source)
-
-        with st.expander("💰 비용 산정 기준", expanded=False):
-            if st.button("비용 산정 기준 상세 보기", key="go_cost_compare_from_score"):
-                _go("cost_compare")
-
     with _sc_tab2:
         _render_dqn_comparison(score_source)
 
@@ -4420,11 +4399,6 @@ def _show_score_page(final_recommendations, stores=None, products=None, inventor
     with st.expander("⭐ 최적 운영 전략 / 추천 이유", expanded=False):
         _render_optimal_strategy(final_recommendations)
         _render_strategy_reasoning(final_recommendations)
-    with st.expander("🔎 검증 리포트", expanded=False):
-        _render_validation_report(
-            final_recommendations=final_recommendations,
-            stores=stores, products=products, inventory=inventory,
-        )
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -4725,12 +4699,17 @@ def _transport_usage_text(name):
     return "일반 이동"
 
 
-def _show_transport_rule_page():
-    _back_to_dashboard()
-    _render_section_subnav("transport_rule")
+def _show_transport_rule_page(embedded=False):
+    if not embedded:
+        _back_to_dashboard()
+        _back_to_parent("transport_rule")
+        _render_section_subnav("transport_rule")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    _page_header("", "이동수단 · 비용 기준",
-                 "추천 이동수단별 예상 비용과 적재 가능 수량 기준입니다.")
+    if not embedded:
+        _page_header("", "이동수단 · 비용 기준",
+                     "추천 이동수단별 예상 비용과 적재 가능 수량 기준입니다.")
+    else:
+        st.markdown("#### 🚚 이동수단 · 비용 기준")
 
 
     cost_rule_df = pd.DataFrame([
@@ -4788,15 +4767,20 @@ def _show_cost_compare_page(
     final_recommendations,
     promotion_result,
     transfer_path_result,
+    embedded=False,
 ):
-    _back_to_dashboard()
-    _render_section_subnav("cost_compare")
-
-    if st.button("← 상품별 AI 추천 결과로 돌아가기", width="stretch", key="back_to_ai_recommendation_from_cost"):
-        _go("score")
+    if not embedded:
+        _back_to_dashboard()
+        _back_to_parent("cost_compare")
+        _render_section_subnav("cost_compare")
+        if st.button("← 상품별 AI 추천 결과로 돌아가기", width="stretch", key="back_to_ai_recommendation_from_cost"):
+            _go("score")
 
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("💰 상품별 비용 산정 기준")
+    if not embedded:
+        st.header("💰 상품별 비용 산정 기준")
+    else:
+        st.markdown("#### 💰 상품별 비용 산정 기준")
 
 
     discount_rate_for_loss = st.number_input("할인손실비용 계산용 할인율(%)", min_value=0.0, max_value=100.0, value=20.0, step=1.0, key="cost_compare_discount_rate")
@@ -5007,12 +4991,28 @@ def _show_score_formula_page(final_recommendations):
 
         _safe_dataframe(score_table, width="stretch")
 
+    _src = _filter_positive_qty_recommendations(final_recommendations) if final_recommendations is not None else None
+    if _src is not None and not _src.empty:
+        _view = _build_score_view(_src)
+        with st.expander("📐 Hybrid Score 기준", expanded=False):
+            _render_hybrid_score_criteria(_view)
+        with st.expander("🎯 신뢰도 기준", expanded=False):
+            try:
+                from varo_confidence import get_confidence_criteria_table
+                _safe_dataframe(get_confidence_criteria_table(), width="stretch")
+            except Exception:
+                st.info("신뢰도 기준 표시 불가")
+        with st.expander("📉 민감도 분석", expanded=False):
+            _render_sensitivity_analysis(_src)
+        with st.expander("⚖️ 가중치 설명", expanded=False):
+            _render_weight_optimizer(_src)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _show_graph_page(final_recommendations, final_rec_summary, promotion_result, transfer_path_result, embedded=False):
     if not embedded:
         _back_to_dashboard()
+        _back_to_parent("graph")
         _render_section_subnav("graph")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     if not embedded:
@@ -6077,17 +6077,6 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
 
                     _safe_dataframe(q_view, width="stretch")
 
-                with st.expander("DQN 학습 방식 설명"):
-                    st.markdown(
-                        """
-                        - **State**: 후보의 총점, 추천 수량, 예상 비용, 이동거리, 수요/재고 차이 등으로 구성됩니다.
-                        - **Action**: 재고 이동, 할인, 폐기, 보류 4가지 행동입니다.
-                        - **Reward**: 비용 절감 가능성, 재고 처리 효과, 수량, 거리, 휴리스틱 총점을 이용해 계산한 시뮬레이션 보상입니다.
-                        - **Q값**: 특정 상태에서 특정 행동을 선택했을 때 기대되는 보상입니다.
-                        - DQN은 Q값이 가장 높은 행동을 추천합니다.
-                        """
-                    )
-
         except ImportError:
             st.error("dqn_agent.py 파일을 찾지 못했습니다. 새로 받은 dqn_agent.py를 프로젝트 폴더에 넣어 주세요.")
         except Exception as e:
@@ -6623,7 +6612,7 @@ def _show_truck_page(
     _back_to_dashboard()
     _render_section_subnav("truck")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
-    st.header("🚚 재고 이동 시뮬레이션 페이지")
+    st.header("🚚 차량 이동 보기")
 
     if not kakao_js_key:
         st.info("왼쪽 사이드바에 카카오맵 JavaScript 키를 입력하면 재고 이동 시뮬레이션이 표시됩니다.")
@@ -6743,11 +6732,15 @@ def _show_truck_page(
 # =========================
 # 산업공학 알고리즘 페이지
 # =========================
-def _show_batch_page(final_recommendations):
+def _show_batch_page(final_recommendations, embedded=False):
     """처리 배치 최적화 페이지."""
-    _back_to_dashboard()
-    _render_section_subnav("batch")
-    _page_header("", "처리 배치 최적화", "오늘 처리할 상품을 어떤 순서로 진행하면 비용·폐기 손실을 줄일 수 있는지 보여줍니다.")
+    if not embedded:
+        _back_to_dashboard()
+        _back_to_parent("batch")
+        _render_section_subnav("batch")
+        _page_header("", "처리 배치 최적화", "오늘 처리할 상품을 어떤 순서로 진행하면 비용·폐기 손실을 줄일 수 있는지 보여줍니다.")
+    else:
+        st.markdown("#### 🗂️ 처리 배치 최적화")
 
     if final_recommendations is None or (
         isinstance(final_recommendations, pd.DataFrame) and final_recommendations.empty
@@ -6804,19 +6797,13 @@ def _show_batch_page(final_recommendations):
     st.dataframe(batch_df, width="stretch", hide_index=True)
 
 
-def _show_effect_page(final_recommendations, embedded=False):
-    """Before/After 효과 지표 페이지."""
+def _show_effect_page(final_recommendations, stores=None, products=None, inventory=None,
+                      final_rec_summary=None, promotion_result=None, transfer_path_result=None,
+                      embedded=False):
+    """Before/After 효과 지표 페이지 (성과 그래프·비용 비교 통합)."""
     if not embedded:
         _back_to_dashboard()
         _render_section_subnav("effect")
-        with st.expander("관련 분석 더 보기 (성과 그래프 · 비용 비교)", expanded=False):
-            _c1, _c2 = st.columns(2)
-            with _c1:
-                if st.button("📈 성과 그래프", key="goto_graph_from_effect", width="stretch"):
-                    _go("graph")
-            with _c2:
-                if st.button("💰 비용 비교", key="goto_cost_compare_from_effect", width="stretch"):
-                    _go("cost_compare")
         _page_header("08", "기대 효과 (도입 전·후 비교)",
                      "Varo 추천을 적용하면 폐기 비용과 재고 균형이 얼마나 개선되는지 추정합니다.")
     else:
@@ -6869,6 +6856,14 @@ def _show_effect_page(final_recommendations, embedded=False):
         | 재고 불균형 개선률 | 재배치 이동 건수 ÷ 전체 추천 수 × 100% |
         """)
     st.caption("※ 추정치입니다. 실제 결과는 점포 운영 조건에 따라 달라질 수 있습니다.")
+
+    if not embedded:
+        with st.expander("📈 성과 그래프", expanded=False):
+            _show_graph_page(final_recommendations, final_rec_summary,
+                             promotion_result, transfer_path_result, embedded=True)
+        with st.expander("💰 비용 비교", expanded=False):
+            _show_cost_compare_page(stores, products, inventory, final_recommendations,
+                                    promotion_result, transfer_path_result, embedded=True)
 
 
 def _show_guide_page(final_recommendations=None):
@@ -6932,81 +6927,37 @@ def _show_guide_page(final_recommendations=None):
             ## VARO Hybrid Score (VHS)
 
             10개 산업공학 알고리즘 결과를 **상황 감지 → 가중치 조정 → 이력 보정** 과정을
-            거쳐 0~100점 단일 점수로 통합합니다.
+            거쳐 0~100점 단일 점수(VHS)로 통합합니다.
 
-            ### 컴포넌트 가중치
-            | 역할 | 컴포넌트 | 가중치 | 설명 |
-            |------|----------|--------|------|
-            | A. 긴급도 | 폐기위험도 | **22%** | 유통기한·판매속도 복합 점수 |
-            | A. 긴급도 | 재고회전율 | **18%** | 악성재고 판단의 본질 지표 |
-            | A. 긴급도 | 수요예측 | **14%** | 재고 소진 임박 위험 |
-            | C. 비용효율 | 휴리스틱 | 12% | 비용·거리·수량 종합 |
-            | B. 이동적합 | 안전재고/ROP | 10% | 목적지 재고 필요성 |
-            | B. 이동적합 | 점포매칭 | 9% | 점포-상품 매칭 적합도 |
-            | E. 상품맥락 | ABC등급 | 6% | 상품 가치 (A/B/C) |
-            | D. 기존연동 | 그리디선택 | 5% | 그리디 순위 + 선택 여부 |
-            | C. 비용효율 | EOQ | 3% | 발주량 과잉·과소 |
-            | C. 비용효율 | 최소비용경로 | 1% | 네트워크 경로 효율 |
+            - **상황 감지** — 유통기한 임박 · 냉동/냉장 과잉 · 이동비용 과다 · 수요 급증 ·
+              악성재고 · 재주문 위기 등 상황에 따라 컴포넌트 가중치를 자동 조정합니다.
+            - **이력 보정** — 강화학습 보정 신호로 VHS를 ±8점 범위에서 미세 조정하며,
+              경험이 쌓일수록 정확도가 높아집니다.
 
-            ### 상황 감지 & 가중치 자동 조정
-            | 상황 | 감지 조건 | 조정 내용 |
-            |------|-----------|-----------|
-            | ⏰ 유통기한 임박 | expiry_days ≤ 5일 | 폐기위험 ×2.0, 수요예측 ×1.5 |
-            | ❄️ 냉동·냉장 과잉 | 냉동/냉장 카테고리 | EOQ ×1.8, 매칭 ×1.5 |
-            | 💸 이동비용 높음 | 비용 상위 20% | 네트워크비용 ×2.5 |
-            | 📈 수요 급증 | demand_trend=INCREASING | 수요예측 ×1.8, 매칭 ×1.4 |
-            | 💀 악성재고 | turnover_grade=DEAD | 회전율 ×1.8, 폐기위험 ×1.4 |
-            | 🚨 재주문 위기 | reorder_status=CRITICAL | 안전재고 ×2.0, 수요예측 ×1.5 |
-
-            ### 이력 보정
-            강화학습 reward 신호를 학습 데이터로 활용해 VHS를 ±8점 범위 내에서 보정합니다.
-            상황별 경험이 쌓일수록 보정 정확도가 높아집니다.
+            > 컴포넌트별 가중치 · 수식 S(i) · 정규화 조건 · 등급 임계값 · 민감도는
+            > **상세 분석 → VHS 설명** 탭에서 자세히 확인할 수 있습니다.
             """
         )
         st.markdown(
             """
             ## 비용 산정 기준
 
-            ### 이동비용 (Transport Cost)
-            추천 경로의 **이동거리 × 이동수단 단가** + 경유 여부에 따른 추가비용.
+            추천은 **이동비용 · 할인손실비용 · 폐기비용**을 비교해, *이동비용 < 폐기비용*일 때
+            이동을 우선합니다. 이동비용은 거리 × 이동수단 단가(+경유) 기준입니다.
 
-            | 이동수단 | 기준 단가 | 적합 거리 |
-            |----------|-----------|-----------|
-            | 도보 | 0원/km | 0.5km 이내 |
-            | 전동자전거 | ~200원/km | 1km 이내 |
-            | 오토바이 | ~400원/km | 3km 이내 |
-            | 소형 차량 | ~600원/km | 10km 이내 |
-            | 냉동·냉장 탑차 | ~1,200원/km | DC 경유 포함 |
-
-            ### 할인손실비용 (Discount Loss)
-            할인 판매 시 정상가 대비 감소하는 예상 매출 손실.
-            `할인손실 = unit_cost × 할인율 × 처리 수량`
-
-            ### 폐기비용 (Disposal Cost)
-            처리하지 못한 재고를 폐기할 때 발생하는 손실.
-            `폐기비용 ≈ unit_cost × 처리 수량 × 1.4` (물류 포함)
-
-            ### 비용 비교 기준
-            Varo는 **이동비용 < 폐기비용**인 경우 이동을 우선 추천합니다.
+            > 이동수단별 단가 · 할인손실 · 폐기비용 공식과 상품별 비용 비교표는
+            > **비용·효과** 탭(💰 비용 비교)에서 확인할 수 있습니다.
             """
         )
         st.markdown(
             """
             ## 이동수단 선택 기준
 
-            | 이동수단 | 최대 거리 | 최대 수량 | 특이사항 |
-            |----------|-----------|-----------|----------|
-            | 🚶 도보 | 0.5 km | 10개 | 초근거리 소량 |
-            | 🛴 전동자전거 | 1 km | 30개 | 근거리 소량 |
-            | 🏍 오토바이 | 3 km | 20개 | 긴급 소량 배송 |
-            | 🚗 소형 차량 | 10 km | 150개 | 일반 점포간 이동 |
-            | 🚛 냉동·냉장 탑차 | 제한 없음 | 제한 없음 | DC 경유, 냉장 필수 상품 |
+            냉동·냉장 상품은 냉동탑차를 우선하고, 그 외에는 거리·수량에 맞는 이동수단을
+            비용 최소화 방향으로 자동 선택합니다(필요 시 DC 경유).
 
-            ### 이동수단 자동 선택 로직
-            1. 냉동·냉장 상품 → 냉동탑차 우선
-            2. 거리·수량에 따라 적합한 이동수단 선택
-            3. 비용 최소화 방향으로 최종 선택
-            4. DC 경유가 직접 이동보다 비용이 낮으면 경유 추천
+            > 이동수단별 최대 거리·수량·단가 기준표는
+            > **최적화 근거** 탭(🚚 이동수단 · 비용 기준)에서 확인할 수 있습니다.
             """
         )
         st.markdown(
@@ -7056,7 +7007,7 @@ def _show_whatif_page(final_recommendations):
     df = final_recommendations
 
     # ── 탭 구성 ──────────────────────────────────────────
-    tab1, tab2, tab3 = st.tabs(["🎛 파라미터 직접 조정", "📊 시나리오 비교", "📐 민감도 분석"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🎛 파라미터 직접 조정", "📊 시나리오 비교", "📐 민감도 분석", "📦 수요·프로모션 분석"])
 
     # ── 탭 1: 파라미터 직접 조정 ─────────────────────────
     with tab1:
@@ -7194,19 +7145,21 @@ def _show_whatif_page(final_recommendations):
                 """
             )
 
+    with tab4:
+        _src = _filter_positive_qty_recommendations(final_recommendations) if final_recommendations is not None else None
+        if _src is None or _src.empty:
+            st.info("수요·프로모션 분석을 표시할 추천 후보가 없습니다.")
+        else:
+            with st.expander("📦 수요 분석", expanded=True):
+                _render_demand_analysis(_src)
+            with st.expander("🏷️ 프로모션 분석", expanded=True):
+                _render_promotion_analysis(_src)
 
-def _show_network_page():
-    """최소비용 네트워크 분석 결과 페이지."""
+
+def _show_network_page(final_recommendations=None):
+    """최소비용 네트워크 분석 결과 페이지 (배치·운송수단 규칙 통합)."""
     _back_to_dashboard()
     _render_section_subnav("network")
-    with st.expander("관련 분석 더 보기 (배치 최적화 · 운송수단 규칙)", expanded=False):
-        _c1, _c2 = st.columns(2)
-        with _c1:
-            if st.button("🗂️ 배치 최적화", key="goto_batch_from_network", width="stretch"):
-                _go("batch")
-        with _c2:
-            if st.button("🚚 운송수단 규칙", key="goto_transport_rule_from_network", width="stretch"):
-                _go("transport_rule")
     st.markdown('<div class="dash-page-box">', unsafe_allow_html=True)
     _page_header("05", "경로 최적화",
                  "재고를 가장 적은 비용으로 옮기는 최적 경로를 계산한 결과입니다.")
@@ -7215,8 +7168,19 @@ def _show_network_page():
     node_df   = st.session_state.get("_network_node_df",  None)
     summary   = st.session_state.get("_network_summary",  {})
 
+    def _render_opt_extras():
+        with st.expander("🗂️ 처리 배치 최적화", expanded=False):
+            _show_batch_page(final_recommendations, embedded=True)
+        with st.expander("🚚 이동수단 · 비용 기준", expanded=False):
+            _show_transport_rule_page(embedded=True)
+        _src = _filter_positive_qty_recommendations(final_recommendations) if final_recommendations is not None else None
+        if _src is not None and not _src.empty:
+            with st.expander("🔬 최적화 비교 (Optimality Gap)", expanded=False):
+                _render_optimality_gap(_src)
+
     if flow_df is None or (isinstance(flow_df, pd.DataFrame) and flow_df.empty):
         st.info("네트워크 분석 결과가 없습니다. routes 데이터를 확인하거나 앱을 재시작해주세요.")
+        _render_opt_extras()
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
@@ -7278,6 +7242,7 @@ def _show_network_page():
             """
         )
 
+    _render_opt_extras()
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -8035,24 +8000,28 @@ def _show_demo_page():
         st.info("💡 또는 엑셀 업로드 화면에서 샘플 데이터로 시작할 수 있습니다.")
 
 
-def _show_validator_page(sheets: dict = None):
-    """샘플 엑셀 검증기 페이지."""
+def _show_validator_page(sheets: dict = None, final_recommendations=None,
+                         stores=None, products=None, inventory=None):
+    """샘플 엑셀 검증기 페이지 (+ 추천 결과 검증 리포트)."""
     _back_to_dashboard()
     _render_section_subnav("validator")
     _page_header("", "데이터 검증", "업로드한 엑셀이 Varo 분석에 적합한지 자동으로 확인합니다.")
 
     try:
         from sample_validator import validate_excel, render_validation_result
+        if sheets is None:
+            st.info("분석 후 자동으로 검증 결과가 표시됩니다.")
+        else:
+            r = validate_excel(sheets)
+            render_validation_result(r)
     except ImportError:
         st.error("sample_validator.py를 찾을 수 없습니다.")
-        return
 
-    if sheets is None:
-        st.info("분석 후 자동으로 검증 결과가 표시됩니다.")
-        return
-
-    r = validate_excel(sheets)
-    render_validation_result(r)
+    with st.expander("📋 추천 결과 검증 리포트", expanded=False):
+        _render_validation_report(
+            final_recommendations=final_recommendations,
+            stores=stores, products=products, inventory=inventory,
+        )
 
 
 def _show_dqn_interpretation_page(final_recommendations=None, inventory=None):
@@ -8060,6 +8029,17 @@ def _show_dqn_interpretation_page(final_recommendations=None, inventory=None):
     _back_to_dashboard()
     _render_section_subnav("dqn_interpret")
     _page_header("", "DQN 결과 해석", "DQN 추천의 의미와 Greedy/Heuristic과의 차이, 각 행동의 적용 상황을 설명합니다.")
+
+    with st.expander("DQN 학습 방식 (State · Action · Reward · Q값)", expanded=False):
+        st.markdown(
+            """
+            - **State**: 후보의 총점, 추천 수량, 예상 비용, 이동거리, 수요/재고 차이 등으로 구성됩니다.
+            - **Action**: 재고 이동, 할인, 폐기, 보류 4가지 행동입니다.
+            - **Reward**: 비용 절감 가능성, 재고 처리 효과, 수량, 거리, 휴리스틱 총점을 이용해 계산한 시뮬레이션 보상입니다.
+            - **Q값**: 특정 상태에서 특정 행동을 선택했을 때 기대되는 보상입니다.
+            - DQN은 Q값이 가장 높은 행동을 추천합니다.
+            """
+        )
 
     ART_DIR = "dqn_artifacts"
 
@@ -8529,10 +8509,6 @@ def _show_route_summary_page(stores, products, inventory, final_recommendations,
         })
     _safe_dataframe(pd.DataFrame(rows), width="stretch")
     st.caption("지도에서 위치와 경로 라인을 보려면 상단 '카카오 지도' 탭을 선택하세요.")
-    with st.expander("차량 이동 시뮬레이션 (보조)", expanded=False):
-        st.caption("출발 점포 · 물류 DC · 도착 점포를 잇는 차량 이동 시뮬레이션을 별도 화면에서 확인합니다.")
-        if st.button("차량 이동 시뮬레이션 열기", key="goto_truck_from_route", width="stretch"):
-            _go("truck")
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -8648,19 +8624,27 @@ def show_dashboard_router(
                 st.code(_tb.format_exc())
 
     elif page == "network":
-        _show_network_page()
+        _show_network_page(final_recommendations=final_recommendations)
 
     elif page == "batch":
         _show_batch_page(final_recommendations)
 
     elif page == "effect":
-        _show_effect_page(final_recommendations)
+        _show_effect_page(
+            final_recommendations, stores=stores, products=products, inventory=inventory,
+            final_rec_summary=final_rec_summary, promotion_result=promotion_result,
+            transfer_path_result=transfer_path_result,
+        )
 
     elif page == "demo":
         _show_demo_page()
 
     elif page == "validator":
-        _show_validator_page(sheets=st.session_state.get("_uploaded_sheets"))
+        _show_validator_page(
+            sheets=st.session_state.get("_uploaded_sheets"),
+            final_recommendations=final_recommendations,
+            stores=stores, products=products, inventory=inventory,
+        )
 
     elif page == "dqn_validation":
         _show_dqn_validation_page(
