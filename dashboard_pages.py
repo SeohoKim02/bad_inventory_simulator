@@ -512,6 +512,47 @@ def _prepare_display_dataframe(df, max_rows=500):
     return display_df, total_rows
 
 
+_TABLE_HEADERS = {
+    "source_store": "출발 점포", "target_store": "도착 점포", "store_name": "점포",
+    "product_name": "상품", "category": "카테고리",
+    "suggested_qty": "제안 수량", "move_qty": "이동 수량",
+    "current_stock": "현재 재고", "dead_stock_qty": "악성 재고 수량",
+    "heuristic_score": "VHS 점수", "vhs_score": "VHS 점수",
+    "estimated_cost": "예상 비용(원)", "disposal_avoidance_profit": "폐기 회피 이익(원)",
+    "expected_profit": "기대 이익(원)",
+    "final_recommendation": "추천", "transport_mode": "운송수단",
+    "distance_km": "거리(km)", "priority": "우선순위",
+}
+
+
+def _build_column_config(display_df):
+    """알려진 영문 컬럼만 한글 헤더로 표시(미지원 버전이면 None → 기존 표시)."""
+    try:
+        import streamlit as st
+        cc = st.column_config
+        cfg = {}
+        for col in display_df.columns:
+            label = _TABLE_HEADERS.get(str(col))
+            if not label:
+                continue
+            try:
+                dt = str(display_df[col].dtype)
+            except Exception:
+                dt = ""
+            if str(col) in ("heuristic_score", "vhs_score") and dt.startswith(("int", "float")):
+                try:
+                    cfg[col] = cc.ProgressColumn(label, min_value=0, max_value=100, format="%.1f")
+                except Exception:
+                    cfg[col] = cc.NumberColumn(label)
+            elif dt.startswith(("int", "float", "uint")):
+                cfg[col] = cc.NumberColumn(label)
+            else:
+                cfg[col] = cc.TextColumn(label)
+        return cfg or None
+    except Exception:
+        return None
+
+
 def _safe_dataframe(df, **kwargs):
     max_rows = kwargs.pop("max_rows", 500)
     display_df, total_rows = _prepare_display_dataframe(df, max_rows=max_rows)
@@ -525,6 +566,9 @@ def _safe_dataframe(df, **kwargs):
     if "height" not in kwargs:
         n = len(display_df)
         kwargs["height"] = min(38 + n * 34, 360)  # 최대 ~9행 후 스크롤
+    _cfg = _build_column_config(display_df)
+    if _cfg:
+        kwargs.setdefault("column_config", _cfg)
     compact_kwargs = dict(kwargs)
     compact_kwargs.setdefault("row_height", 32)  # 신버전만 지원 → 실패 시 제거
 
@@ -723,7 +767,7 @@ def _pastel_bar_legend(items, min_label_pct=10.0):
     vals.sort(key=lambda x: -x[1])
     total = sum(v for _, v in vals) or 1.0
     bar = ('<div style="display:flex;height:26px;border-radius:8px;overflow:hidden;'
-           'border:1px solid #E5E7EB;margin-bottom:10px;">')
+           'border:1px solid #EFEAD2;margin-bottom:10px;">')
     leg = ('<div style="display:flex;flex-wrap:wrap;gap:10px;background:#FFFFFF;'
            'border:1px solid #EFEAD2;border-radius:12px;padding:10px 12px;margin-bottom:14px;">')
     for i, (k, v) in enumerate(vals):
@@ -732,9 +776,9 @@ def _pastel_bar_legend(items, min_label_pct=10.0):
         txt = f"{pct:.0f}%" if pct >= min_label_pct else ""
         bar += (f'<div style="width:{pct:.1f}%;background:{bg};border-right:1px solid #FFFFFF;'
                 f'display:flex;align-items:center;justify-content:center;" title="{k} {pct:.1f}%">'
-                f'<span style="font-size:10px;color:#111827;font-weight:700;white-space:nowrap;">{txt}</span></div>')
+                f'<span style="font-size:10px;color:#1F2937;font-weight:700;white-space:nowrap;">{txt}</span></div>')
         leg += ('<span style="display:inline-flex;align-items:center;gap:6px;'
-                'font-size:11.5px;color:#111827;font-weight:600;">'
+                'font-size:11.5px;color:#1F2937;font-weight:600;">'
                 f'<span style="width:10px;height:10px;border-radius:50%;background:{bg};'
                 f'border:1px solid {bd};display:inline-block;"></span>{k} {pct:.1f}%</span>')
     return bar + "</div>" + leg + "</div>"
@@ -924,14 +968,14 @@ def _render_section_subnav(active_page):
 div[class*="st-key-subnav_"] button{
 min-height:34px !important;height:34px !important;padding:2px 10px !important;
 font-size:13px !important;font-weight:700 !important;border-radius:10px !important;
-background:#FFFFFF !important;color:#4B5563 !important;border:1px solid #ECECEC !important;
+background:#FFFFFF !important;color:#4B5563 !important;border:1px solid #EFEAD2 !important;
 box-shadow:none !important;white-space:nowrap !important;
 }
 div[class*="st-key-subnav_"] button:hover{
-background:#FFFDF5 !important;border-color:#F1E3A3 !important;color:#111827 !important;
+background:#FFFDF5 !important;border-color:#F1E3A3 !important;color:#1F2937 !important;
 }
 div[class*="st-key-subnav_"] button:disabled{
-background:#FFEFA3 !important;color:#111827 !important;border:1px solid #E0C84A !important;
+background:#FFEFA3 !important;color:#1F2937 !important;border:1px solid #E0C84A !important;
 opacity:1 !important;font-weight:800 !important;
 }
 </style>""", unsafe_allow_html=True)
@@ -954,7 +998,7 @@ def _page_header(num, title, desc=""):
     num_html = (f'<span style="color:#C9A227;">{num}.</span> ' if num else '')
     st.markdown(
         '<div style="margin:2px 0 14px 0;">'
-        f'<div style="font-size:24px;font-weight:800;color:#1A1A1A;letter-spacing:-0.01em;">'
+        f'<div style="font-size:24px;font-weight:800;color:#1F2937;letter-spacing:-0.01em;">'
         f'{num_html}{title}</div>'
         '<div style="height:4px;width:54px;background:linear-gradient(90deg,#E0C84A,#C9A227);'
         'border-radius:999px;margin:8px 0 6px 0;"></div>'
@@ -980,7 +1024,7 @@ def _stat_chips(items):
             '<div style="flex:1;min-width:0;background:#FFFFFF;border:1px solid #EFEAD2;'
             'border-radius:14px;padding:13px 16px;box-shadow:0 3px 12px rgba(201,162,39,.05);">'
             f'<div style="color:#7A7A7A;font-size:12px;font-weight:600;margin-bottom:4px;">{label}</div>'
-            f'<div style="color:#1A1A1A;font-size:1.5rem;font-weight:800;line-height:1.1;">{value}</div>'
+            f'<div style="color:#1F2937;font-size:1.5rem;font-weight:800;line-height:1.1;">{value}</div>'
             f'{sub_html}</div>'
         )
     st.markdown(
@@ -1000,9 +1044,9 @@ _ACT_ICON = {"재배치 이동": "🚚", "할인 판매": "🏷️", "폐기": "
 
 def _vhs_color(score):
     if score is None: return "#aaa"
-    if score >= 80:   return "#F1E3A3"   # 연한 빨강
-    if score >= 65:   return "#C9A227"   # 연한 주황
-    if score >= 50:   return "#E0C84A"   # 연한 노랑
+    if score >= 80:   return "#F1E3A3"   # 연한 골드/크림 강조
+    if score >= 65:   return "#C9A227"   # 골드 강조
+    if score >= 50:   return "#E0C84A"   # 노랑 강조
     return "#C9A227"
 
 
@@ -1029,6 +1073,17 @@ def show_friendly_error(context: str, err: Exception) -> None:
         st.code(_tb.format_exc())
 
 def _apply_page_style():
+    # ── 디자인 토큰 (팔레트 단일 출처) ──────────────────────
+    st.markdown(
+        """<style>:root{
+  --vink:#1F2937; --vink-soft:#374151; --vgray:#6B7280; --vgray-light:#7A7A7A;
+  --vbg:#FFF9E6; --vcard:#FFFFFF;
+  --vline:#EFEAD2; --vline-strong:#E8DFC4;
+  --vaccent-soft:#F1E3A3; --vaccent-light:#FFF3BF; --vaccent:#E0C84A;
+  --vgold:#C9A227; --vgold-deep:#9A7B12; --vcream:#FFF9E6;
+}</style>""",
+        unsafe_allow_html=True,
+    )
     # ── 구글 번역 차단 (JS + 메타태그) ──────────────────────
     st.markdown(
         """<script>
@@ -1065,12 +1120,15 @@ def _apply_page_style():
             html, body,
             [data-testid="stApp"],
             [data-testid="stAppViewContainer"],
+            [data-testid="stSidebar"] {
+                background-color: #FFFFFF !important;
+                color: #1F2937 !important;
+            }
             [data-testid="stMain"],
-            [data-testid="stSidebar"],
             section[data-testid="stMain"] > div,
             .main .block-container {
-                background-color: #ffffff !important;
-                color:            #1A1A1A !important;
+                background-color: #FFF9E6 !important;
+                color:            #1F2937 !important;
             }
             /* Streamlit 기본 텍스트 강제 */
             p, span, div, label, li, td, th, h1, h2, h3, h4 {
@@ -1082,7 +1140,7 @@ def _apply_page_style():
                 html, body,
                 [data-testid="stApp"],
                 [data-testid="stAppViewContainer"],
-                .main { background-color: #ffffff !important; color: #1A1A1A !important; }
+                .main { background-color: #FFF9E6 !important; color: #1F2937 !important; }
             }
 
             /* ── 구글 번역 UI 숨기기 ────────────────────── */
@@ -1137,7 +1195,10 @@ def _apply_page_style():
             /* st.metric 숫자 크기 축소 → 잘림 방지 */
             [data-testid="stMetricValue"] {
                 font-size: 1.4rem !important;
-                white-space: nowrap !important;
+                white-space: normal !important;
+                overflow-wrap: anywhere !important;
+                word-break: keep-all !important;
+                min-width: 0 !important;
             }
 
             /* ── 기존 대시보드 스타일 ────────────────────── */
@@ -1146,7 +1207,7 @@ def _apply_page_style():
                 border-radius: 24px;
                 background:
                     radial-gradient(circle at top right, rgba(255, 212, 59, 0.35), transparent 32%),
-                    linear-gradient(135deg, #FFF9E6 0%, #fff3bf 55%, #ffffff 100%);
+                    linear-gradient(135deg, #FFF9E6 0%, #FFF3BF 55%, #FFFFFF 100%);
                 border: 2px solid #E0C84A;
                 box-shadow: 0 12px 30px rgba(0,0,0,0.07);
                 margin: 12px 0 16px 0;
@@ -1154,7 +1215,7 @@ def _apply_page_style():
 
             .dash-small-title {
                 font-size: 13px;
-                color: #666;
+                color: #6B7280;
                 font-weight: 800;
                 margin-bottom: 8px;
             }
@@ -1163,14 +1224,14 @@ def _apply_page_style():
                 font-size: 28px;
                 font-weight: 950;
                 letter-spacing: -0.7px;
-                color: #222;
+                color: #1F2937;
                 margin-bottom: 8px;
             }
 
             .dash-desc {
                 font-size: 15px;
                 line-height: 1.55;
-                color: #444;
+                color: #374151;
             }
 
             .dash-step-grid {
@@ -1183,8 +1244,8 @@ def _apply_page_style():
             .dash-step {
                 padding: 16px;
                 border-radius: 20px;
-                background: #ffffff;
-                border: 1px solid #F4F4F2;
+                background: #FFFFFF;
+                border: 1px solid #EFEAD2;
                 text-align: center;
                 box-shadow: 0 6px 16px rgba(0,0,0,0.035);
             }
@@ -1200,15 +1261,15 @@ def _apply_page_style():
             }
 
             .dash-step-desc {
-                color: #666;
+                color: #6B7280;
                 font-size: 13px;
             }
 
             .dash-menu-card {
                 padding: 16px;
                 border-radius: 18px;
-                background: #ffffff;
-                border: 1px solid #F4F4F2;
+                background: #FFFFFF;
+                border: 1px solid #EFEAD2;
                 box-shadow: 0 8px 22px rgba(0,0,0,0.05);
                 min-height: 128px;
                 margin-bottom: 8px;
@@ -1222,8 +1283,8 @@ def _apply_page_style():
             }
 
             .compact-metric-card {
-                background: #ffffff;
-                border: 1px solid #FFF9E6;
+                background: #FFFFFF;
+                border: 1px solid #EFEAD2;
                 border-radius: 18px;
                 padding: 14px 14px 12px 14px;
                 min-height: 94px;
@@ -1236,7 +1297,7 @@ def _apply_page_style():
             .compact-metric-label {
                 font-size: 13px;
                 font-weight: 750;
-                color: #555;
+                color: #374151;
                 line-height: 1.25;
                 margin-bottom: 8px;
                 white-space: normal;
@@ -1246,7 +1307,7 @@ def _apply_page_style():
             .compact-metric-value {
                 font-size: 23px;
                 font-weight: 900;
-                color: #1A1A1A;
+                color: #1F2937;
                 line-height: 1.12;
                 letter-spacing: -0.7px;
                 white-space: normal;
@@ -1285,7 +1346,7 @@ def _apply_page_style():
             }
 
             .dash-menu-desc {
-                color: #666;
+                color: #6B7280;
                 font-size: 13px;
                 line-height: 1.55;
                 min-height: 44px;
@@ -1310,7 +1371,7 @@ def _apply_page_style():
             .formula-card {
                 padding: 18px 20px;
                 border-radius: 20px;
-                background: linear-gradient(135deg, #ffffff 0%, #FFF9E6 100%);
+                background: linear-gradient(135deg, #FFFFFF 0%, #FFF9E6 100%);
                 border: 1px solid #F1E3A3;
                 box-shadow: 0 6px 16px rgba(0,0,0,0.035);
             }
@@ -1319,11 +1380,11 @@ def _apply_page_style():
                 font-size: 15px;
                 font-weight: 900;
                 margin-bottom: 8px;
-                color: #222;
+                color: #1F2937;
             }
 
             .formula-desc {
-                color: #555;
+                color: #374151;
                 font-size: 13px;
                 line-height: 1.6;
             }
@@ -1331,7 +1392,7 @@ def _apply_page_style():
             .formula-main {
                 padding: 20px 22px;
                 border-radius: 18px;
-                background: linear-gradient(135deg, #FFF9E6 0%, #ffffff 100%);
+                background: linear-gradient(135deg, #FFF9E6 0%, #FFFFFF 100%);
                 border: 1px solid #FFEFA3;
                 margin: 14px 0 18px 0;
                 line-height: 1.7;
@@ -1357,33 +1418,33 @@ def _apply_page_style():
             section[data-testid="stMain"] > div,
             .main .block-container {
                 background-color: #FFF9E6 !important;
-                color: #111827 !important;
+                color: #1F2937 !important;
             }
             /* 버튼: 흰색 배경 + 연회색 테두리 + 검정 글씨 */
             .stButton > button {
                 background-color: #FFFFFF !important;
-                color: #111827 !important;
-                border: 1px solid #FFF9E6 !important;
+                color: #1F2937 !important;
+                border: 1px solid #EFEAD2 !important;
                 box-shadow: none !important;
                 font-weight: 600 !important;
             }
             .stButton > button:hover {
                 background-color: #FFF3BF !important;
                 border-color: #F1E3A3 !important;
-                color: #111827 !important;
+                color: #1F2937 !important;
             }
             .stButton > button:focus,
             .stButton > button:active {
                 background-color: #FFEFA3 !important;
-                color: #111827 !important;
+                color: #1F2937 !important;
                 border-color: #F1E3A3 !important;
                 box-shadow: none !important;
             }
             /* 다운로드 버튼도 동일 */
             .stDownloadButton > button {
                 background-color: #FFFFFF !important;
-                color: #111827 !important;
-                border: 1px solid #FFF9E6 !important;
+                color: #1F2937 !important;
+                border: 1px solid #EFEAD2 !important;
                 box-shadow: none !important;
             }
             .stDownloadButton > button:hover {
@@ -1393,13 +1454,13 @@ def _apply_page_style():
             /* 탭: 회색/검정 + 연노랑 underline */
             .stTabs [data-baseweb="tab-list"] {
                 gap: 4px;
-                border-bottom: 1px solid #FFF9E6 !important;
+                border-bottom: 1px solid #EFEAD2 !important;
             }
             .stTabs [data-baseweb="tab"] {
                 color: #6B7280 !important;
             }
             .stTabs [aria-selected="true"] {
-                color: #111827 !important;
+                color: #1F2937 !important;
                 font-weight: 700 !important;
             }
             .stTabs [data-baseweb="tab-highlight"],
@@ -1409,11 +1470,11 @@ def _apply_page_style():
             /* 액션 필터 태그: 연노랑 통일 */
             [data-baseweb="tag"] {
                 background-color: #FFF3BF !important;
-                color: #111827 !important;
+                color: #1F2937 !important;
                 border: 1px solid #F1E3A3 !important;
             }
             [data-baseweb="tag"] span {
-                color: #111827 !important;
+                color: #1F2937 !important;
             }
             /* 진행 바: 연노랑 */
             .stProgress > div > div > div > div {
@@ -1422,14 +1483,16 @@ def _apply_page_style():
             /* expander: 흰색 + 연회색 테두리 */
             [data-testid="stExpander"] {
                 background-color: #FFFFFF !important;
-                border: 1px solid #FFF9E6 !important;
-                border-radius: 8px !important;
+                border: 1px solid #EFEAD2 !important;
+                border-radius: 14px !important;
             }
             /* metric 카드 값: 검정 통일 + 글씨 잘림 방지 */
             [data-testid="stMetricValue"] {
-                color: #111827 !important;
-                overflow-wrap: break-word !important;
+                color: #1F2937 !important;
+                overflow-wrap: anywhere !important;
                 white-space: normal !important;
+                word-break: keep-all !important;
+                min-width: 0 !important;
                 text-overflow: clip !important;
             }
             [data-testid="stMetricLabel"] {
@@ -1459,7 +1522,9 @@ def _apply_page_style():
                 }
                 [data-testid="stMetricValue"] {
                     font-size: 18px !important;
-                    word-break: break-word !important;
+                    word-break: keep-all !important;
+                    overflow-wrap: anywhere !important;
+                    min-width: 0 !important;
                 }
             }
         </style>
@@ -1475,9 +1540,9 @@ def _apply_page_style():
         /* 본문 제목 */
         [data-testid="stHeadingWithActionElements"] h1,
         [data-testid="stHeadingWithActionElements"] h2{
-            font-weight:800 !important; color:#1A1A1A !important; letter-spacing:-0.01em !important;
+            font-weight:800 !important; color:#1F2937 !important; letter-spacing:-0.01em !important;
         }
-        [data-testid="stHeadingWithActionElements"] h3{ font-weight:800 !important; color:#222 !important; }
+        [data-testid="stHeadingWithActionElements"] h3{ font-weight:800 !important; color:#1F2937 !important; }
         /* 데이터프레임/표 — 앱 테이블 느낌 (라운드 + 헤더 연노랑) */
         [data-testid="stDataFrame"], [data-testid="stTable"]{
             border:1px solid #EFEAD2 !important; border-radius:14px !important;
@@ -1498,8 +1563,8 @@ def _apply_page_style():
             border-radius:14px !important; padding:12px 16px !important;
             box-shadow:0 3px 12px rgba(201,162,39,.05) !important;
         }
-        [data-testid="stMetricValue"]{ color:#1A1A1A !important; font-weight:800 !important; }
-        [data-testid="stMetricLabel"]{ color:#7A7A7A !important; }
+        [data-testid="stMetricValue"]{ color:#1F2937 !important; font-weight:800 !important; }
+        [data-testid="stMetricLabel"]{ color:#6B7280 !important; }
         /* expander — 카드 */
         [data-testid="stExpander"]{
             border:1px solid #EFEAD2 !important; border-radius:14px !important;
@@ -1507,15 +1572,15 @@ def _apply_page_style():
             overflow:hidden !important;
         }
         [data-testid="stExpander"] summary{
-            font-weight:700 !important; color:#333 !important; background:#FFFDF5 !important;
+            font-weight:700 !important; color:#374151 !important; background:#FFFDF5 !important;
         }
-        [data-testid="stExpander"] summary:hover{ color:#000 !important; }
+        [data-testid="stExpander"] summary:hover{ color:#1F2937 !important; }
         /* 입력류 — 라운드 */
         [data-testid="stTextInput"] input, [data-testid="stNumberInput"] input{
-            border-radius:10px !important; border:1px solid #E6E0C8 !important;
+            border-radius:10px !important; border:1px solid #EFEAD2 !important;
         }
         [data-testid="stSelectbox"] div[data-baseweb="select"] > div{
-            border-radius:10px !important; border-color:#E6E0C8 !important;
+            border-radius:10px !important; border-color:#EFEAD2 !important;
         }
         /* 일반 버튼 라운드 (nav/subnav/후보선택 등 특정 키 스타일이 우선) */
         .stButton > button{ border-radius:11px !important; }
@@ -1657,13 +1722,13 @@ def _render_selected_candidate_detail(final_recommendations):
     .seldash-rank { font-size:11px; font-weight:700; color:#7A5E12;
                     background:#FFF3BF; display:inline-block;
                     padding:2px 9px; border-radius:11px; }
-    .seldash-name { font-size:22px; font-weight:800; color:#111827;
+    .seldash-name { font-size:22px; font-weight:800; color:#1F2937;
                     margin-top:6px; word-break:keep-all; }
     .seldash-route{ font-size:13px; color:#6B7280; margin-top:2px; word-break:keep-all; }
     .seldash-grid { display:flex; flex-wrap:wrap; gap:18px; margin-top:12px; }
     .seldash-item { min-width:80px; }
     .seldash-k { font-size:11px; color:#6B7280; font-weight:600; }
-    .seldash-v { font-size:17px; font-weight:800; color:#111827;
+    .seldash-v { font-size:17px; font-weight:800; color:#1F2937;
                  word-break:keep-all; }
     </style>
     """, unsafe_allow_html=True)
@@ -1695,7 +1760,7 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
 @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
 .wrap{display:grid;grid-template-columns:1fr 286px;gap:12px;max-width:100%;align-items:stretch;}
 /* ── 운영 맵 ── */
-.smap{position:relative;width:100%;min-height:350px;border:1px solid #EFE6C2;border-radius:16px;overflow:hidden;
+.smap{position:relative;width:100%;min-height:350px;border:1px solid #EFEAD2;border-radius:16px;overflow:hidden;
   background:
     radial-gradient(130% 95% at 50% 12%, #FFFFFF 0%, #FFFDF5 44%, #FBF3D6 100%),
     radial-gradient(55% 45% at 50% 56%, rgba(224,200,74,.10) 0%, rgba(224,200,74,0) 72%);
@@ -1708,58 +1773,58 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
 .maplayer{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:.85;
   -webkit-mask-image:radial-gradient(130% 100% at 50% 44%,#000 50%,transparent 100%);
   mask-image:radial-gradient(130% 100% at 50% 44%,#000 50%,transparent 100%);}
-.statbadge{position:absolute;top:11px;left:13px;z-index:6;background:rgba(255,255,255,.92);backdrop-filter:blur(3px);border:1px solid #EFE6C2;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:800;color:#111827;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-shadow:0 1px 3px rgba(17,24,39,.06);}
+.statbadge{position:absolute;top:11px;left:13px;z-index:6;background:rgba(255,255,255,.92);backdrop-filter:blur(3px);border:1px solid #EFEAD2;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:800;color:#1F2937;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-shadow:0 1px 3px rgba(17,24,39,.06);}
 .statbadge.ai{background:#FFEFA3;border-color:#E0C84A;}
 .statbadge .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#2Fae66;margin-right:6px;vertical-align:middle;animation:pulse 1.2s infinite;}
-.statbadge .stg{color:#6B7280;font-weight:700;margin-left:6px;border-left:1px solid #E5E0CC;padding-left:8px;}
+.statbadge .stg{color:#6B7280;font-weight:700;margin-left:6px;border-left:1px solid #EFEAD2;padding-left:8px;}
 @keyframes pulse{0%{opacity:.4;}50%{opacity:1;}100%{opacity:.4;}}
-.allroute{position:absolute;top:11px;right:13px;z-index:6;background:rgba(255,255,255,.92);border:1px solid #ECECEC;border-radius:9px;padding:4px 10px;font-size:11px;font-weight:700;color:#6B7280;}
-.evt{position:absolute;top:42px;right:13px;z-index:6;background:rgba(255,255,255,.95);border:1px solid #E0C84A;border-radius:20px;padding:3px 11px;font-size:10px;font-weight:800;color:#111827;opacity:0;transform:translateY(-3px);transition:opacity .35s,transform .35s;max-width:46%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 2px 6px rgba(201,162,39,.14);}
+.allroute{position:absolute;top:11px;right:13px;z-index:6;background:rgba(255,255,255,.92);border:1px solid #EFEAD2;border-radius:9px;padding:4px 10px;font-size:11px;font-weight:700;color:#6B7280;}
+.evt{position:absolute;top:42px;right:13px;z-index:6;background:rgba(255,255,255,.95);border:1px solid #E0C84A;border-radius:20px;padding:3px 11px;font-size:10px;font-weight:800;color:#1F2937;opacity:0;transform:translateY(-3px);transition:opacity .35s,transform .35s;max-width:46%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 2px 6px rgba(201,162,39,.14);}
 .evt.show{opacity:1;transform:translateY(0);}
 .routes{position:absolute;inset:0;width:100%;height:100%;z-index:1;}
 .routes .flow{stroke-dasharray:2 3;animation:dash 1.1s linear infinite;}
 @keyframes dash{to{stroke-dashoffset:-10;}}
-.node{position:absolute;transform:translate(-50%,-50%);width:118px;text-align:center;background:#FFFFFF;border:1px solid #ECECEC;border-radius:13px;padding:9px 7px;z-index:3;
+.node{position:absolute;transform:translate(-50%,-50%);width:118px;text-align:center;background:#FFFFFF;border:1px solid #EFEAD2;border-radius:13px;padding:9px 7px;z-index:3;
   box-shadow:0 3px 12px rgba(17,24,39,.09);transition:border-color .3s,background .3s,box-shadow .3s,transform .3s;}
 .node.dc{border:1px solid #F1E3A3;background:linear-gradient(180deg,#FFFDF5,#FFF7DE);width:132px;box-shadow:0 6px 18px rgba(201,162,39,.16);}
 .node.alert{border:1px solid #E0C84A;background:#FFEFA3;box-shadow:0 5px 16px rgba(201,162,39,.22);}
 .node.active{transform:translate(-50%,-50%) translateY(-2px);box-shadow:0 9px 22px rgba(201,162,39,.20);}
 .ico{font-size:22px;line-height:1.1;}
 .node.dc .ico{font-size:25px;}
-.nm{font-size:11.5px;font-weight:700;color:#111827;margin-top:2px;overflow-wrap:break-word;word-break:keep-all;line-height:1.18;}
-.ninv{font-size:11px;font-weight:800;color:#111827;margin-top:3px;white-space:nowrap;}
+.nm{font-size:11.5px;font-weight:700;color:#1F2937;margin-top:2px;overflow-wrap:break-word;word-break:keep-all;line-height:1.18;}
+.ninv{font-size:11px;font-weight:800;color:#1F2937;margin-top:3px;white-space:nowrap;}
 .ninv .a{font-weight:700;}
 .ninv .dn{color:#C0392B;}
 .ninv .up{color:#2E7D32;}
 .veh{position:absolute;left:0;top:0;font-size:24px;z-index:4;will-change:transform;transform:translate3d(0,0,0) translate(-50%,-50%);filter:drop-shadow(0 2px 3px rgba(17,24,39,.22));opacity:0;transition:opacity .3s;}
 .vehload{position:absolute;left:0;top:0;z-index:5;white-space:nowrap;font-size:10px;font-weight:800;color:#7A5E12;background:rgba(255,255,255,.95);border:1px solid #E0C84A;border-radius:9px;padding:1px 7px;box-shadow:0 1px 3px rgba(17,24,39,.12);will-change:transform;transform:translate3d(0,0,0) translate(-50%,-50%);opacity:0;transition:opacity .25s;pointer-events:none;}
 /* 재고 상태 범례 */
-.legend{position:absolute;left:13px;bottom:13px;z-index:5;background:rgba(255,255,255,.92);border:1px solid #ECECEC;border-radius:11px;padding:8px 11px;font-size:11px;color:#374151;box-shadow:0 2px 6px rgba(17,24,39,.06);}
-.legend .lh{font-weight:800;color:#111827;margin-bottom:4px;font-size:11px;}
+.legend{position:absolute;left:13px;bottom:13px;z-index:5;background:rgba(255,255,255,.92);border:1px solid #EFEAD2;border-radius:11px;padding:8px 11px;font-size:11px;color:#374151;box-shadow:0 2px 6px rgba(17,24,39,.06);}
+.legend .lh{font-weight:800;color:#1F2937;margin-bottom:4px;font-size:11px;}
 .legend .li{display:flex;align-items:center;gap:6px;margin:2px 0;}
 .legend .d{width:8px;height:8px;border-radius:50%;}
 /* 실시간 재고 변화 strip */
-.invstrip{position:absolute;left:50%;bottom:13px;transform:translateX(-50%);z-index:5;background:rgba(255,255,255,.94);border:1px solid #ECECEC;border-radius:12px;padding:8px 14px;box-shadow:0 3px 10px rgba(17,24,39,.08);display:flex;align-items:center;gap:10px;max-width:60%;}
+.invstrip{position:absolute;left:50%;bottom:13px;transform:translateX(-50%);z-index:5;background:rgba(255,255,255,.94);border:1px solid #EFEAD2;border-radius:12px;padding:8px 14px;box-shadow:0 3px 10px rgba(17,24,39,.08);display:flex;align-items:center;gap:10px;max-width:60%;}
 .invstrip .t{font-size:10px;color:#6B7280;font-weight:700;margin-right:2px;white-space:nowrap;}
-.invstrip .it{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#111827;white-space:nowrap;}
+.invstrip .it{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#1F2937;white-space:nowrap;}
 .invstrip .iv{font-weight:800;}
 .invstrip .arr{color:#C9A227;font-weight:800;}
 /* ── 오른쪽 패널 ── */
 .rightcol{grid-column:2;display:flex;flex-direction:column;gap:12px;min-width:0;}
-.card{background:#FFFFFF;border:1px solid #ECECEC;border-radius:14px;padding:13px 15px;box-shadow:0 1px 2px rgba(17,24,39,.04);}
+.card{background:#FFFFFF;border:1px solid #EFEAD2;border-radius:14px;padding:13px 15px;box-shadow:0 1px 2px rgba(17,24,39,.04);}
 .card .ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;}
-.card .ct{font-size:12.5px;font-weight:800;color:#111827;}
+.card .ct{font-size:12.5px;font-weight:800;color:#1F2937;}
 .card .cs{font-size:11px;font-weight:700;color:#2Fae66;}
 .card .cs .d{display:inline-block;width:7px;height:7px;border-radius:50%;background:#2Fae66;margin-right:5px;vertical-align:middle;animation:pulse 1.2s infinite;}
-.srow{display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F5F2E8;font-size:12px;}
+.srow{display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid #EFEAD2;font-size:12px;}
 .srow:last-child{border-bottom:none;}
 .srow .k{color:#6B7280;font-weight:600;}
-.srow .v{color:#111827;font-weight:800;}
+.srow .v{color:#1F2937;font-weight:800;}
 .srow .v.cold{color:#2563EB;}
 .srow .v.ok{color:#2E7D32;}
 .logp{height:220px;overflow-y:auto;font-size:12px;color:#374151;-webkit-overflow-scrolling:touch;padding-right:2px;}
 .logp::-webkit-scrollbar{width:6px;}.logp::-webkit-scrollbar-thumb{background:#E5E0CC;border-radius:3px;}
-.lr{padding:4px 2px;border-bottom:1px solid #F5F2E8;overflow-wrap:break-word;display:flex;align-items:flex-start;gap:7px;}
+.lr{padding:4px 2px;border-bottom:1px solid #EFEAD2;overflow-wrap:break-word;display:flex;align-items:flex-start;gap:7px;}
 .lr:last-child{border-bottom:none;}
 .lr .li{flex:0 0 auto;}
 .lr.ev{font-weight:700;}
@@ -1767,7 +1832,7 @@ body{font-family:-apple-system,'Segoe UI','Malgun Gothic',sans-serif;background:
 .lt{color:#9CA3AF;font-weight:700;margin-right:5px;}
 .prog{height:6px;background:#F3F0E4;border-radius:5px;overflow:hidden;margin-top:10px;}
 .bar{height:100%;width:0%;background:linear-gradient(90deg,#F1E3A3,#E0C84A);border-radius:5px;will-change:width;}
-.ppbtn{position:absolute;top:10px;right:12px;z-index:5;border:1px solid #E5E0CC;background:rgba(255,255,255,.92);color:#7A5E12;font-size:11px;font-weight:800;border-radius:999px;padding:4px 11px;cursor:pointer;box-shadow:0 1px 4px rgba(17,24,39,.08);font-family:inherit;}
+.ppbtn{position:absolute;top:10px;right:12px;z-index:5;border:1px solid #EFEAD2;background:rgba(255,255,255,.92);color:#7A5E12;font-size:11px;font-weight:800;border-radius:999px;padding:4px 11px;cursor:pointer;box-shadow:0 1px 4px rgba(17,24,39,.08);font-family:inherit;}
 .ppbtn:hover{background:#FFFDF5;border-color:#E0C84A;}
 @media (max-width:680px){.wrap{grid-template-columns:1fr;}.smap{grid-column:1;min-height:230px;}.rightcol{grid-column:1;}.node{width:84px;padding:6px 4px;}.node.dc{width:92px;}.ico{font-size:17px;}.nm{font-size:9.5px;}.ninv{font-size:9px;}.invstrip{max-width:80%;}}
 </style></head><body>
@@ -2012,18 +2077,18 @@ def _render_optimal_strategy(final_recommendations):
       <div style="font-size:11px;color:#7A5E12;font-weight:800;letter-spacing:1px;">
         ⭐ 현재 최적 운영 전략 <span style="color:#6B7280;font-weight:600;">· AI 자동 선택</span>
       </div>
-      <div style="font-size:19px;font-weight:800;color:#111827;margin-top:5px;word-break:keep-all;">
+      <div style="font-size:19px;font-weight:800;color:#1F2937;margin-top:5px;word-break:keep-all;">
         {name} · {strat}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:22px;margin-top:12px;">
         <div><div style="font-size:11px;color:#6B7280;font-weight:600;">예상 비용 절감</div>
-             <div style="font-size:17px;font-weight:800;color:#111827;">{sav_s}</div></div>
+             <div style="font-size:17px;font-weight:800;color:#1F2937;">{sav_s}</div></div>
         <div><div style="font-size:11px;color:#6B7280;font-weight:600;">폐기 감소율</div>
-             <div style="font-size:17px;font-weight:800;color:#111827;">{disp_s}</div></div>
+             <div style="font-size:17px;font-weight:800;color:#1F2937;">{disp_s}</div></div>
         <div><div style="font-size:11px;color:#6B7280;font-weight:600;">추천 신뢰도</div>
-             <div style="font-size:17px;font-weight:800;color:#111827;">{conf_s}</div></div>
+             <div style="font-size:17px;font-weight:800;color:#1F2937;">{conf_s}</div></div>
         <div><div style="font-size:11px;color:#6B7280;font-weight:600;">추천 등급</div>
-             <div style="font-size:17px;font-weight:800;color:#111827;">{grade}</div></div>
+             <div style="font-size:17px;font-weight:800;color:#1F2937;">{grade}</div></div>
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -2080,14 +2145,14 @@ def _render_strategy_reasoning(final_recommendations):
     rows_html = "".join(
         f'<span style="display:inline-block;background:#FFFDF5;border:1px solid #F1E3A3;'
         f'border-radius:11px;padding:5px 12px;margin:3px 4px 3px 0;font-size:13px;'
-        f'color:#111827;font-weight:600;overflow-wrap:break-word;word-break:keep-all;">'
+        f'color:#1F2937;font-weight:600;overflow-wrap:break-word;word-break:keep-all;">'
         f'{ic} {_html.escape(txt)}</span>'
         for ic, txt in items
     )
 
     st.markdown("**추천 이유 분석**")
     st.markdown(f"""
-    <div style="background:#FFFFFF;border:1px solid #FFF9E6;border-radius:10px;
+    <div style="background:#FFFFFF;border:1px solid #EFEAD2;border-radius:10px;
                 padding:11px 14px;margin-bottom:6px;line-height:1.9;">
       {rows_html}
     </div>
@@ -2233,7 +2298,7 @@ def _render_operation_simulation(final_recommendations):
     # 제목 + 실시간 운영 모드 배지 (재시작 버튼은 상단 타이틀 행으로 이동)
     st.markdown(
         '<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px 0;">'
-        '<span style="font-size:15px;font-weight:800;color:#111827;">추천 운영 시뮬레이션</span>'
+        '<span style="font-size:15px;font-weight:800;color:#1F2937;">추천 운영 시뮬레이션</span>'
         '<span style="font-size:11px;font-weight:700;color:#7A5E12;background:#FFEFA3;'
         'border:1px solid #F1E3A3;border-radius:11px;padding:2px 10px;">실시간 운영 모드</span>'
         '</div>',
@@ -2338,13 +2403,13 @@ def _render_store_detail_panel(final_recommendations, inventory):
     if store == _DC_NAME:
         _dc_html = (
             '<div style="background:#FFFDF5;border:1px solid #F1E3A3;border-radius:12px;padding:12px 14px;">'
-            '<div style="font-size:13px;font-weight:800;color:#111827;">🏭 물류 DC · 경유 거점</div>'
+            '<div style="font-size:13px;font-weight:800;color:#1F2937;">🏭 물류 DC · 경유 거점</div>'
             '<div style="font-size:12px;color:#6B7280;margin-top:6px;">이 경로는 물류 DC를 경유해 재고가 이동합니다.</div>'
             '<div style="display:flex;gap:22px;margin-top:10px;align-items:flex-end;">'
             '<div><div style="font-size:11px;color:#9CA3AF;">경유 이동량</div>'
             '<div style="font-size:1.25rem;font-weight:800;color:#9A7B12;">' + str(_qty) + '개</div></div>'
             '<div><div style="font-size:11px;color:#9CA3AF;">경로</div>'
-            '<div style="font-size:0.98rem;font-weight:700;color:#111827;">' + str(src) + ' → ' + str(tgt) + '</div></div>'
+            '<div style="font-size:0.98rem;font-weight:700;color:#1F2937;">' + str(src) + ' → ' + str(tgt) + '</div></div>'
             '</div></div>'
         )
         st.markdown(_dc_html, unsafe_allow_html=True)
@@ -2409,13 +2474,13 @@ def _render_store_detail_panel(final_recommendations, inventory):
         for _, r in rows.head(4 if kind == "send" else 3).iterrows():
             nm = pname(r)
             if kind == "short":
-                out.append(f'<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #F4F1E6;font-size:13px;">'
+                out.append(f'<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #EFEAD2;font-size:13px;">'
                            f'<span style="color:#333;">{nm} 부족</span><b style="color:#C9A227;">{int(r["_short"])}개</b></div>')
             elif kind == "send":
-                out.append(f'<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #F4F1E6;font-size:13px;">'
+                out.append(f'<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #EFEAD2;font-size:13px;">'
                            f'<span style="color:#333;">{nm} 이동 가능</span><b style="color:#9A7B12;">{int(r["_send"])}개</b></div>')
             else:
-                out.append(f'<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #F4F1E6;font-size:13px;">'
+                out.append(f'<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #EFEAD2;font-size:13px;">'
                            f'<span style="color:#333;">{nm}</span><b style="color:#C9A227;">{int(r["_expiry"])}일 남음</b></div>')
         return ''.join(out) or '<div style="color:#9CA3AF;font-size:12px;padding:8px 0;">해당 상품 없음</div>'
 
@@ -2423,7 +2488,7 @@ def _render_store_detail_panel(final_recommendations, inventory):
         return ('<div style="background:#FFFFFF;border:1px solid #EFEAD2;border-radius:14px;'
                 'padding:14px 16px;box-shadow:0 3px 12px rgba(201,162,39,.05);">'
                 f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                f'font-weight:800;color:#1A1A1A;font-size:14px;margin-bottom:6px;">{title}{extra}</div>'
+                f'font-weight:800;color:#1F2937;font-size:14px;margin-bottom:6px;">{title}{extra}</div>'
                 f'{body}</div>')
 
     st.markdown(chips, unsafe_allow_html=True)
@@ -2441,7 +2506,7 @@ def _render_candidate_rail(final_recommendations, topn=5):
     """추천 후보 경로 — 우측 세로 레일(카드형). 내부에서 컬럼 분할 미사용(중첩 회피)."""
     st.markdown(
         '<div style="display:flex;align-items:center;gap:7px;margin:2px 0 8px 0;">'
-        '<span style="font-size:15px;font-weight:800;color:#111827;">추천 후보 경로 Top %d</span>'
+        '<span style="font-size:15px;font-weight:800;color:#1F2937;">추천 후보 경로 Top %d</span>'
         '</div>' % topn, unsafe_allow_html=True)
     if final_recommendations is None or final_recommendations.empty:
         st.caption("추천 후보 없음")
@@ -2469,23 +2534,23 @@ def _render_candidate_rail(final_recommendations, topn=5):
 
     st.markdown("""
     <style>
-    .rail-card{background:#FFFFFF;border:1px solid #ECECEC;border-radius:12px;
+    .rail-card{background:#FFFFFF;border:1px solid #EFEAD2;border-radius:12px;
       padding:10px 12px;margin-bottom:12px;box-shadow:none;}
     .rail-card.sel{border:1.5px solid #E0C84A;background:#FFFDF5;box-shadow:none;}
     .rc-top{display:flex;align-items:center;gap:8px;}
     .rc-rank{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:#F1F0EC;
       color:#6B7280;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;}
     .rail-card.sel .rc-rank{background:#C9A227;color:#FFFFFF;}
-    .rc-route{flex:1;min-width:0;font-size:13px;font-weight:700;color:#111827;
+    .rc-route{flex:1;min-width:0;font-size:13px;font-weight:700;color:#1F2937;
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .rc-vhs{flex:0 0 auto;font-size:14px;font-weight:800;color:#111827;}
+    .rc-vhs{flex:0 0 auto;font-size:14px;font-weight:800;color:#1F2937;}
     .rc-vhs .l{font-size:10px;font-weight:700;color:#9CA3AF;margin-right:3px;}
     .rc-bot{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:6px;}
     .rc-sav{font-size:11px;color:#6B7280;font-weight:600;}
     .rc-sav b{color:#9A7B12;font-weight:800;}
     .rc-badge{font-size:10px;font-weight:800;border-radius:999px;padding:2px 9px;}
     .rc-badge.sel{color:#FFFFFF;background:#C9A227;}
-    .rc-badge.alt{color:#6B7280;background:#F1F0EC;border:1px solid #E5E0CC;}
+    .rc-badge.alt{color:#6B7280;background:#F1F0EC;border:1px solid #EFEAD2;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -2549,15 +2614,15 @@ def _render_candidate_routes_tab(final_recommendations, compact=False, topn=None
     st.markdown("""
     <style>
     .crt-h{display:grid;grid-template-columns:34px 1fr 92px 70px 90px 64px;gap:6px;
-           font-size:11px;color:#6B7280;font-weight:700;padding:4px 8px;border-bottom:1px solid #ECECEC;}
+           font-size:11px;color:#6B7280;font-weight:700;padding:4px 8px;border-bottom:1px solid #EFEAD2;}
     .crt-r{display:grid;grid-template-columns:34px 1fr 92px 70px 90px 64px;gap:6px;align-items:center;
            font-size:12px;color:#374151;padding:6px 8px;border-radius:8px;}
     .crt-r .rk{font-weight:800;color:#6B7280;}
-    .crt-r .rt{font-weight:700;color:#111827;word-break:keep-all;}
-    .crt-r .vv{font-weight:800;color:#111827;}
+    .crt-r .rt{font-weight:700;color:#1F2937;word-break:keep-all;}
+    .crt-r .vv{font-weight:800;color:#1F2937;}
     .crt-badge{font-size:10px;font-weight:800;border-radius:999px;padding:2px 9px;text-align:center;}
     .crt-badge.sel{color:#FFFFFF;background:#C9A227;}
-    .crt-badge.alt{color:#6B7280;background:#F1F0EC;border:1px solid #E5E0CC;}
+    .crt-badge.alt{color:#6B7280;background:#F1F0EC;border:1px solid #EFEAD2;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -2578,7 +2643,7 @@ def _render_candidate_routes_tab(final_recommendations, compact=False, topn=None
         with _hc2:
             st.markdown(
                 '<div style="font-size:11px;color:#6B7280;font-weight:700;padding:4px 0;'
-                'border-bottom:1px solid #ECECEC;text-align:center;">&nbsp;</div>',
+                'border-bottom:1px solid #EFEAD2;text-align:center;">&nbsp;</div>',
                 unsafe_allow_html=True)
         for rank, (orig_idx, row) in enumerate(rows, 1):
             is_sel = (str(orig_idx) == str(eff_sel))
@@ -2626,7 +2691,7 @@ def _render_candidate_routes_tab(final_recommendations, compact=False, topn=None
                 f'<div style="display:flex;align-items:center;justify-content:space-between;'
                 f'gap:6px;background:#FFFDF5;border:1px solid #F1E3A3;border-radius:12px;'
                 f'padding:12px 10px;margin:4px 0 10px 0;font-size:12px;font-weight:700;'
-                f'color:#111827;text-align:center;">'
+                f'color:#1F2937;text-align:center;">'
                 f'<span>🏪<br>{src}</span><span style="color:#C9A227;">→</span>'
                 f'<span>🏭<br>물류 DC</span><span style="color:#C9A227;">→</span>'
                 f'<span>🏪<br>{tgt}</span></div>',
@@ -2660,9 +2725,9 @@ def _render_dashboard_top5(final_recommendations):
     .t5row{font-size:12px;color:#374151;line-height:1.35;
            overflow-wrap:break-word;word-break:keep-all;}
     .t5row .rk{display:inline-block;min-width:16px;font-weight:800;color:#6B7280;}
-    .t5row .nm{font-weight:700;color:#111827;}
+    .t5row .nm{font-weight:700;color:#1F2937;}
     .t5row .rt{color:#6B7280;}
-    .t5row .sv{font-weight:700;color:#111827;}
+    .t5row .sv{font-weight:700;color:#1F2937;}
     .t5row .sel{font-size:10px;font-weight:700;color:#7A5E12;
                 background:#FFF3BF;border:1px solid #F1E3A3;border-radius:8px;
                 padding:1px 6px;margin-left:4px;}
@@ -2775,7 +2840,7 @@ def _render_icon_nav(final_recommendations=None, stores=None, products=None, inv
     div[class*="st-key-nav_grp_sim"] button:hover,
     div[class*="st-key-nav_grp_rl"] button:hover,
     div[class*="st-key-nav_grp_manage"] button:hover{
-        background:#F4F4F2 !important;color:#111827 !important;border-color:#ECECEC !important;
+        background:#F4F4F2 !important;color:#1F2937 !important;border-color:#F1E3A3 !important;
     }
     /* 현재 선택 탭 강조 (연한 배경 + 진한 글자) */
     div[class*="st-key-__ACTIVE_KEY__"] button{
@@ -2787,12 +2852,12 @@ def _render_icon_nav(final_recommendations=None, stores=None, products=None, inv
         min-height:32px !important;height:32px !important;padding:2px 12px !important;
         font-size:13px !important;font-weight:600 !important;
         background:#FFFFFF !important;color:#374151 !important;
-        border:1px solid #ECECEC !important;border-radius:9px !important;
+        border:1px solid #EFEAD2 !important;border-radius:9px !important;
         box-shadow:none !important;margin-bottom:4px !important;
         flex-direction:row !important;justify-content:flex-start !important;
     }
     div[class*="st-key-nav_sub_"] button:hover{
-        background:#FFFDF5 !important;border-color:#F1E3A3 !important;color:#111827 !important;
+        background:#FFFDF5 !important;border-color:#F1E3A3 !important;color:#1F2937 !important;
     }
     </style>
     """.replace("__ACTIVE_KEY__", _active_key), unsafe_allow_html=True)
@@ -2898,7 +2963,7 @@ def _show_dashboard_home(
         _h1, _h2, _h3, _h4 = st.columns([5, 4.6, 1.1, 1.3])
         with _h1:
             st.markdown(
-                '<div style="font-size:19px;font-weight:800;color:#111827;margin:2px 0 0 0;">'
+                '<div style="font-size:19px;font-weight:800;color:#1F2937;margin:2px 0 0 0;">'
                 'Varo 분석 결과</div>'
                 '<div style="font-size:12px;color:#6B7280;margin:2px 0 2px 0;">'
                 '편의점 신선·냉동 재고 재배치 운영 콘솔</div>',
@@ -2994,7 +3059,15 @@ def _show_dashboard_home(
             else:
                 st.caption("KPI 요약을 불러오지 못했습니다.")
             # 추천 운영 시뮬레이션 (화면 그대로 유지)
-            _render_operation_simulation(final_recommendations)
+            _sim_played = st.session_state.get("home_sim_autoplayed", False)
+            if not _sim_played:
+                st.session_state["home_sim_autoplayed"] = True
+                _render_operation_simulation(final_recommendations)
+            else:
+                _sim_replay = st.button("▶ 시뮬레이션 재생", key="home_sim_replay_btn")
+                st.caption("⚡ 빠른 화면을 위해 시뮬레이션은 첫 진입에만 자동 재생됩니다 · ▶ 재생을 누르면 다시 볼 수 있어요")
+                if _sim_replay:
+                    _render_operation_simulation(final_recommendations)
             # 선택 점포 상세
             _render_store_detail_panel(final_recommendations, inventory)
         with _rail:
@@ -3944,7 +4017,7 @@ def _render_sensitivity_analysis(final_recommendations):
         # 막대 그래프: 평균 Score
         try:
             chart_data = summary_df.set_index("시나리오")[["평균 Score"]]
-            st.bar_chart(chart_data, height=200)
+            st.bar_chart(chart_data, color="#E0C84A", height=200)
         except Exception:
             pass
 
@@ -4379,7 +4452,7 @@ def _show_score_page(final_recommendations, stores=None, products=None, inventor
 
         _safe_dataframe(display_table, width="stretch", max_rows=5)
 
-        with st.expander("전체 결과 보기", expanded=False):
+        with st.expander("전체 결과 보기", expanded=True):
             full_cols = [c for c in main_cols + ["confidence_score","confidence_reason"]
                          if c in score_view.columns]
             full_table = score_view[full_cols].copy()
@@ -4396,7 +4469,7 @@ def _show_score_page(final_recommendations, stores=None, products=None, inventor
         _render_dqn_comparison(score_source)
 
     # ── 홈에서 이동해 온 보조 분석 (접힘) ──
-    with st.expander("⭐ 최적 운영 전략 / 추천 이유", expanded=False):
+    with st.expander("⭐ 최적 운영 전략 / 추천 이유", expanded=True):
         _render_optimal_strategy(final_recommendations)
         _render_strategy_reasoning(final_recommendations)
 
@@ -5527,10 +5600,10 @@ def _show_movement_page(
 
         st.markdown(
             '<div style="display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 12px 0;">'
-            + _mvchip("추천 경로", _route_txt, "#111827")
+            + _mvchip("추천 경로", _route_txt, "#1F2937")
             + _mvchip("이동 거리", _dist_txt, "#9A7B12")
             + _mvchip("예상 이동 시간", _eta_txt, "#9A7B12")
-            + _mvchip("이동 수단", _mode_txt, "#111827")
+            + _mvchip("이동 수단", _mode_txt, "#1F2937")
             + "</div>",
             unsafe_allow_html=True)
         st.caption("운영 진행 현황 · 운영 로그 · KPI · 선택 점포 상세는 홈에서 확인할 수 있습니다.")
@@ -5697,7 +5770,7 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
         _st_label, _st_color = "상태 확인 불가", "#9CA3AF"
     st.markdown(
         '<div style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;'
-        'border:1px solid #ECECEC;border-radius:999px;background:#FFFFFF;margin:2px 0 12px 0;">'
+        'border:1px solid #EFEAD2;border-radius:999px;background:#FFFFFF;margin:2px 0 12px 0;">'
         '<span style="width:8px;height:8px;border-radius:50%;background:' + _st_color + ';'
         'display:inline-block;"></span>'
         '<span style="font-size:12.5px;font-weight:700;color:#374151;">학습 상태 · '
@@ -6020,7 +6093,7 @@ def _show_rl_page(stores, products, inventory, final_recommendations, transfer_p
 
                 st.markdown("### DQN 학습 Loss 변화")
                 if not dqn_history.empty:
-                    st.line_chart(dqn_history.set_index("episode")["loss"], height=200)
+                    st.line_chart(dqn_history.set_index("episode")["loss"], color="#C9A227", height=200)
                     with st.expander("DQN 학습 로그"):
                         _safe_dataframe(dqn_history, width="stretch")
 
@@ -6828,7 +6901,7 @@ def _show_effect_page(final_recommendations, stores=None, products=None, invento
 
     # 핵심 카드
     st.markdown("### 💡 핵심 효과 요약")
-    def _mc(label, value, delta=None, color="#1A1A1A"):
+    def _mc(label, value, delta=None, color="#1F2937"):
         delta_html = f'<div style="font-size:11px;color:#9A7B12;margin-top:2px;font-weight:700;">{delta}</div>' if delta else ""
         return f'''<div style="border:1px solid #EFEAD2;border-radius:12px;padding:16px;text-align:center;background:#FFFFFF;box-shadow:0 3px 12px rgba(201,162,39,.05);">
             <div style="font-size:11px;color:#888;margin-bottom:4px;">{label}</div>
@@ -6883,7 +6956,7 @@ def _show_guide_page(final_recommendations=None):
     _gc = "".join(
         '<div style="flex:1;min-width:0;background:#FFFFFF;border:1px solid #EFEAD2;'
         'border-radius:14px;padding:16px 18px;box-shadow:0 3px 12px rgba(201,162,39,.05);">'
-        f'<div style="font-weight:800;color:#1A1A1A;font-size:14px;margin-bottom:6px;">{_t}</div>'
+        f'<div style="font-weight:800;color:#1F2937;font-size:14px;margin-bottom:6px;">{_t}</div>'
         f'<div style="color:#6B7280;font-size:12.5px;line-height:1.6;">{_d}</div></div>'
         for _t, _d in _guide_cards)
     st.markdown('<div style="display:flex;gap:12px;flex-wrap:wrap;margin:2px 0 16px 0;">' + _gc + "</div>",
@@ -7324,7 +7397,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     # 모든 등급/액션 badge 동일 스타일 (연노랑/회색)
     grade_bar = "".join(
         f'<span style="display:inline-block;background:#FFF3BF;'
-        f'color:#111827;padding:3px 10px;border-radius:10px;border:1px solid #F1E3A3;'
+        f'color:#1F2937;padding:3px 10px;border-radius:10px;border:1px solid #F1E3A3;'
         f'font-size:12px;font-weight:700;margin:2px;">'
         f'{g} {grade_cnt.get(g,0)}건</span>'
         for g in ["최우선 처리","우선 처리","검토 필요","모니터링","후순위"]
@@ -7333,7 +7406,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     act_chips = "".join(
         f'<span style="display:inline-block;padding:4px 12px;border-radius:11px;'
         f'font-size:13px;font-weight:700;margin:3px;border:1px solid #F1E3A3;'
-        f'background:#FFFDF5;color:#111827;">'
+        f'background:#FFFDF5;color:#1F2937;">'
         f'{["🚚","🏷️","🗑️","⏸️"][i]} {a} {action_cnt.get(a,0)}건</span>'
         for i,a in enumerate(["재배치 이동","할인 판매","폐기","보류"])
     )
@@ -7345,23 +7418,23 @@ def _show_algorithms_page(final_recommendations, inventory=None):
             <div style="display:flex;gap:32px;flex-wrap:wrap;align-items:center;">
                 <div>
                     <div style="font-size:10px;color:#6B7280;font-weight:800;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;">VARO HYBRID SCORE</div>
-                    <div style="font-size:44px;font-weight:900;color:#111827;line-height:1;">
+                    <div style="font-size:44px;font-weight:900;color:#1F2937;line-height:1;">
                         {avg_vhs}
                         <span style="font-size:18px;color:#6B7280;"> 점</span>
                     </div>
                     <div style="font-size:12px;color:#6B7280;margin-top:4px;">전체 {summary.get("n_total",0)}건 평균
                     </div>
                 </div>
-                <div style="border-left:1px solid #FFF9E6;padding-left:24px;">
+                <div style="border-left:1px solid #EFEAD2;padding-left:24px;">
                     <div style="font-size:10px;color:#6B7280;font-weight:800;letter-spacing:1px;margin-bottom:6px;">최우선 처리 상품</div>
-                    <div style="font-size:16px;font-weight:900;color:#111827;">{top_prod}</div>
-                    <div style="display:inline-block;background:#FFF3BF;color:#111827;border:1px solid #F1E3A3;
+                    <div style="font-size:16px;font-weight:900;color:#1F2937;">{top_prod}</div>
+                    <div style="display:inline-block;background:#FFF3BF;color:#1F2937;border:1px solid #F1E3A3;
                                 padding:5px 14px;border-radius:11px;font-size:14px;font-weight:800;margin-top:6px;">
                         {top_icon} {top_action}
                     </div>
                     <div style="font-size:12px;color:#6B7280;margin-top:4px;">VHS {top_vhs:.1f}점</div>
                 </div>
-                <div style="border-left:1px solid #FFF9E6;padding-left:24px;flex:1;">
+                <div style="border-left:1px solid #EFEAD2;padding-left:24px;flex:1;">
                     <div style="font-size:10px;color:#6B7280;font-weight:800;letter-spacing:1px;margin-bottom:8px;">처리 액션 분포</div>
                     {act_chips}
                     <div style="margin-top:10px;">{grade_bar}</div>
@@ -7377,7 +7450,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
     if active_sits:
         badges = " ".join(
             f'<span style="background:#FFFDF5;border:1px solid #F1E3A3;border-radius:11px;'
-            f'padding:4px 12px;font-size:12px;font-weight:700;color:#111827;margin:2px;display:inline-block;">'
+            f'padding:4px 12px;font-size:12px;font-weight:700;color:#1F2937;margin:2px;display:inline-block;">'
             f'⚡ {k} {v}건</span>'
             for k, v in active_sits.items()
         )
@@ -7425,20 +7498,20 @@ def _show_algorithms_page(final_recommendations, inventory=None):
                 with cols5[i]:
                     st.markdown(
                         f"""
-                        <div style="border:1px solid #FFF9E6;border-radius:12px;
+                        <div style="border:1px solid #EFEAD2;border-radius:12px;
                                     padding:14px 12px;text-align:center;
                                     background:#FFFDF5;">
                             <div style="font-size:11px;color:#6B7280;font-weight:700;
                                         overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                                 {str(row.get("product_name","-"))[:14]}
                             </div>
-                            <div style="font-size:28px;font-weight:900;color:#111827;margin:6px 0;">
+                            <div style="font-size:28px;font-weight:900;color:#1F2937;margin:6px 0;">
                                 {vhs_v:.0f}
                             </div>
                             <div style="height:5px;background:#FFF9E6;border-radius:3px;margin:6px 0;">
                                 <div style="width:{max(0,min(100,vhs_v))}%;height:100%;background:#F1E3A3;border-radius:3px;"></div>
                             </div>
-                            <div style="background:#FFF3BF;color:#111827;border:1px solid #F1E3A3;border-radius:10px;
+                            <div style="background:#FFF3BF;color:#1F2937;border:1px solid #F1E3A3;border-radius:10px;
                                         padding:2px 8px;font-size:11px;font-weight:700;">
                                 {icon}{action}
                             </div>
@@ -7640,7 +7713,7 @@ def _show_algorithms_page(final_recommendations, inventory=None):
                         "알고리즘 점수": [r["평균점수"] for r in metrics],
                         "VHS 점수":      [r["VHS 평균"] for r in metrics],
                     }, index=[avail_algos[k].split(" ",1)[-1] for k in selected_keys])
-                    st.bar_chart(chart_data, height=260)
+                    st.bar_chart(chart_data, color=["#E0C84A", "#C9A227"], height=260)
 
                     # ── Spearman ρ 시각화 ────────────────────
                     st.markdown("**🔗 순위 상관관계 (ρ 높을수록 VHS와 유사)**")
@@ -8261,7 +8334,7 @@ def _show_dqn_validation_page(final_recommendations=None, inventory=None):
             "Greedy 학습 점수": pd.to_numeric(rec_df["reward"],    errors="coerce").fillna(0).values,
             "DQN 정책 점수":    pd.to_numeric(rec_df["dqn_max_q"], errors="coerce").fillna(0).values,
         })
-        st.line_chart(_cdf, height=200)
+        st.line_chart(_cdf, color=["#E0C84A", "#C9A227"], height=200)
         st.caption("정책 점수가 높을수록 유리한 행동입니다.")
 
     # ── 5. 비교 테이블 ────────────────────────────────────
@@ -8440,12 +8513,12 @@ def _show_settings_page(stores, products, inventory, kakao_js_key, final_recomme
         bcol = "#2E7D32" if ok else "#9A7B12"
         badge = "연결됨" if ok else "미설정"
         return ('<div style="display:flex;align-items:center;justify-content:space-between;'
-                'padding:12px 14px;border:1px solid #ECECEC;border-radius:12px;'
+                'padding:12px 14px;border:1px solid #EFEAD2;border-radius:12px;'
                 'background:#FFFFFF;margin-bottom:8px;">'
                 '<div style="display:flex;align-items:center;gap:10px;">'
                 '<span style="width:9px;height:9px;border-radius:50%;background:' + dot + ';'
                 'display:inline-block;"></span>'
-                '<span style="font-size:13px;font-weight:700;color:#111827;">' + label + '</span></div>'
+                '<span style="font-size:13px;font-weight:700;color:#1F2937;">' + label + '</span></div>'
                 '<div style="font-size:13px;color:#6B7280;">' + val + ' · '
                 '<b style="color:' + bcol + ';">' + badge + '</b></div></div>')
 

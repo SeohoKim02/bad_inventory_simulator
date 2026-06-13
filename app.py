@@ -669,17 +669,17 @@ def apply_heuristic_and_greedy(final_recommendations, inventory=None, stores=Non
 
 
 @st.cache_data(show_spinner=False)
-def _cached_clustering(_stores, _inventory):
-    """클러스터링 결과 캐시 — 데이터 변경 시 자동 갱신."""
+def _cached_clustering(stores, inventory):
+    """클러스터링 결과 캐시 — 데이터 변경 시 자동 갱신(해시되는 인자)."""
     from store_clustering import analyze_store_clustering
-    return analyze_store_clustering(_stores, _inventory)
+    return analyze_store_clustering(stores, inventory)
 
 
 @st.cache_data(show_spinner=False)
-def _cached_network(_inventory, _stores, _routes):
-    """최소비용 네트워크 캐시 — 데이터 변경 시 자동 갱신."""
+def _cached_network(inventory, stores, routes):
+    """최소비용 네트워크 캐시 — 데이터 변경 시 자동 갱신(해시되는 인자)."""
     from min_cost_network import analyze_min_cost_network
-    return analyze_min_cost_network(_inventory, _stores, _routes)
+    return analyze_min_cost_network(inventory, stores, routes)
 
 
 def render_best_recommendation(greedy_best_candidate):
